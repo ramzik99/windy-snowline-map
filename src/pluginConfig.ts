@@ -10,7 +10,6 @@ const config: ExternalPluginConfig = {
   repository: 'https://github.com/ramzik99/windy-snowline-map',
   desktopUI: 'embedded',
   mobileUI: 'small',
-  private: true,
 };
 
 export default config;
