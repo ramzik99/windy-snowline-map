@@ -1,6 +1,6 @@
 # Windy Snowline Map
 
-A Windy.com external plugin that displays labelled wet-bulb-zero (WBZ) / snow-level-proxy isolines on the map and updates them with the Windy forecast timeline.
+A Windy.com external plugin that displays labelled wet-bulb-zero (WBZ) / snow-level-proxy isolines and follows the Windy forecast timeline.
 
 ## Features
 
@@ -20,25 +20,25 @@ npm install
 npm start
 ```
 
-Then load:
+Then load `https://localhost:9999/plugin.js` in Windy Developer Mode.
 
-`https://localhost:9999/plugin.js`
+## Official Windy publishing
 
-in Windy Developer Mode.
+Windy requires published external plugins to be served from `windy-plugins.com`. This repository includes the official `publish-plugin` GitHub Actions workflow from Windy's plugin template.
 
-## Build
+1. Create a **Windy Plugins API** key at `https://api.windy.com/keys`.
+2. In this repository open **Settings → Secrets and variables → Actions**.
+3. Create a repository secret named `WINDY_API_KEY`.
+4. Open **Actions → publish-plugin → Run workflow**.
+5. The **Publish Plugin** job prints the permanent Windy installation URL.
 
-```bash
-npm run build
-```
-
-The compiled plugin is written to `dist/plugin.js` and `dist/plugin.min.js`.
+The plugin currently has `private: true`, so the published URL can be used and shared directly without listing the plugin in Windy's public gallery.
 
 ## Method
 
-The plugin retrieves Windy meteogram vertical-profile temperature, dew-point and geopotential-height fields. Wet-bulb temperature is solved with a pressure-aware psychrometric relation at each available pressure level. The lowest upward crossing from positive to non-positive wet-bulb temperature is linearly interpolated in height to estimate the wet-bulb-zero altitude.
+The plugin retrieves vertical-profile temperature, dew-point and geopotential-height data through Windy's meteogram forecast interface. Wet-bulb temperature is solved with a pressure-aware psychrometric relation at each available pressure level. The lowest upward crossing from positive to non-positive wet-bulb temperature is interpolated in height to estimate the wet-bulb-zero altitude.
 
-WBZ is presented as a snow-level proxy; it is not an accumulation forecast.
+WBZ is shown as a **snow-level proxy**, not a snowfall-accumulation forecast.
 
 ## Author
 
