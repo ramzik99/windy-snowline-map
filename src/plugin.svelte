@@ -2,7 +2,7 @@
   <div class="header">
     <div>
       <div class="title">❄️ Snowline Map</div>
-      <div class="subtitle">WBZ isolines · 100 m interval</div>
+      <div class="subtitle">WBZ isolines · 100 m interval · 1-hourly</div>
     </div>
     <label class="switch">
       <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
@@ -48,7 +48,7 @@
   </div>
 
   <div class="note">
-    Prototype: 13×9 sampling grid. Timeline changes redraw from cached profiles;
+    Prototype: 21×15 sampling grid. Timeline changes redraw from cached profiles;
     map movement fetches a new viewport grid.
   </div>
 </div>
@@ -88,9 +88,9 @@
   let generation = 0;
   let timestampListener: number | null = null;
 
-  const ROWS = 9;
-  const COLS = 13;
-  const MAX_CONCURRENT = 4;
+  const ROWS = 15;
+  const COLS = 21;
+  const MAX_CONCURRENT = 6;
 
   function getStoreTimestamp(): number {
     try {
@@ -180,7 +180,7 @@
     try {
       const response = await getMeteogramForecastData(
         model,
-        { lat, lon, step: 3 }
+        { lat, lon, step: 1 }
       );
 
       const { forecast, header } = extractPayload(response);
@@ -380,7 +380,7 @@
       }
     }
 
-    status = `${segmentCount} contour segments · ${ROWS}×${COLS} grid`;
+    status = `${segmentCount} contour segments · ${COLS}×${ROWS} grid · 1-hourly`;
   }
 
   function scheduleViewportRefresh() {
