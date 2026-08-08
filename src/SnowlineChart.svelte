@@ -2,19 +2,19 @@
   class="chart-shell"
   role="dialog"
   aria-modal="false"
-  aria-label="Snowline forecast graph"
+  aria-label="Snow forecast graph"
   bind:this={chartShell}
   style={`left:${position.x}px;top:${position.y}px;transform:none;`}
 >
   <div class="chart-head">
     <div>
-      <b>Snowline forecast</b>
+      <b>Snow forecast</b>
       <small>{placeName || 'Selected point'} · ECMWF</small>
     </div>
     <div class="chart-actions">
       <button class="now-button" type="button" aria-label="Reset Windy timeline to now" title="Back to now" on:click={resetToNow}>↺ Now</button>
-      <button class="drag-button" type="button" aria-label="Drag snowline graph" title="Drag graph" on:pointerdown={startDrag}>↕</button>
-      <button type="button" aria-label="Close snowline graph" title="Close" on:click={() => dispatch('close')}>×</button>
+      <button class="drag-button" type="button" aria-label="Drag snow forecast graph" title="Drag graph" on:pointerdown={startDrag}>↕</button>
+      <button type="button" aria-label="Close snow forecast graph" title="Close" on:click={() => dispatch('close')}>×</button>
     </div>
   </div>
 
