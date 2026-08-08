@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "0.3.6",
-  "description": "Windy Snowline WBZ proxy to +144 h with neat 100 m contours, labelled 500 m contours, emphasized 1000 m contours, and fast 17x11 viewport sampling.",
+  "version": "0.3.7",
+  "description": "Windy Snowline WBZ proxy to +144 h with colour-coded 100 m contours, labelled 500 m contours, emphasized 1000 m contours, and fast 17x11 viewport sampling.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
