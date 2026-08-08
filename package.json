@@ -1,13 +1,12 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "3.0.0",
-  "description": "ECMWF wet-bulb-zero Snowline proxy to +144 h with adaptive contours, terrain-aware point labels, ±100 m classification and 3-hour tendency. Version 3 adds ECMWF 3-hour precipitation cues to point labels and aligned precipitation bars to the Snowline time graph. The partly-cloudy point button opens Windy weather detail in-place without changing zoom, while Snowline remains open. Includes search, favourites, My location, stable desktop/mobile selection, share/copy, help and caching.",
+  "version": "3.0.1",
+  "description": "ECMWF wet-bulb-zero Snowline proxy to +144 h with adaptive contours, terrain-aware point labels, ±100 m classification and 3-hour tendency. Version 3 adds precipitation cues and bars, a draggable Snowline time graph, and an in-place partly-cloudy forecast button that automatically opens Windy weather detail at the selected point without changing map zoom. Includes search, favourites, My location, stable desktop/mobile selection, share/copy, help and caching.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
     "build": "rm -rf dist && mkdir dist && SERVE=false rollup -c && cp package.json dist/",
-    "build:win": "rmdir /s /q dist && mkdir dist && set SERVE=false && rollup -c && copy package.json dist\\",
-    "start": "rollup -w -c"
+    "build:win": "rmdir /s /q dist && mkdir dist && set SERVE=false && rollup -c && copy package.json dist\\"
   },
   "keywords": [
     "windy",
