@@ -1,33 +1,40 @@
-<div class="snowline-panel">
-  <div class="top-row">
-    <div class="title">Snowline</div>
-    <label class="switch">
-      <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
-      <span>{enabled ? 'On' : 'Off'}</span>
-    </label>
-  </div>
-
-  <div class="description">
-    Approximate ECMWF rain–snow boundary from wet-bulb zero height. Runs up to 144 hours only.
-  </div>
-
-  <PlaceSearch on:select={handlePlaceSelect} />
-
-  <div class="mode-row" class:disabled={!enabled}>
-    <button class:active={displayMode === 'label'} on:click={() => setDisplayMode('label')} disabled={!enabled}>Label only</button>
-    <button class:active={displayMode === 'contour'} on:click={() => setDisplayMode('contour')} disabled={!enabled}>Contour only</button>
-    <button class:active={displayMode === 'both'} on:click={() => setDisplayMode('both')} disabled={!enabled}>Label + contour</button>
-  </div>
-
-  <div class="micro-note">Near snowline = within ±100 m · thermal boundary, precipitation not implied</div>
-
-  {#if enabled && (viewportLoading || probeLoading)}
-    <div class="status-pill">
-      <span class="status-dot"></span>
-      {probeLoading ? 'Reading point…' : 'Updating contours…'}
+{#if panelHidden}
+  <button class="show-panel" type="button" aria-label="Show Snowline panel" on:click={() => panelHidden = false}>❄ Snowline</button>
+{:else}
+  <div class="snowline-panel">
+    <div class="top-row">
+      <div class="title">Snowline</div>
+      <div class="top-controls">
+        <button class="hide-button" type="button" aria-label="Hide Snowline panel" title="Hide" on:click={() => panelHidden = true}>−</button>
+        <label class="switch">
+          <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
+          <span>{enabled ? 'On' : 'Off'}</span>
+        </label>
+      </div>
     </div>
-  {/if}
-</div>
+
+    <div class="description">
+      Approximate ECMWF rain–snow boundary from wet-bulb zero height. Runs up to 144 hours only.
+    </div>
+
+    <PlaceSearch on:select={handlePlaceSelect} on:clear={handleSearchClear} />
+
+    <div class="mode-row" class:disabled={!enabled}>
+      <button class:active={displayMode === 'label'} on:click={() => setDisplayMode('label')} disabled={!enabled}>Label only</button>
+      <button class:active={displayMode === 'contour'} on:click={() => setDisplayMode('contour')} disabled={!enabled}>Contour only</button>
+      <button class:active={displayMode === 'both'} on:click={() => setDisplayMode('both')} disabled={!enabled}>Label + contour</button>
+    </div>
+
+    <div class="micro-note">Near snowline = within ±100 m · thermal boundary, precipitation not implied</div>
+
+    {#if enabled && (viewportLoading || probeLoading)}
+      <div class="status-pill">
+        <span class="status-dot"></span>
+        {probeLoading ? 'Reading point…' : 'Updating contours…'}
+      </div>
+    {/if}
+  </div>
+{/if}
 
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
@@ -47,6 +54,7 @@
   type PlaceSelection = { lat: number; lon: number; primary: string; secondary: string; favourite?: boolean };
 
   let enabled = true;
+  let panelHidden = false;
   let displayMode: DisplayMode = 'both';
   let viewportLoading = false;
   let probeLoading = false;
@@ -65,7 +73,7 @@
   let pickerLocationListener: number | null = null;
   let activeRunTime: number | null = null;
   let lastPickerKey = '';
-  let suppressPickerClearUntil = 0;
+  let searchPinned = false;
 
   const MODEL = 'ecmwf' as const;
   const MAX_CONCURRENT = 8;
@@ -146,19 +154,23 @@
   }
 
   async function probeLocation(lat: number, lon: number) { if (!enabled || !labelsEnabled() || !Number.isFinite(lat) || !Number.isFinite(lon)) return; const myClick = ++clickGeneration; clickedPoint = null; clickedMapElevationM = null; clickedLatLon = [lat, lon]; probeLoading = true; showClickLabel(lat, lon, 'Snowline …', 'Reading point'); try { const [cp, mapElevation] = await Promise.all([loadPoint(lat, lon), loadMapElevation(lat, lon)]); if (myClick !== clickGeneration || !enabled || !labelsEnabled()) return; if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; } clickedPoint = cp; clickedMapElevationM = mapElevation; updatePersistentClickLabel(); } finally { if (myClick === clickGeneration) probeLoading = false; } }
-  function handleMapClick(e: any) { if (!enabled || !labelsEnabled() || !e?.latlng) return; probeLocation(Number(e.latlng.lat), Number(e.latlng.lng)); }
+  function handleMapClick(e: any) { if (!enabled || !labelsEnabled() || !e?.latlng) return; searchPinned = false; probeLocation(Number(e.latlng.lat), Number(e.latlng.lng)); }
 
   function handlePlaceSelect(event: CustomEvent<PlaceSelection>) {
     if (!enabled || !event?.detail) return;
     const { lat, lon } = event.detail;
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     const zoom = Math.max(Number(map.getZoom?.() ?? 7), 9);
-    suppressPickerClearUntil = Number.POSITIVE_INFINITY;
+    searchPinned = true;
     map.setView([lat, lon], Math.min(zoom, 10), { animate: true });
-    setTimeout(() => {
-      try { map.fire('click', { latlng: { lat, lng: lon } }); }
-      catch { probeLocation(lat, lon); }
-    }, 240);
+    setTimeout(() => probeLocation(lat, lon), 240);
+  }
+
+  function handleSearchClear() {
+    searchPinned = false;
+    lastPickerKey = '';
+    clearPointState();
+    setTimeout(() => syncPickerFromStore(true), 0);
   }
 
   function pickerLatLon(value: any): [number, number] | null { if (!value) return null; const lat = Number(value.lat ?? value.latitude), lon = Number(value.lon ?? value.lng ?? value.longitude); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null; return [lat, lon]; }
@@ -166,13 +178,13 @@
     if (!enabled || !labelsEnabled()) return;
     const position = pickerLatLon(value);
     if (!position) {
-      if (Date.now() < suppressPickerClearUntil) return;
+      if (searchPinned) return;
       lastPickerKey = '';
       if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
       clearPointState();
       return;
     }
-    suppressPickerClearUntil = 0;
+    searchPinned = false;
     const [lat, lon] = position, key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
     if (!force && key === lastPickerKey) return;
     lastPickerKey = key;
@@ -220,10 +232,14 @@
 <style lang="less">
   .snowline-panel { width: 224px; padding: 8px 9px; border-radius: 8px; background: rgba(45,45,45,0.95); color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.24); }
   .top-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .top-controls { display: flex; align-items: center; gap: 7px; }
   .title { font-size: 16px; line-height: 1.05; font-weight: 800; }
   .description { margin-top: 4px; font-size: 10px; line-height: 1.25; opacity: 0.74; }
   .switch { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; white-space: nowrap; }
   .switch input { margin: 0; width: 15px; height: 15px; }
+  .hide-button { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.75); font-size: 15px; line-height: 18px; cursor: pointer; }
+  .hide-button:hover { background: rgba(255,255,255,0.11); color: white; }
+  .show-panel { padding: 6px 9px; border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; background: rgba(45,45,45,0.95); color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.24); font-size: 11px; line-height: 1; font-weight: 800; cursor: pointer; }
   .mode-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 7px; opacity: 1; }
   .mode-row.disabled { opacity: 0.45; }
   .mode-row button { min-width: 0; padding: 5px 3px; border: 1px solid rgba(255,255,255,0.16); border-radius: 6px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.72); font-size: 8.7px; line-height: 1.1; font-weight: 700; cursor: pointer; }
