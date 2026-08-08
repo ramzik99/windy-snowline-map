@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "1.0.2",
-  "description": "ECMWF wet-bulb-zero Snowline proxy to +144 h with adaptive contours, exact point labels, Windy map elevation, ±100 m near-snowline classification, 3-hour tendency, place search and favourites. Desktop clicks now create persistent labels directly; valid Windy picker updates may refine them, while empty or stale picker state never removes them. Includes mobile single-tap selection, close/share controls, valid and lead times, help, caching and responsive sampling. Thermal boundary only; precipitation is not implied.",
+  "version": "1.0.3",
+  "description": "ECMWF wet-bulb-zero Snowline proxy to +144 h with adaptive contours, exact point labels, Windy map elevation, ±100 m near-snowline classification, 3-hour tendency, place search, favourites and current-location selection. Desktop clicks create persistent labels directly; valid Windy picker updates may refine them, while empty or stale picker state never removes them. Includes mobile single-tap selection, close/share controls, valid and lead times, help, caching and responsive sampling. Thermal boundary only; precipitation is not implied.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
