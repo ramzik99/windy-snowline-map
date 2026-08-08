@@ -11,6 +11,8 @@
     Approximate rain–snow boundary from ECMWF wet-bulb zero height. Runs to +144 h.
   </div>
 
+  <PlaceSearch />
+
   <div class="mode-row" class:disabled={!enabled}>
     <button class:active={displayMode === 'label'} on:click={() => setDisplayMode('label')} disabled={!enabled}>
       Label only
@@ -34,6 +36,7 @@
   import store from '@windy/store';
   import { getElevation, getMeteogramForecastData } from '@windy/fetch';
 
+  import PlaceSearch from './PlaceSearch.svelte';
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
   import { contourPolylines, type GridPoint, type ContourPolyline } from './contours';
 
