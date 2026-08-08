@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "0.3.3",
-  "description": "Fast Windy Snowline WBZ map with 100 m labelled isolines, 17x11 viewport sampling, and native forecast timing: 1-hourly to 90 h, 3-hourly to 144 h, then 6-hourly.",
+  "version": "0.3.4",
+  "description": "Refined Windy Snowline WBZ map to +144 h with 100 m contours, 500 m labels, 17x11 viewport sampling, and native 1-hourly/3-hourly forecast timing.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
