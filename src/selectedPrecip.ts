@@ -1,5 +1,7 @@
 import { getPointForecastData } from '@windy/fetch';
 
+export type SnowForecastModel = 'ecmwf' | 'gfs' | 'icon';
+
 function isNumericArrayLike(value: unknown): boolean {
   if (ArrayBuffer.isView(value as any)) return Number((value as any)?.length) > 0;
   if (!Array.isArray(value) || !value.length) return false;
@@ -62,22 +64,25 @@ function collectSelectedFields(value: unknown, out: Record<string, unknown>, dep
   }
 }
 
-export async function loadSelectedPrecipFields(lat: number, lon: number, days = 6): Promise<Record<string, unknown>> {
+export async function loadSelectedPrecipFields(
+  lat: number,
+  lon: number,
+  days = 6,
+  model: SnowForecastModel = 'ecmwf',
+): Promise<Record<string, unknown>> {
   try {
     const response = await getPointForecastData(
-      'ecmwf',
+      model,
       { lat, lon, step: 1, days, source: 'detail' } as any,
     );
     const out: Record<string, unknown> = {};
     collectSelectedFields(response as unknown, out);
     if (!Object.keys(out).length) {
-      console.warn('Snowline selected point: no precipitation or snow-depth field found in Windy point forecast payload');
-    } else {
-      console.info('Snowline selected-point fields:', Object.keys(out));
+      console.warn(`Snow forecast ${model}: no precipitation or snow-depth field found in Windy point forecast payload`);
     }
     return out;
   } catch (e) {
-    console.warn('Snowline selected-point weather request failed', lat, lon, e);
+    console.warn(`Snow forecast ${model} point-weather request failed`, lat, lon, e);
     return {};
   }
 }
