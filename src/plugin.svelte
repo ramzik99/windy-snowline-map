@@ -31,6 +31,15 @@
   </div>
 {/if}
 
+{#if chartOpen && clickedPoint}
+  <SnowlineChart
+    point={clickedPoint}
+    terrainM={clickedMapElevationM}
+    placeName={clickedPlaceName || 'Selected point'}
+    on:close={() => chartOpen = false}
+  />
+{/if}
+
 {#if infoOpen}
   <div class="info-overlay" role="presentation" on:click={() => infoOpen = false}>
     <div class="info-window" role="dialog" aria-modal="true" aria-label="How Snowline works" on:click|stopPropagation>
@@ -47,8 +56,9 @@
         <div>Contours are reconstructed from ECMWF vertical profiles sampled across the visible map. Sampling density and contour spacing increase with zoom, and the contours update with the Windy forecast timestep.</div>
         <div>Desktop clicks create the Snowline point label directly. Valid Windy picker updates can refine a selected point, but an empty or stale picker state never removes the label. Mobile uses Windy's single-click location event.</div>
         <div>Search, favourites and My location recenter the map while preserving the current zoom level.</div>
+        <div>Point labels include a <b>W</b> button for Windy's native forecast and a graph button for a compact Snowline-versus-time view using the same ECMWF profile.</div>
         <div>Search, mobile taps and desktop selections are tracked separately so the correct point label persists until another point is selected or × is pressed.</div>
-        <div>Search results and favourites use their exact stored coordinates. The <b>share-node</b> button on a point label copies the place name, coordinates, <b>valid time</b>, <b>lead time</b>, snowline, elevation and tendency. The × button dismisses the label.</div>
+        <div>Search results and favourites use their exact stored coordinates. The share-node button copies the place name, coordinates, <b>valid time</b>, <b>lead time</b>, snowline, elevation and tendency.</div>
         <div class="info-caveat">Thermal boundary only — precipitation, snowfall and accumulation are not implied.</div>
       </div>
     </div>
@@ -64,6 +74,7 @@
   import { getElevation, getMeteogramForecastData } from '@windy/fetch';
   import config from './pluginConfig';
   import PlaceSearch from './PlaceSearch.svelte';
+  import SnowlineChart from './SnowlineChart.svelte';
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
   import { contourPolylines, type GridPoint, type ContourPolyline } from './contours';
 
@@ -79,6 +90,7 @@
   let enabled = true;
   let panelHidden = false;
   let infoOpen = false;
+  let chartOpen = false;
   let displayMode: DisplayMode = 'both';
   let viewportLoading = false;
   let refreshQueued = false;
@@ -157,155 +169,63 @@
   async function loadPoint(lat: number, lon: number): Promise<CachedPoint | null> { const existing = cachedProfile(lat, lon); if (existing) return existing; try { const response = await getMeteogramForecastData(MODEL, { lat, lon, step: 1, days: FORECAST_DAYS }); const { forecast, header } = extractPayload(response); if (!Object.keys(forecast).length) return null; const runTime = parseTime(header.refTime); invalidateForNewRun(runTime); const point: CachedPoint = { lat, lon, forecast, header, times: buildForecastTimes(forecast, header), runTime }; rememberProfile(point); return point; } catch (e) { console.warn('Snowline point failed', lat, lon, e); return null; } }
   async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> { const out = new Array<R>(items.length); let next = 0; async function worker() { while (true) { const i = next++; if (i >= items.length) return; out[i] = await fn(items[i]); } } await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker())); return out; }
   function gridShapeForZoom(): { rows: number; cols: number } {
-    const zoom = Number(map.getZoom?.() ?? 6);
-    const mapWidth = Number(map.getSize?.().x ?? 800);
-    const mobile = mapWidth < 520;
-    if (zoom <= 4) return { rows: 9, cols: 13 };
-    if (zoom <= 6) return { rows: 11, cols: 17 };
-    if (zoom <= 8) return mobile ? { rows: 13, cols: 19 } : { rows: 15, cols: 23 };
-    return mobile ? { rows: 15, cols: 23 } : { rows: 19, cols: 27 };
+    const zoom = Number(map.getZoom?.() ?? 6); const mapWidth = Number(map.getSize?.().x ?? 800); const mobile = mapWidth < 520;
+    if (zoom <= 4) return { rows: 9, cols: 13 }; if (zoom <= 6) return { rows: 11, cols: 17 }; if (zoom <= 8) return mobile ? { rows: 13, cols: 19 } : { rows: 15, cols: 23 }; return mobile ? { rows: 15, cols: 23 } : { rows: 19, cols: 27 };
   }
   function buildViewportPoints(): { points: ViewportPoint[]; rows: number; cols: number } { const { rows, cols } = gridShapeForZoom(), b = map.getBounds(); const south = Math.max(-75, b.getSouth()), north = Math.min(75, b.getNorth()), west = b.getWest(), east = b.getEast(); const latStep = (north - south) / (rows - 1), lonStep = (east - west) / (cols - 1), points: ViewportPoint[] = []; for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) points.push({ lat: south + r * latStep, lon: west + c * lonStep, r, c }); return { points, rows, cols }; }
 
   async function refreshViewport() {
-    if (!enabled || !contoursEnabled()) return;
-    if (viewportLoading) { refreshQueued = true; return; }
-    refreshQueued = false;
-    const myGeneration = ++generation;
-    viewportLoading = true;
-    const { points, rows, cols } = buildViewportPoints();
+    if (!enabled || !contoursEnabled()) return; if (viewportLoading) { refreshQueued = true; return; }
+    refreshQueued = false; const myGeneration = ++generation; viewportLoading = true; const { points, rows, cols } = buildViewportPoints();
     try {
       const results = await mapLimit(points, MAX_CONCURRENT, async p => ({ ...p, result: await loadPoint(p.lat, p.lon) }));
       if (myGeneration !== generation || !enabled || !contoursEnabled()) return;
       const valid = results.filter(item => item.result && item.result.times.length).length;
       if (valid < Math.max(4, Math.floor(points.length * MIN_VALID_FRACTION))) { console.warn('Snowline refresh kept previous contours: too few valid profiles', valid, points.length); return; }
-      const nextCache: (CachedPoint | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null));
-      for (const item of results) if (item.result) nextCache[item.r][item.c] = item.result;
-      cache = nextCache;
-      renderFromCache();
-    } finally {
-      if (myGeneration === generation) viewportLoading = false;
-      if (refreshQueued && enabled && contoursEnabled()) { refreshQueued = false; setTimeout(() => refreshViewport(), 0); }
-    }
+      const nextCache: (CachedPoint | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null)); for (const item of results) if (item.result) nextCache[item.r][item.c] = item.result; cache = nextCache; renderFromCache();
+    } finally { if (myGeneration === generation) viewportLoading = false; if (refreshQueued && enabled && contoursEnabled()) { refreshQueued = false; setTimeout(() => refreshViewport(), 0); } }
   }
 
   function clearContours() { if (contourLayer) { try { map.removeLayer(contourLayer); } catch {} contourLayer = null; } }
   function clearClickLayer() { if (clickLayer) { try { map.removeLayer(clickLayer); } catch {} clickLayer = null; } }
-  function clearPointState() { clickGeneration += 1; probeLoading = false; clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null; clickedPlaceName = null; pointSource = null; clearClickLayer(); }
-  function dismissPointLabel() {
-    if (pointSource === 'desktop-picker' && clickedLatLon) dismissedPickerKey = `${clickedLatLon[0].toFixed(5)},${clickedLatLon[1].toFixed(5)}`;
-    if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
-    clearPointState();
-  }
+  function clearPointState() { clickGeneration += 1; probeLoading = false; chartOpen = false; clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null; clickedPlaceName = null; pointSource = null; clearClickLayer(); }
+  function dismissPointLabel() { if (pointSource === 'desktop-picker' && clickedLatLon) dismissedPickerKey = `${clickedLatLon[0].toFixed(5)},${clickedLatLon[1].toFixed(5)}`; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearPointState(); }
   function statusColor(status: ProbeStatus): string { if (status === 'above') return '#46d9ff'; if (status === 'below') return '#ff9d3d'; if (status === 'near') return '#ffe45c'; return '#ffffff'; }
 
-  function formatCoordinate(lat: number, lon: number): string {
-    const latHem = lat >= 0 ? 'N' : 'S', lonHem = lon >= 0 ? 'E' : 'W';
-    return `${Math.abs(lat).toFixed(4)}°${latHem}, ${Math.abs(lon).toFixed(4)}°${lonHem}`;
-  }
-  function formatUtc(timestamp: number): string {
-    const d = new Date(timestamp), pad = (value: number) => String(value).padStart(2, '0');
-    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`;
-  }
+  function formatCoordinate(lat: number, lon: number): string { const latHem = lat >= 0 ? 'N' : 'S', lonHem = lon >= 0 ? 'E' : 'W'; return `${Math.abs(lat).toFixed(4)}°${latHem}, ${Math.abs(lon).toFixed(4)}°${lonHem}`; }
+  function formatUtc(timestamp: number): string { const d = new Date(timestamp), pad = (value: number) => String(value).padStart(2, '0'); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`; }
+  function openWindyForecast(lat: number, lon: number) { const url = `https://www.windy.com/${lat.toFixed(5)}/${lon.toFixed(5)}`; const opened = window.open(url, '_blank', 'noopener,noreferrer'); if (!opened) window.location.href = url; }
+
   async function resolvePlaceName(lat: number, lon: number): Promise<string> {
     if (clickedPlaceName) return clickedPlaceName;
-    try {
-      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=12&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}`;
-      const response = await fetch(url);
-      if (response.ok) {
-        const data = await response.json() as any;
-        const address = data?.address ?? {};
-        const local = data?.name || address.city || address.town || address.village || address.municipality || address.county;
-        const country = address.country;
-        if (local && country) return `${local}, ${country}`;
-        if (local) return String(local);
-        const parts = String(data?.display_name ?? '').split(',').map((part: string) => part.trim()).filter(Boolean);
-        if (parts.length) return parts.slice(0, 3).join(', ');
-      }
-    } catch (e) {
-      console.warn('Snowline reverse geocoding failed', lat, lon, e);
-    }
+    try { const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=12&lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lon))}`; const response = await fetch(url); if (response.ok) { const data = await response.json() as any; const address = data?.address ?? {}; const local = data?.name || address.city || address.town || address.village || address.municipality || address.county; const country = address.country; if (local && country) return `${local}, ${country}`; if (local) return String(local); const parts = String(data?.display_name ?? '').split(',').map((part: string) => part.trim()).filter(Boolean); if (parts.length) return parts.slice(0, 3).join(', '); } } catch (e) { console.warn('Snowline reverse geocoding failed', lat, lon, e); }
     return 'Selected point';
   }
-  async function copyText(text: string): Promise<void> {
-    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; }
-    const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    const copied = document.execCommand('copy');
-    document.body.removeChild(textarea);
-    if (!copied) throw new Error('Clipboard copy failed');
-  }
+  async function copyText(text: string): Promise<void> { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; } const textarea = document.createElement('textarea'); textarea.value = text; textarea.style.position = 'fixed'; textarea.style.opacity = '0'; document.body.appendChild(textarea); textarea.focus(); textarea.select(); const copied = document.execCommand('copy'); document.body.removeChild(textarea); if (!copied) throw new Error('Clipboard copy failed'); }
   async function shareCurrentPoint(button: HTMLButtonElement) {
-    if (!clickedPoint || !clickedLatLon || !clickedPoint.times.length) return;
-    const point = clickedPoint;
-    const [lat, lon] = clickedLatLon;
-    const sourceAtShare = pointSource;
-    const target = getStoreTimestamp();
-    const idx = nearestIndex(point.times, target);
-    const validTime = point.times[idx];
-    const snowline = snowlineAt(point, idx);
-    const tendency = tendencyText(point, idx) || 'Unavailable';
-    const elevation = clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM) ? `${Math.round(clickedMapElevationM / 10) * 10} m AMSL` : 'Unavailable';
-    const snowlineText = snowline !== null ? `${Math.round(snowline / 10) * 10} m AMSL` : 'Unavailable';
-    const leadHours = point.runTime !== null ? Math.round((validTime - point.runTime) / 3600_000) : null;
-    const leadText = leadHours === null ? 'Unavailable' : `${leadHours >= 0 ? '+' : ''}${leadHours} h`;
-    button.textContent = '…';
-    button.title = 'Preparing copy';
-    try {
-      const placeName = await resolvePlaceName(lat, lon);
-      if (clickedPoint !== point || pointSource !== sourceAtShare || !clickedLatLon || clickedLatLon[0] !== lat || clickedLatLon[1] !== lon) return;
-      if (!clickedPlaceName) clickedPlaceName = placeName;
-      const text = [
-        'Snowline · ECMWF',
-        `Place: ${placeName}`,
-        `Coordinates: ${formatCoordinate(lat, lon)}`,
-        `Valid time: ${formatUtc(validTime)}`,
-        `Lead time: ${leadText}${point.runTime !== null ? ` from run ${formatUtc(point.runTime)}` : ''}`,
-        `Snowline: ${snowlineText}`,
-        `Elevation: ${elevation}`,
-        `Tendency: ${tendency}`,
-        'Thermal boundary only — precipitation not implied.',
-      ].join('\n');
-      await copyText(text);
-      button.textContent = '✓';
-      button.title = 'Copied';
-      setTimeout(() => { if (button.isConnected) { button.textContent = 'share'; button.title = 'Copy Snowline details'; } }, 1400);
-    } catch (e) {
-      console.warn('Snowline share copy failed', e);
-      button.textContent = '!';
-      button.title = 'Copy failed';
-      setTimeout(() => { if (button.isConnected) { button.textContent = 'share'; button.title = 'Copy Snowline details'; } }, 1600);
-    }
+    if (!clickedPoint || !clickedLatLon || !clickedPoint.times.length) return; const point = clickedPoint; const [lat, lon] = clickedLatLon; const sourceAtShare = pointSource; const target = getStoreTimestamp(); const idx = nearestIndex(point.times, target); const validTime = point.times[idx]; const snowline = snowlineAt(point, idx); const tendency = tendencyText(point, idx) || 'Unavailable'; const elevation = clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM) ? `${Math.round(clickedMapElevationM / 10) * 10} m AMSL` : 'Unavailable'; const snowlineText = snowline !== null ? `${Math.round(snowline / 10) * 10} m AMSL` : 'Unavailable'; const leadHours = point.runTime !== null ? Math.round((validTime - point.runTime) / 3600_000) : null; const leadText = leadHours === null ? 'Unavailable' : `${leadHours >= 0 ? '+' : ''}${leadHours} h`; button.textContent = '…'; button.title = 'Preparing copy';
+    try { const placeName = await resolvePlaceName(lat, lon); if (clickedPoint !== point || pointSource !== sourceAtShare || !clickedLatLon || clickedLatLon[0] !== lat || clickedLatLon[1] !== lon) return; if (!clickedPlaceName) clickedPlaceName = placeName; const text = ['Snowline · ECMWF', `Place: ${placeName}`, `Coordinates: ${formatCoordinate(lat, lon)}`, `Valid time: ${formatUtc(validTime)}`, `Lead time: ${leadText}${point.runTime !== null ? ` from run ${formatUtc(point.runTime)}` : ''}`, `Snowline: ${snowlineText}`, `Elevation: ${elevation}`, `Tendency: ${tendency}`, 'Thermal boundary only — precipitation not implied.'].join('\n'); await copyText(text); button.textContent = '✓'; button.title = 'Copied'; setTimeout(() => { if (button.isConnected) { button.textContent = 'share'; button.title = 'Copy Snowline details'; } }, 1400); }
+    catch (e) { console.warn('Snowline share copy failed', e); button.textContent = '!'; button.title = 'Copy failed'; setTimeout(() => { if (button.isConnected) { button.textContent = 'share'; button.title = 'Copy Snowline details'; } }, 1600); }
   }
 
   function showClickLabel(lat: number, lon: number, mainText: string, detailText = '', snowlineColor = '#ffffff', status: ProbeStatus = 'neutral') {
-    if (!labelsEnabled()) return;
-    clearClickLayer();
-    clickLayer = L.layerGroup().addTo(map);
-    const accent = statusColor(status);
+    if (!labelsEnabled()) return; clearClickLayer(); clickLayer = L.layerGroup().addTo(map); const accent = statusColor(status);
     L.circleMarker([lat, lon], { radius: status === 'neutral' ? 4 : 5, weight: 2, color: '#ffffff', fillColor: accent, fillOpacity: 1, interactive: false }).addTo(clickLayer);
     const detail = detailText ? `<small>${detailText}</small>` : '';
-    const shareButton = clickedPoint && clickedLatLon ? '<button class="snowline-label-share" type="button" aria-label="Copy Snowline details" title="Copy Snowline details">share</button>' : '';
-    const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${shareButton}<button class="snowline-label-close" type="button" aria-label="Close Snowline label" title="Close">×</button><b>${mainText}</b>${detail}</span>`, iconSize: [218, 58], iconAnchor: [109, 66] }) }).addTo(clickLayer);
+    const actions = clickedPoint && clickedLatLon ? '<button class="snowline-label-forecast" type="button" aria-label="Open Windy forecast" title="Open Windy forecast">W</button><button class="snowline-label-chart" type="button" aria-label="Show Snowline graph" title="Snowline graph">⌁</button><button class="snowline-label-share" type="button" aria-label="Copy Snowline details" title="Copy Snowline details">share</button>' : '';
+    const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${actions}<button class="snowline-label-close" type="button" aria-label="Close Snowline label" title="Close">×</button><b>${mainText}</b>${detail}</span>`, iconSize: [218, 58], iconAnchor: [109, 66] }) }).addTo(clickLayer);
     marker.on('click', (event: any) => {
-      const original = event?.originalEvent;
-      const target = original?.target as HTMLElement | undefined;
-      const share = target?.closest?.('.snowline-label-share') as HTMLButtonElement | null;
-      const close = target?.closest?.('.snowline-label-close');
-      if (!share && !close) return;
-      try { L.DomEvent.stop(original); } catch {}
+      const original = event?.originalEvent; const target = original?.target as HTMLElement | undefined; const forecast = target?.closest?.('.snowline-label-forecast'); const graph = target?.closest?.('.snowline-label-chart'); const share = target?.closest?.('.snowline-label-share') as HTMLButtonElement | null; const close = target?.closest?.('.snowline-label-close');
+      if (!forecast && !graph && !share && !close) return; try { L.DomEvent.stop(original); } catch {}
+      if (forecast) { openWindyForecast(lat, lon); return; }
+      if (graph) { if (clickedPoint) chartOpen = true; return; }
       if (share) { void shareCurrentPoint(share); return; }
       dismissPointLabel();
     });
   }
 
   function snowlineAt(point: CachedPoint, idx: number): number | null { const wbz = wetBulbZeroHeight(buildProfile(point.forecast, idx)); return wbz.snowLevelM !== null && Number.isFinite(wbz.snowLevelM) ? wbz.snowLevelM : null; }
-  function tendencyText(point: CachedPoint, idx: number): string { const now = snowlineAt(point, idx); if (now === null) return ''; const target = point.times[idx] + TENDENCY_HOURS * 3600_000; if (target > point.times[point.times.length - 1] + 30 * 60_000) return ''; const futureIdx = nearestIndex(point.times, target); if (futureIdx === idx) return ''; const future = snowlineAt(point, futureIdx); if (future === null) return ''; const delta = Math.round((future - now) / 10) * 10; if (Math.abs(delta) < 20) return `→ steady`; return `${delta > 0 ? '↑' : '↓'}${Math.abs(delta)} m/${TENDENCY_HOURS}h`; }
+  function tendencyText(point: CachedPoint, idx: number): string { const now = snowlineAt(point, idx); if (now === null) return ''; const target = point.times[idx] + TENDENCY_HOURS * 3600_000; if (target > point.times[point.times.length - 1] + 30 * 60_000) return ''; const futureIdx = nearestIndex(point.times, target); if (futureIdx === idx) return ''; const future = snowlineAt(point, futureIdx); if (future === null) return ''; const delta = Math.round((future - now) / 10) * 10; if (Math.abs(delta) < 20) return '→ steady'; return `${delta > 0 ? '↑' : '↓'}${Math.abs(delta)} m/${TENDENCY_HOURS}h`; }
 
   function updatePersistentClickLabel() {
     if (!enabled || !labelsEnabled()) { clearClickLayer(); return; } if (!clickedPoint || !clickedLatLon || !clickedPoint.times.length) return;
@@ -318,96 +238,19 @@
   }
 
   async function probeLocation(lat: number, lon: number, source: PointSource, placeName: string | null = null) {
-    if (!enabled || !labelsEnabled() || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const myClick = ++clickGeneration;
-    clickedPoint = null;
-    clickedMapElevationM = null;
-    clickedLatLon = [lat, lon];
-    clickedPlaceName = placeName;
-    pointSource = source;
-    probeLoading = true;
-    showClickLabel(lat, lon, 'Snowline …', 'Reading point');
-    try {
-      const [cp, mapElevation] = await Promise.all([loadPoint(lat, lon), loadMapElevation(lat, lon)]);
-      if (myClick !== clickGeneration || pointSource !== source || !enabled || !labelsEnabled()) return;
-      if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; }
-      clickedPoint = cp;
-      clickedMapElevationM = mapElevation;
-      updatePersistentClickLabel();
-    } finally {
-      if (myClick === clickGeneration) probeLoading = false;
-    }
+    if (!enabled || !labelsEnabled() || !Number.isFinite(lat) || !Number.isFinite(lon)) return; chartOpen = false; const myClick = ++clickGeneration; clickedPoint = null; clickedMapElevationM = null; clickedLatLon = [lat, lon]; clickedPlaceName = placeName; pointSource = source; probeLoading = true; showClickLabel(lat, lon, 'Snowline …', 'Reading point');
+    try { const [cp, mapElevation] = await Promise.all([loadPoint(lat, lon), loadMapElevation(lat, lon)]); if (myClick !== clickGeneration || pointSource !== source || !enabled || !labelsEnabled()) return; if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; } clickedPoint = cp; clickedMapElevationM = mapElevation; updatePersistentClickLabel(); }
+    finally { if (myClick === clickGeneration) probeLoading = false; }
   }
 
   function latLonFromSingleClick(value: any): [number, number] | null { if (!value) return null; const lat = Number(value.lat ?? value.latitude ?? value.latlng?.lat); const lon = Number(value.lon ?? value.lng ?? value.longitude ?? value.latlng?.lng); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null; return [lat, lon]; }
-  function handleSingleClick(value: any) {
-    if (!enabled || !labelsEnabled()) return;
-    const position = latLonFromSingleClick(value); if (!position) return;
-    const [lat, lon] = position;
+  function handleSingleClick(value: any) { if (!enabled || !labelsEnabled()) return; const position = latLonFromSingleClick(value); if (!position) return; const [lat, lon] = position; if (isMobile) { lastPickerKey = ''; dismissedPickerKey = ''; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } void probeLocation(lat, lon, 'mobile-tap'); return; } if (Date.now() < ignorePickerUntil) return; const clickKey = `${lat.toFixed(5)},${lon.toFixed(5)}`; dismissedPickerKey = ''; lastPickerKey = clickKey; ignorePickerUntil = Date.now() + DESKTOP_PICKER_SETTLE_MS; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } void probeLocation(lat, lon, 'desktop-picker'); }
 
-    if (isMobile) {
-      lastPickerKey = '';
-      dismissedPickerKey = '';
-      if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
-      void probeLocation(lat, lon, 'mobile-tap');
-      return;
-    }
-
-    if (Date.now() < ignorePickerUntil) return;
-    const clickKey = `${lat.toFixed(5)},${lon.toFixed(5)}`;
-    dismissedPickerKey = '';
-    lastPickerKey = clickKey;
-    ignorePickerUntil = Date.now() + DESKTOP_PICKER_SETTLE_MS;
-    if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
-    void probeLocation(lat, lon, 'desktop-picker');
-  }
-
-  function handlePlaceSelect(event: CustomEvent<PlaceSelection>) {
-    if (!enabled || !event?.detail) return;
-    const { lat, lon, primary, secondary } = event.detail;
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const placeName = [primary, secondary].map(value => String(value ?? '').trim()).filter(Boolean).join(', ');
-    ignorePickerUntil = Date.now() + SEARCH_PICKER_GUARD_MS;
-    lastPickerKey = '';
-    dismissedPickerKey = '';
-    if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
-    pointSource = 'search';
-    map.panTo([lat, lon], { animate: true });
-    setTimeout(() => { if (pointSource === 'search') void probeLocation(lat, lon, 'search', placeName || null); }, 180);
-  }
-
-  function handleSearchClear() {
-    const wasSearch = pointSource === 'search';
-    ignorePickerUntil = 0;
-    if (wasSearch) clearPointState();
-    lastPickerKey = '';
-    dismissedPickerKey = '';
-  }
+  function handlePlaceSelect(event: CustomEvent<PlaceSelection>) { if (!enabled || !event?.detail) return; const { lat, lon, primary, secondary } = event.detail; if (!Number.isFinite(lat) || !Number.isFinite(lon)) return; const placeName = [primary, secondary].map(value => String(value ?? '').trim()).filter(Boolean).join(', '); ignorePickerUntil = Date.now() + SEARCH_PICKER_GUARD_MS; lastPickerKey = ''; dismissedPickerKey = ''; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } pointSource = 'search'; map.panTo([lat, lon], { animate: true }); setTimeout(() => { if (pointSource === 'search') void probeLocation(lat, lon, 'search', placeName || null); }, 180); }
+  function handleSearchClear() { const wasSearch = pointSource === 'search'; ignorePickerUntil = 0; if (wasSearch) clearPointState(); lastPickerKey = ''; dismissedPickerKey = ''; }
 
   function pickerLatLon(value: any): [number, number] | null { if (!value) return null; const lat = Number(value.lat ?? value.latitude), lon = Number(value.lon ?? value.lng ?? value.longitude); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null; return [lat, lon]; }
-  function schedulePickerProbe(value: any, force = false) {
-    if (isMobile || !enabled || !labelsEnabled()) return;
-    const position = pickerLatLon(value);
-    if (!position) return;
-    if (pointSource === 'search') return;
-    if (Date.now() < ignorePickerUntil) return;
-
-    const [lat, lon] = position, key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
-    if (key === dismissedPickerKey) return;
-    if (dismissedPickerKey && key !== dismissedPickerKey) dismissedPickerKey = '';
-
-    const activeKey = clickedLatLon ? `${clickedLatLon[0].toFixed(5)},${clickedLatLon[1].toFixed(5)}` : '';
-    if (key === activeKey && pointSource === 'desktop-picker') { lastPickerKey = key; return; }
-    if (!force && key === lastPickerKey && pointSource === 'desktop-picker') return;
-
-    lastPickerKey = key;
-    if (pickerTimer) clearTimeout(pickerTimer);
-    pickerTimer = setTimeout(() => {
-      pickerTimer = null;
-      if (key === dismissedPickerKey || pointSource === 'search') return;
-      void probeLocation(lat, lon, 'desktop-picker');
-    }, PICKER_PROBE_DELAY_MS);
-  }
+  function schedulePickerProbe(value: any, force = false) { if (isMobile || !enabled || !labelsEnabled()) return; const position = pickerLatLon(value); if (!position || pointSource === 'search' || Date.now() < ignorePickerUntil) return; const [lat, lon] = position, key = `${lat.toFixed(5)},${lon.toFixed(5)}`; if (key === dismissedPickerKey) return; if (dismissedPickerKey && key !== dismissedPickerKey) dismissedPickerKey = ''; const activeKey = clickedLatLon ? `${clickedLatLon[0].toFixed(5)},${clickedLatLon[1].toFixed(5)}` : ''; if (key === activeKey && pointSource === 'desktop-picker') { lastPickerKey = key; return; } if (!force && key === lastPickerKey && pointSource === 'desktop-picker') return; lastPickerKey = key; if (pickerTimer) clearTimeout(pickerTimer); pickerTimer = setTimeout(() => { pickerTimer = null; if (key === dismissedPickerKey || pointSource === 'search') return; void probeLocation(lat, lon, 'desktop-picker'); }, PICKER_PROBE_DELAY_MS); }
   function syncPickerFromStore(force = false) { if (isMobile || !enabled || !labelsEnabled()) return; try { schedulePickerProbe(store.get('pickerLocation'), force); } catch {} }
 
   function lineLength(line: ContourPolyline): number { let total = 0; for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i], meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180; total += Math.hypot((b[1] - a[1]) * Math.cos(meanLat), b[0] - a[0]); } return total; }
@@ -416,8 +259,7 @@
 
   function renderFromCache() {
     if (!enabled || !contoursEnabled() || !cache.length) return; const target = getStoreTimestamp(), firstPoint = cache.flat().find((cp): cp is CachedPoint => cp !== null && cp.times.length > 0); if (!firstPoint) return; const firstTime = firstPoint.times[0], effectiveEnd = Math.min(firstPoint.times[firstPoint.times.length - 1], firstTime + MAX_FORECAST_HOURS * 3600_000); if (target < firstTime - 30 * 60_000 || target > effectiveEnd + 30 * 60_000) { clearContours(); return; }
-    const field: GridPoint[][] = [];
-    for (let r = 0; r < cache.length; r++) { const row: GridPoint[] = []; for (let c = 0; c < cache[r].length; c++) { const cp = cache[r][c]; if (!cp || !cp.times.length) { row.push({ lat: 0, lon: 0, value: null }); continue; } const idx = nearestIndex(cp.times, target), snowline = snowlineAt(cp, idx); row.push({ lat: cp.lat, lon: cp.lon, value: snowline }); } field.push(row); }
+    const field: GridPoint[][] = []; for (let r = 0; r < cache.length; r++) { const row: GridPoint[] = []; for (let c = 0; c < cache[r].length; c++) { const cp = cache[r][c]; if (!cp || !cp.times.length) { row.push({ lat: 0, lon: 0, value: null }); continue; } const idx = nearestIndex(cp.times, target), snowline = snowlineAt(cp, idx); row.push({ lat: cp.lat, lon: cp.lon, value: snowline }); } field.push(row); }
     const values = field.flat().map(p => p.value).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)); if (!values.length) { clearContours(); return; }
     const interval = contourIntervalForZoom(), nextLayer = L.layerGroup(), min = Math.floor(Math.min(...values) / interval) * interval, max = Math.ceil(Math.max(...values) / interval) * interval, labelCandidates: LabelCandidate[] = [];
     for (let level = min; level <= max; level += interval) { const lines = contourPolylines(field, level), is1000 = level % 1000 === 0, is500 = level % 500 === 0, contourColor = colorForLevel(level); for (const line of lines) { if (line.length < 2) continue; if (is500 || is1000) L.polyline(line, { color: '#11151b', weight: is1000 ? 4.3 : 3.0, opacity: is1000 ? 0.58 : 0.42, interactive: false, lineCap: 'round', lineJoin: 'round', smoothFactor: 0.8 }).addTo(nextLayer); L.polyline(line, { color: contourColor, weight: is1000 ? 2.9 : is500 ? 1.9 : 0.9, opacity: is1000 ? 1.0 : is500 ? 0.96 : 0.68, interactive: false, lineCap: 'round', lineJoin: 'round', smoothFactor: is500 ? 0.7 : 0.9 }).addTo(nextLayer); } const shouldLabel = interval === 100 ? is500 : is1000; if (shouldLabel && lines.length) { const longest = [...lines].sort((a, b) => lineLength(b) - lineLength(a))[0], length = lineLength(longest), labelPoint = midpointAlongLine(longest); if (labelPoint && length > 0.08) labelCandidates.push({ point: labelPoint, level, color: contourColor, length, isMajor: is1000 }); } }
@@ -429,21 +271,13 @@
   function toggleEnabled() { if (enabled) { if (contoursEnabled()) refreshViewport(); if (!isMobile && labelsEnabled() && !clickedLatLon) syncPickerFromStore(true); } else { generation += 1; viewportLoading = false; refreshQueued = false; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearContours(); clearPointState(); } }
 
   onMount(() => {
-    map.on('moveend', handleMapNavigation); map.on('zoomend', handleMapNavigation);
-    singleclick.on(config.name, handleSingleClick);
+    map.on('moveend', handleMapNavigation); map.on('zoomend', handleMapNavigation); singleclick.on(config.name, handleSingleClick);
     try { timestampListener = store.on('timestamp', () => { if (enabled && contoursEnabled() && cache.length && !viewportLoading) renderFromCache(); if (enabled && labelsEnabled()) updatePersistentClickLabel(); }); } catch (e) { console.warn('Snowline timeline listener unavailable', e); }
     if (!isMobile) { try { pickerLocationListener = store.on('pickerLocation', (value: any) => schedulePickerProbe(value)); } catch (e) { console.warn('Snowline picker-location listener unavailable', e); } pickerSyncTimer = setInterval(() => syncPickerFromStore(), PICKER_SYNC_MS); }
-    if (contoursEnabled()) refreshViewport();
-    if (!isMobile && labelsEnabled()) syncPickerFromStore(true);
+    if (contoursEnabled()) refreshViewport(); if (!isMobile && labelsEnabled()) syncPickerFromStore(true);
   });
   onDestroy(() => {
-    generation += 1; clickGeneration += 1; refreshQueued = false;
-    if (moveTimer) clearTimeout(moveTimer); if (pickerTimer) clearTimeout(pickerTimer); if (pickerSyncTimer) clearInterval(pickerSyncTimer);
-    map.off('moveend', handleMapNavigation); map.off('zoomend', handleMapNavigation);
-    singleclick.off(config.name, handleSingleClick);
-    if (timestampListener !== null) try { store.off(timestampListener); } catch {}
-    if (pickerLocationListener !== null) try { store.off(pickerLocationListener); } catch {}
-    clearContours(); clearClickLayer(); profileCache.clear(); clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null; clickedPlaceName = null; pointSource = null;
+    generation += 1; clickGeneration += 1; refreshQueued = false; if (moveTimer) clearTimeout(moveTimer); if (pickerTimer) clearTimeout(pickerTimer); if (pickerSyncTimer) clearInterval(pickerSyncTimer); map.off('moveend', handleMapNavigation); map.off('zoomend', handleMapNavigation); singleclick.off(config.name, handleSingleClick); if (timestampListener !== null) try { store.off(timestampListener); } catch {} if (pickerLocationListener !== null) try { store.off(pickerLocationListener); } catch {} clearContours(); clearClickLayer(); profileCache.clear(); clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null; clickedPlaceName = null; pointSource = null;
   });
 </script>
 
@@ -478,14 +312,14 @@
   :global(.snowline-label), :global(.snowline-click-label) { background: transparent !important; border: 0 !important; }
   :global(.snowline-label span) { display: inline-block; padding: 1px 4px 1px 6px; border-radius: 3px; border-left: 4px solid var(--snowline-color, white); background: rgba(15,17,20,0.86); color: white; font-size: 10px; font-weight: 800; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 0 0 1px rgba(255,255,255,0.12); }
   :global(.snowline-click-label) { pointer-events: auto !important; }
-  :global(.snowline-click-label span) { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 168px; padding: 6px 44px 5px 10px; border-radius: 8px; border: 2px solid var(--probe-accent, rgba(255,255,255,0.4)); border-bottom: 4px solid var(--snowline-color, white); background: rgba(12,14,17,0.96); color: white; text-align: center; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 3px 10px rgba(0,0,0,0.38); }
-  :global(.snowline-label-close), :global(.snowline-label-share) { position: absolute; top: 3px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.82); font-size: 14px; line-height: 16px; font-weight: 800; text-shadow: none; cursor: pointer; pointer-events: auto; }
-  :global(.snowline-label-close) { right: 4px; }
+  :global(.snowline-click-label span) { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 168px; padding: 6px 48px 5px 48px; border-radius: 8px; border: 2px solid var(--probe-accent, rgba(255,255,255,0.4)); border-bottom: 4px solid var(--snowline-color, white); background: rgba(12,14,17,0.96); color: white; text-align: center; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 3px 10px rgba(0,0,0,0.38); }
+  :global(.snowline-label-close), :global(.snowline-label-share), :global(.snowline-label-forecast), :global(.snowline-label-chart) { position: absolute; top: 3px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.82); font-size: 12px; line-height: 16px; font-weight: 800; text-shadow: none; cursor: pointer; pointer-events: auto; }
+  :global(.snowline-label-close) { right: 4px; font-size: 14px; }
   :global(.snowline-label-share) { right: 26px; font-size: 0; line-height: 0; background-repeat: no-repeat; background-position: center; background-size: 14px 14px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3Ccircle cx='6' cy='12' r='3'/%3E%3Ccircle cx='18' cy='19' r='3'/%3E%3Cpath d='M8.6 10.5l6.8-4M8.6 13.5l6.8 4'/%3E%3C/svg%3E"); }
-  :global(.snowline-label-share[title='Copied']) { background-image: none; font-size: 12px; line-height: 16px; color: white; }
-  :global(.snowline-label-share[title='Preparing copy']) { background-image: none; font-size: 12px; line-height: 16px; color: white; }
-  :global(.snowline-label-share[title='Copy failed']) { background-image: none; font-size: 12px; line-height: 16px; color: white; }
-  :global(.snowline-label-close:hover), :global(.snowline-label-share:hover) { background-color: rgba(255,255,255,0.22); color: white; }
+  :global(.snowline-label-forecast) { left: 4px; font-family: Arial, sans-serif; font-size: 10px; color: #70d7ff; }
+  :global(.snowline-label-chart) { left: 26px; font-size: 15px; line-height: 15px; color: #ffe45c; }
+  :global(.snowline-label-share[title='Copied']), :global(.snowline-label-share[title='Preparing copy']), :global(.snowline-label-share[title='Copy failed']) { background-image: none; font-size: 12px; line-height: 16px; color: white; }
+  :global(.snowline-label-close:hover), :global(.snowline-label-share:hover), :global(.snowline-label-forecast:hover), :global(.snowline-label-chart:hover) { background-color: rgba(255,255,255,0.22); color: white; }
   :global(.snowline-click-label b) { color: var(--probe-accent, white); font-size: 13px; line-height: 1.05; font-weight: 900; letter-spacing: 0.25px; }
   :global(.snowline-click-label small) { font-size: 9px; line-height: 1.1; font-weight: 700; opacity: 0.9; }
   :global(.snowline-probe-above span) { background: rgba(8,27,38,0.97); }
