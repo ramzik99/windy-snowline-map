@@ -14,7 +14,7 @@ It is a thermal diagnostic only. A displayed snowline does **not** mean precipit
 
 - ECMWF-only snowline calculation
 - Wet-bulb-zero snowline proxy to +144 h
-- Compact fixed Snowline panel
+- Wider fixed Snowline panel
 - Separate **i** help window with all scientific explanation
 - Label only, Contour only, and Label + contour modes
 - Adaptive contour spacing by zoom
@@ -26,6 +26,7 @@ It is a thermal diagnostic only. A displayed snowline does **not** mean precipit
 - Above / Near / Below Snowline point classification
 - ±100 m Near Snowline transition band
 - 3-hour snowline tendency
+- Source-aware point-label state for search, desktop picker and mobile taps
 - Dismissible, widened selected-point labels
 - Node-style share/copy button on selected-point labels
 - Built-in place search
@@ -39,7 +40,7 @@ It is a thermal diagnostic only. A displayed snowline does **not** mean precipit
 
 ## Panel controls
 
-The main Snowline panel stays compact and fixed in Windy's normal plugin position. The regular view contains the title, **i** help button, hide control, On/Off control, search and display modes.
+The main Snowline panel stays fixed in Windy's normal plugin position. The regular view contains the title, **i** help button, hide control, On/Off control, search and display modes.
 
 The **i** button opens a separate floating **How Snowline works** window over the map. It can be closed with its **×** button or by tapping/clicking outside the help window.
 
@@ -59,6 +60,7 @@ The separate **i** help window explains:
 - that the arrow on a point label shows the approximate 3-hour snowline tendency
 - that contours are reconstructed from sampled profiles across the visible viewport
 - that desktop uses Windy's picker while mobile uses Windy's `singleclick` location event
+- that search, desktop-picker and mobile-tap labels have separate persistence rules
 - that the node-style share control copies point and forecast details including explicit valid and lead times
 - that the result is a thermal boundary and does not imply precipitation, snowfall or accumulation
 
@@ -126,7 +128,21 @@ The ±100 m band is a practical transition/uncertainty display zone. It is not i
 
 The label also reports the approximate snowline tendency over the following three hours, for example `↑120 m/3h`, `↓80 m/3h`, or `→ steady`.
 
-The selected-point label is intentionally a little wider to give the values and controls more room.
+### Point-label state model
+
+Version 1 explicitly records the origin of the active point as one of:
+
+- `search`
+- `desktop-picker`
+- `mobile-tap`
+
+This avoids accidental cross-clearing between Windy's picker and Snowline's own search/tap labels. Search labels persist when desktop picker state is absent, mobile tap labels persist until replaced or closed, and desktop-picker labels are cleared when the Windy picker closes.
+
+A short picker guard is also used immediately after a Snowline search selection so an old desktop picker position cannot overwrite the newly selected searched place while the map is moving.
+
+Every new point request receives a generation id. If a slower older request finishes after a newer point has already been selected, the old result is ignored instead of replacing the current label.
+
+The selected-point label is intentionally wider to give the values and controls more room.
 
 Every selected-point label has two compact controls:
 
@@ -151,6 +167,8 @@ Windy's `pickerLocation` state is designed for desktop use, so Snowline uses dif
 - **Desktop:** follows Windy's picker location.
 - **Mobile:** listens to Windy's plugin `singleclick` events so a map tap directly supplies the selected coordinates.
 
+Desktop ignores the `singleclick` path, preventing a normal desktop click from competing with Windy's picker state.
+
 This avoids using map-center coordinates as a substitute for the user's selected point.
 
 Search and favourite selections use their own exact stored coordinates on both platforms.
@@ -161,7 +179,7 @@ Snowline contains a compact place search using OpenStreetMap Nominatim results.
 
 Search results can be saved with the ☆ button. Saved places are stored locally in the browser/app environment and can be reopened from the ★ favourites button.
 
-The × button in the search box clears the current search and searched-point label.
+The × button in the search box clears the current searched-point label without incorrectly removing a separately active mobile or desktop-picker point.
 
 ## Forecast timing
 
@@ -233,7 +251,7 @@ Each published release must use a new version number.
 
 ## Current version
 
-**0.6.10**
+**1.0.0**
 
 ## Author
 
