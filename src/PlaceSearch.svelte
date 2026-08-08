@@ -1,10 +1,13 @@
 <div class="place-search">
   <div class="search-box">
     <input
+      bind:this={inputElement}
       bind:value={query}
       placeholder="Search place…"
       aria-label="Search place"
       on:keydown={handleKeydown}
+      on:keyup={stopKeyboardEvent}
+      on:keypress={stopKeyboardEvent}
       on:input={scheduleSearch}
       on:focus={() => { if (results.length) open = true; }}
     />
@@ -34,8 +37,7 @@
 </div>
 
 <script lang="ts">
-  import { onDestroy } from 'svelte';
-  import { map } from '@windy/map';
+  import { createEventDispatcher, onDestroy } from 'svelte';
 
   type PlaceResult = {
     lat: number;
@@ -44,11 +46,14 @@
     secondary: string;
   };
 
+  const dispatch = createEventDispatcher<{ select: PlaceResult }>();
+
   let query = '';
   let results: PlaceResult[] = [];
   let searching = false;
   let open = false;
   let error = '';
+  let inputElement: HTMLInputElement | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
   let controller: AbortController | null = null;
   let searchSerial = 0;
@@ -59,6 +64,13 @@
       primary: parts[0] || displayName,
       secondary: parts.slice(1, 4).join(', '),
     };
+  }
+
+  function stopKeyboardEvent(event: KeyboardEvent) {
+    // Windy has global single-key shortcuts (for example "f").
+    // Keep keystrokes inside this input so typing a place never triggers them.
+    event.stopPropagation();
+    event.stopImmediatePropagation?.();
   }
 
   function scheduleSearch() {
@@ -120,24 +132,21 @@
     query = result.primary;
     results = [];
     open = false;
-
-    const zoom = Math.max(Number(map.getZoom?.() ?? 7), 9);
-    map.setView([result.lat, result.lon], zoom, { animate: true });
-
-    // Reuse the plugin's normal click handler so the selected place
-    // immediately receives the same snowline/elevation probe label.
-    setTimeout(() => {
-      try { map.fire('click', { latlng: { lat: result.lat, lng: result.lon } }); } catch {}
-    }, 250);
+    inputElement?.blur();
+    dispatch('select', result);
   }
 
   function handleKeydown(event: KeyboardEvent) {
+    stopKeyboardEvent(event);
+
     if (event.key === 'Enter') {
       event.preventDefault();
       if (results.length && open) choose(results[0]);
       else searchNow();
     } else if (event.key === 'Escape') {
+      event.preventDefault();
       open = false;
+      inputElement?.blur();
     }
   }
 
