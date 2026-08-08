@@ -1,8 +1,8 @@
 <div class="snowline-panel">
   <div class="header">
     <div>
-      <div class="title">❄️ Snowline Map</div>
-      <div class="subtitle">WBZ isolines · 100 m interval · 1 h (0–5 d) / 3 h (5–15 d)</div>
+      <div class="title">❄️ Snowline</div>
+      <div class="subtitle">WBZ isolines · 100 m · 1 h to 90 h · 3 h to 144 h · 6 h thereafter</div>
     </div>
     <label class="switch">
       <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
@@ -48,8 +48,8 @@
   </div>
 
   <div class="note">
-    Fast adaptive mode: 17×11 grid. A 15-day 3-hourly base loads first;
-    days 0–5 are then refined to 1-hourly in the background.
+    Fast mode: 17×11 sampling grid. Forecast timing follows the model data returned by Windy:
+    1-hourly to 90 h, 3-hourly to 144 h, then 6-hourly. Map movement fetches a new viewport grid.
   </div>
 </div>
 
@@ -64,17 +64,12 @@
 
   type Model = 'ecmwf' | 'gfs' | 'icon';
 
-  type ForecastSlice = {
-    forecast: Record<string, unknown>;
-    header: Record<string, unknown>;
-    times: number[];
-  };
-
   type CachedPoint = {
     lat: number;
     lon: number;
-    coarse: ForecastSlice;
-    fine: ForecastSlice | null;
+    forecast: Record<string, unknown>;
+    header: Record<string, unknown>;
+    times: number[];
   };
 
   let enabled = true;
@@ -82,7 +77,6 @@
   let contourInterval = 100;
 
   let loading = false;
-  let fineLoading = false;
   let loaded = 0;
   let total = 0;
   let status = 'Waiting for map…';
@@ -98,7 +92,6 @@
   const COLS = 17;
   const MAX_CONCURRENT = 8;
   const FORECAST_DAYS = 15;
-  const FINE_DAYS = 5;
 
   function getStoreTimestamp(): number {
     try {
@@ -167,6 +160,18 @@
     return bestIndex;
   }
 
+  function estimateStepHours(times: number[], target: number): number | null {
+    if (times.length < 2) return null;
+    const idx = nearestIndex(times, target);
+    let dt: number | null = null;
+    if (idx > 0) dt = Math.abs(times[idx] - times[idx - 1]);
+    if (idx < times.length - 1) {
+      const next = Math.abs(times[idx + 1] - times[idx]);
+      dt = dt === null ? next : Math.min(dt, next);
+    }
+    return dt === null ? null : Math.round(dt / 3600_000);
+  }
+
   function extractPayload(payload: unknown): {
     forecast: Record<string, unknown>;
     header: Record<string, unknown>;
@@ -184,44 +189,29 @@
     };
   }
 
-  async function fetchSlice(
-    lat: number,
-    lon: number,
-    step: 1 | 3,
-    days: number
-  ): Promise<ForecastSlice | null> {
+  async function loadPoint(lat: number, lon: number): Promise<CachedPoint | null> {
     try {
+      // Request the full forecast horizon once. Windy/model output keeps its native
+      // temporal spacing (currently 1 h to ~90 h, 3 h to ~144 h, then 6 h).
       const response = await getMeteogramForecastData(
         model,
-        { lat, lon, step, days }
+        { lat, lon, step: 1, days: FORECAST_DAYS }
       );
 
       const { forecast, header } = extractPayload(response);
       if (!Object.keys(forecast).length) return null;
 
       return {
+        lat,
+        lon,
         forecast,
         header,
         times: buildForecastTimes(forecast, header),
       };
     } catch (e) {
-      console.warn('Snowline point failed', lat, lon, step, days, e);
+      console.warn('Snowline point failed', lat, lon, e);
       return null;
     }
-  }
-
-  function useFineForTarget(cp: CachedPoint, target: number): boolean {
-    if (!cp.fine || !cp.fine.times.length) return false;
-    const first = cp.fine.times[0];
-    const last = cp.fine.times[cp.fine.times.length - 1];
-    return target >= first - 30 * 60_000 && target <= last + 30 * 60_000;
-  }
-
-  function targetNeedsFine(target: number): boolean {
-    const firstPoint = cache.flat().find((cp): cp is CachedPoint => cp !== null);
-    const first = firstPoint?.coarse.times?.[0];
-    if (!first) return false;
-    return target >= first - 3 * 3600_000 && target <= first + FINE_DAYS * 24 * 3600_000;
   }
 
   async function mapLimit<T, R>(
@@ -250,7 +240,6 @@
   function buildViewportPoints(): { lat: number; lon: number; r: number; c: number }[] {
     const b = map.getBounds();
 
-    // Avoid pathological polar sampling.
     const south = Math.max(-75, b.getSouth());
     const north = Math.min(75, b.getNorth());
     const west = b.getWest();
@@ -278,17 +267,16 @@
 
     const myGeneration = ++generation;
     loading = true;
-    fineLoading = false;
     loaded = 0;
-    status = 'Loading 15-day 3-hourly base…';
+    status = 'Fetching forecast profiles…';
 
     const points = buildViewportPoints();
     total = points.length;
 
     const results = await mapLimit(points, MAX_CONCURRENT, async p => {
-      const coarse = await fetchSlice(p.lat, p.lon, 3, FORECAST_DAYS);
+      const result = await loadPoint(p.lat, p.lon);
       loaded += 1;
-      return { ...p, coarse };
+      return { ...p, result };
     });
 
     if (myGeneration !== generation) return;
@@ -299,53 +287,11 @@
     );
 
     for (const item of results) {
-      if (item.coarse) {
-        nextCache[item.r][item.c] = {
-          lat: item.lat,
-          lon: item.lon,
-          coarse: item.coarse,
-          fine: null,
-        };
-      }
+      if (item.result) nextCache[item.r][item.c] = item.result;
     }
 
     cache = nextCache;
     loading = false;
-    renderFromCache();
-
-    if (targetNeedsFine(getStoreTimestamp())) {
-      void refineNearTerm(myGeneration);
-    }
-  }
-
-  async function refineNearTerm(myGeneration = generation) {
-    if (!enabled || fineLoading || !cache.length || myGeneration !== generation) return;
-
-    const points: { lat: number; lon: number; r: number; c: number }[] = [];
-    for (let r = 0; r < cache.length; r++) {
-      for (let c = 0; c < cache[r].length; c++) {
-        const cp = cache[r][c];
-        if (cp && !cp.fine) points.push({ lat: cp.lat, lon: cp.lon, r, c });
-      }
-    }
-    if (!points.length) return;
-
-    fineLoading = true;
-    status = 'Base ready · refining days 0–5 to hourly…';
-
-    const results = await mapLimit(points, MAX_CONCURRENT, async p => ({
-      ...p,
-      fine: await fetchSlice(p.lat, p.lon, 1, FINE_DAYS),
-    }));
-
-    if (myGeneration !== generation) return;
-
-    for (const item of results) {
-      const cp = cache[item.r]?.[item.c];
-      if (item.fine && cp) cp.fine = item.fine;
-    }
-
-    fineLoading = false;
     renderFromCache();
   }
 
@@ -368,6 +314,7 @@
     lastTimestamp = target;
 
     const field: GridPoint[][] = [];
+    let displayStepHours: number | null = null;
 
     for (let r = 0; r < cache.length; r++) {
       const row: GridPoint[] = [];
@@ -379,9 +326,12 @@
           continue;
         }
 
-        const slice = useFineForTarget(cp, target) ? cp.fine! : cp.coarse;
-        const idx = nearestIndex(slice.times, target);
-        const profile = buildProfile(slice.forecast, idx);
+        if (displayStepHours === null) {
+          displayStepHours = estimateStepHours(cp.times, target);
+        }
+
+        const idx = nearestIndex(cp.times, target);
+        const profile = buildProfile(cp.forecast, idx);
         const wbz = wetBulbZeroHeight(profile);
 
         row.push({
@@ -430,7 +380,6 @@
         segmentCount += 1;
       }
 
-      // Add one lightweight label per contour level if possible.
       if (segments.length) {
         const s = segments[Math.floor(segments.length / 2)];
         const lat = (s[0][0] + s[1][0]) / 2;
@@ -448,9 +397,7 @@
       }
     }
 
-    const resolution = cache.flat().some(cp => cp && useFineForTarget(cp, target))
-      ? '1-hourly'
-      : '3-hourly';
+    const resolution = displayStepHours ? `${displayStepHours}-hourly` : 'native timing';
     status = `${segmentCount} contour segments · ${COLS}×${ROWS} grid · ${resolution}`;
   }
 
@@ -488,9 +435,7 @@
     try {
       timestampListener = store.on('timestamp', () => {
         if (enabled && cache.length && !loading) {
-          const target = getStoreTimestamp();
           renderFromCache();
-          if (targetNeedsFine(target)) void refineNearTerm();
         }
       });
     } catch (e) {
@@ -605,21 +550,15 @@
     margin-bottom: 8px;
   }
 
-  .status span {
-    opacity: 0.7;
-    font-size: 11px;
-  }
-
   .legend {
     display: flex;
     align-items: center;
-    gap: 7px;
-    margin-bottom: 7px;
-    font-size: 11px;
+    gap: 8px;
+    margin-bottom: 8px;
   }
 
   .line {
-    width: 28px;
+    width: 30px;
     height: 0;
     border-top: 2px solid white;
   }
@@ -631,11 +570,11 @@
 
   :global(.snowline-label span) {
     display: inline-block;
-    padding: 1px 4px;
+    padding: 1px 3px;
     border-radius: 3px;
-    background: rgba(40,40,40,0.72);
+    background: rgba(25,25,25,0.72);
     color: white;
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 800;
     white-space: nowrap;
   }
