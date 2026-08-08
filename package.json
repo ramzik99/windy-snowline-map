@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "0.3.9",
-  "description": "Compact ECMWF-only Windy Snowline WBZ proxy to +144 h with colour-coded 100 m contours.",
+  "version": "0.4.0",
+  "description": "Snowline: level separating snow from rain, estimated from wet-bulb freezing level using ECMWF; forecast to +144 h only.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
