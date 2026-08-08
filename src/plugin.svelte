@@ -2,7 +2,7 @@
   <div class="header">
     <div>
       <div class="title">❄️ Snowline</div>
-      <div class="subtitle">WBZ proxy · shaded elevation bands · forecast to +144 h</div>
+      <div class="subtitle">WBZ proxy · 100 m contours · forecast to +144 h</div>
     </div>
     <label class="switch">
       <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
@@ -32,23 +32,14 @@
     {/if}
   </div>
 
-  <div class="band-legend">
-    <div><span class="swatch s0"></span><span>&lt;500 m</span></div>
-    <div><span class="swatch s1"></span><span>500–1000</span></div>
-    <div><span class="swatch s2"></span><span>1000–1500</span></div>
-    <div><span class="swatch s3"></span><span>1500–2000</span></div>
-    <div><span class="swatch s4"></span><span>2000–2500</span></div>
-    <div><span class="swatch s5"></span><span>2500–3000</span></div>
-    <div><span class="swatch s6"></span><span>&gt;3000 m</span></div>
-  </div>
-
-  <div class="legend-line">
-    <span class="major-line"></span><span>500 m labelled contours</span>
+  <div class="legend">
+    <div><span class="line minor"></span><span>100 m</span></div>
+    <div><span class="line medium"></span><span>500 m</span></div>
+    <div><span class="line major"></span><span>1000 m</span></div>
   </div>
 
   <div class="note">
-    Simple hybrid display: shaded 500 m snowline bands with labelled 500 m contours.
-    17×11 fast grid; native forecast timing is used to +144 h.
+    100 m contours stay visible but subtle. 500 m contours are labelled and 1000 m contours are emphasized.
   </div>
 </div>
 
@@ -73,7 +64,6 @@
 
   let enabled = true;
   let model: Model = 'ecmwf';
-
   let loading = false;
   let loaded = 0;
   let total = 0;
@@ -90,17 +80,7 @@
   const COLS = 17;
   const MAX_CONCURRENT = 8;
   const FORECAST_DAYS = 6;
-  const MAJOR_INTERVAL = 500;
-
-  function bandColor(value: number): string {
-    if (value < 500) return '#244c8a';
-    if (value < 1000) return '#3478b8';
-    if (value < 1500) return '#55a6c8';
-    if (value < 2000) return '#86cdd0';
-    if (value < 2500) return '#c4e6df';
-    if (value < 3000) return '#e9f0e8';
-    return '#f4f4f4';
-  }
+  const CONTOUR_INTERVAL = 100;
 
   function getStoreTimestamp(): number {
     try {
@@ -296,80 +276,6 @@
     }
   }
 
-  function drawBands(field: GridPoint[][]) {
-    if (!contourLayer) return;
-
-    for (let r = 0; r < field.length - 1; r++) {
-      for (let c = 0; c < field[r].length - 1; c++) {
-        const p00 = field[r][c];
-        const p01 = field[r][c + 1];
-        const p10 = field[r + 1][c];
-        const p11 = field[r + 1][c + 1];
-        const vals = [p00.value, p01.value, p10.value, p11.value]
-          .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
-
-        if (vals.length < 3) continue;
-        const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
-
-        L.polygon(
-          [
-            [p00.lat, p00.lon],
-            [p01.lat, p01.lon],
-            [p11.lat, p11.lon],
-            [p10.lat, p10.lon],
-          ],
-          {
-            stroke: false,
-            fillColor: bandColor(mean),
-            fillOpacity: 0.34,
-            interactive: false,
-          }
-        ).addTo(contourLayer);
-      }
-    }
-  }
-
-  function drawMajorContours(field: GridPoint[][], values: number[]): number {
-    if (!contourLayer) return 0;
-
-    const min = Math.floor(Math.min(...values) / MAJOR_INTERVAL) * MAJOR_INTERVAL;
-    const max = Math.ceil(Math.max(...values) / MAJOR_INTERVAL) * MAJOR_INTERVAL;
-    let segmentCount = 0;
-
-    for (let level = min; level <= max; level += MAJOR_INTERVAL) {
-      const segments = contourSegments(field, level);
-      const is1000 = level % 1000 === 0;
-
-      for (const segment of segments) {
-        L.polyline(segment, {
-          color: '#ffffff',
-          weight: is1000 ? 2.4 : 1.7,
-          opacity: is1000 ? 0.98 : 0.88,
-          interactive: false,
-        }).addTo(contourLayer);
-        segmentCount += 1;
-      }
-
-      if (segments.length) {
-        const s = segments[Math.floor(segments.length / 2)];
-        const lat = (s[0][0] + s[1][0]) / 2;
-        const lon = (s[0][1] + s[1][1]) / 2;
-
-        L.marker([lat, lon], {
-          interactive: false,
-          icon: L.divIcon({
-            className: 'snowline-label',
-            html: `<span>${level} m</span>`,
-            iconSize: [58, 18],
-            iconAnchor: [29, 9],
-          }),
-        }).addTo(contourLayer);
-      }
-    }
-
-    return segmentCount;
-  }
-
   function renderFromCache() {
     if (!enabled || !cache.length) {
       clearContours();
@@ -432,12 +338,48 @@
       return;
     }
 
-    drawBands(field);
-    const segmentCount = drawMajorContours(field, values);
+    const min = Math.floor(Math.min(...values) / CONTOUR_INTERVAL) * CONTOUR_INTERVAL;
+    const max = Math.ceil(Math.max(...values) / CONTOUR_INTERVAL) * CONTOUR_INTERVAL;
+    let segmentCount = 0;
+
+    for (let level = min; level <= max; level += CONTOUR_INTERVAL) {
+      const segments = contourSegments(field, level);
+      const is1000 = level % 1000 === 0;
+      const is500 = level % 500 === 0;
+
+      for (const segment of segments) {
+        L.polyline(segment, {
+          color: is1000 ? '#9edcff' : is500 ? '#e7f7ff' : '#ffffff',
+          weight: is1000 ? 2.8 : is500 ? 1.9 : 0.8,
+          opacity: is1000 ? 1.0 : is500 ? 0.9 : 0.34,
+          interactive: false,
+          lineCap: 'round',
+          lineJoin: 'round',
+          smoothFactor: 1.0,
+        }).addTo(contourLayer);
+        segmentCount += 1;
+      }
+
+      if (is500 && segments.length) {
+        const s = segments[Math.floor(segments.length / 2)];
+        const lat = (s[0][0] + s[1][0]) / 2;
+        const lon = (s[0][1] + s[1][1]) / 2;
+
+        L.marker([lat, lon], {
+          interactive: false,
+          icon: L.divIcon({
+            className: 'snowline-label',
+            html: `<span>${level} m</span>`,
+            iconSize: [58, 18],
+            iconAnchor: [29, 9],
+          }),
+        }).addTo(contourLayer);
+      }
+    }
 
     const leadHours = Math.max(0, Math.round((target - firstTime) / 3600_000));
     const resolution = displayStepHours ? `${displayStepHours} h` : 'native';
-    status = `+${leadHours} h · ${resolution} data · shaded + ${segmentCount} contour segments`;
+    status = `+${leadHours} h · ${resolution} data · ${segmentCount} contours`;
   }
 
   function scheduleViewportRefresh() {
@@ -548,43 +490,29 @@
     margin-bottom: 8px;
   }
 
-  .band-legend {
+  .legend {
     display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 4px 8px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 7px;
     margin-bottom: 8px;
     font-size: 10px;
   }
 
-  .band-legend div,
-  .legend-line {
+  .legend div {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
   }
 
-  .swatch {
-    width: 18px;
-    height: 9px;
-    border-radius: 2px;
-    border: 1px solid rgba(255,255,255,0.25);
+  .line {
+    width: 22px;
+    height: 0;
+    display: inline-block;
   }
 
-  .s0 { background: #244c8a; }
-  .s1 { background: #3478b8; }
-  .s2 { background: #55a6c8; }
-  .s3 { background: #86cdd0; }
-  .s4 { background: #c4e6df; }
-  .s5 { background: #e9f0e8; }
-  .s6 { background: #f4f4f4; }
-
-  .legend-line {
-    margin-bottom: 8px;
-    font-size: 10px;
-    opacity: 0.92;
-  }
-
-  .major-line { width: 26px; border-top: 2px solid white; }
+  .minor { border-top: 1px solid rgba(255,255,255,0.45); }
+  .medium { border-top: 2px solid #e7f7ff; }
+  .major { border-top: 3px solid #9edcff; }
 
   :global(.snowline-label) {
     background: transparent !important;
@@ -595,11 +523,11 @@
     display: inline-block;
     padding: 1px 4px;
     border-radius: 3px;
-    background: rgba(18,18,18,0.82);
+    background: rgba(18,18,18,0.74);
     color: white;
     font-size: 10px;
     font-weight: 800;
     white-space: nowrap;
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.12);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.10);
   }
 </style>
