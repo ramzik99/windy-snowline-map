@@ -46,6 +46,7 @@
         <div>The arrow on a point label shows the approximate snowline tendency over the next 3 hours.</div>
         <div>Contours are reconstructed from ECMWF vertical profiles sampled across the visible map. Sampling density and contour spacing increase with zoom, and the contours update with the Windy forecast timestep.</div>
         <div>Desktop clicks create the Snowline point label directly. Valid Windy picker updates can refine a selected point, but an empty or stale picker state never removes the label. Mobile uses Windy's single-click location event.</div>
+        <div>Search, favourites and My location recenter the map while preserving the current zoom level.</div>
         <div>Search, mobile taps and desktop selections are tracked separately so the correct point label persists until another point is selected or × is pressed.</div>
         <div>Search results and favourites use their exact stored coordinates. The <b>share-node</b> button on a point label copies the place name, coordinates, <b>valid time</b>, <b>lead time</b>, snowline, elevation and tendency. The × button dismisses the label.</div>
         <div class="info-caveat">Thermal boundary only — precipitation, snowfall and accumulation are not implied.</div>
@@ -127,7 +128,7 @@
   function contoursEnabled(): boolean { return displayMode === 'contour' || displayMode === 'both'; }
   function labelsEnabled(): boolean { return displayMode === 'label' || displayMode === 'both'; }
   function contourIntervalForZoom(): number { const zoom = Number(map.getZoom?.() ?? 6); if (zoom <= 4) return 500; if (zoom <= 7) return 200; return 100; }
-  function hexToRgb(hex: string): [number, number, number] { const h = hex.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+  function hexToRgb(hex: string): [number, number, number] { const h = hex.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16)]; }
   function rgbToHex(r: number, g: number, b: number): string { const part = (v: number) => Math.round(v).toString(16).padStart(2, '0'); return `#${part(r)}${part(g)}${part(b)}`; }
   function colorForLevel(level: number): string {
     if (level <= COLOUR_STOPS[0].value) return COLOUR_STOPS[0].color;
@@ -365,14 +366,13 @@
     if (!enabled || !event?.detail) return;
     const { lat, lon, primary, secondary } = event.detail;
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const zoom = Math.max(Number(map.getZoom?.() ?? 7), 9);
     const placeName = [primary, secondary].map(value => String(value ?? '').trim()).filter(Boolean).join(', ');
     ignorePickerUntil = Date.now() + SEARCH_PICKER_GUARD_MS;
     lastPickerKey = '';
     dismissedPickerKey = '';
     if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
     pointSource = 'search';
-    map.setView([lat, lon], Math.min(zoom, 10), { animate: true });
+    map.panTo([lat, lon], { animate: true });
     setTimeout(() => { if (pointSource === 'search') void probeLocation(lat, lon, 'search', placeName || null); }, 180);
   }
 
