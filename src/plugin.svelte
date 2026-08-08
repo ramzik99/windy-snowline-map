@@ -2,7 +2,7 @@
   <div class="header">
     <div>
       <div class="title">❄️ Snowline</div>
-      <div class="subtitle">WBZ isolines · 100 m · 1 h to 90 h · 3 h to 144 h · 6 h thereafter</div>
+      <div class="subtitle">WBZ proxy · 100 m contours · forecast to +144 h</div>
     </div>
     <label class="switch">
       <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
@@ -43,13 +43,13 @@
   </div>
 
   <div class="legend">
-    <span class="line"></span>
-    <span>WBZ / snow-level proxy</span>
+    <span class="minor-line"></span><span>100 m contours</span>
+    <span class="major-line"></span><span>500 m labelled</span>
   </div>
 
   <div class="note">
-    Fast mode: 17×11 sampling grid. Forecast timing follows the model data returned by Windy:
-    1-hourly to 90 h, 3-hourly to 144 h, then 6-hourly. Map movement fetches a new viewport grid.
+    17×11 fast grid. Native timing is used: 1-hourly to ~90 h and 3-hourly to +144 h.
+    Values beyond the available forecast are not extrapolated.
   </div>
 </div>
 
@@ -91,15 +91,13 @@
   const ROWS = 11;
   const COLS = 17;
   const MAX_CONCURRENT = 8;
-  const FORECAST_DAYS = 15;
+  const FORECAST_DAYS = 6;
 
   function getStoreTimestamp(): number {
     try {
       const t = store.get('timestamp');
       if (typeof t === 'number' && Number.isFinite(t)) return t;
-    } catch {
-      // fall back below
-    }
+    } catch {}
     return Date.now();
   }
 
@@ -108,12 +106,10 @@
       if (value > 1e12) return value;
       if (value > 1e9) return value * 1000;
     }
-
     if (typeof value === 'string') {
       const parsed = Date.parse(value);
       if (Number.isFinite(parsed)) return parsed;
     }
-
     return null;
   }
 
@@ -139,16 +135,12 @@
 
     const ref = parseRefTime(header.refTime);
     if (ref === null) return [];
-
     return raw.map(h => ref + h * 3600_000);
   }
 
   function nearestIndex(times: number[], target: number): number {
-    if (!times.length) return 0;
-
     let bestIndex = 0;
     let best = Infinity;
-
     times.forEach((t, i) => {
       const d = Math.abs(t - target);
       if (d < best) {
@@ -156,7 +148,6 @@
         bestIndex = i;
       }
     });
-
     return bestIndex;
   }
 
@@ -191,13 +182,10 @@
 
   async function loadPoint(lat: number, lon: number): Promise<CachedPoint | null> {
     try {
-      // Request the full forecast horizon once. Windy/model output keeps its native
-      // temporal spacing (currently 1 h to ~90 h, 3 h to ~144 h, then 6 h).
       const response = await getMeteogramForecastData(
         model,
         { lat, lon, step: 1, days: FORECAST_DAYS }
       );
-
       const { forecast, header } = extractPayload(response);
       if (!Object.keys(forecast).length) return null;
 
@@ -233,18 +221,15 @@
     await Promise.all(
       Array.from({ length: Math.min(limit, items.length) }, () => worker())
     );
-
     return out;
   }
 
   function buildViewportPoints(): { lat: number; lon: number; r: number; c: number }[] {
     const b = map.getBounds();
-
     const south = Math.max(-75, b.getSouth());
     const north = Math.min(75, b.getNorth());
     const west = b.getWest();
     const east = b.getEast();
-
     const latStep = (north - south) / (ROWS - 1);
     const lonStep = (east - west) / (COLS - 1);
 
@@ -297,9 +282,7 @@
 
   function clearContours() {
     if (contourLayer) {
-      try {
-        map.removeLayer(contourLayer);
-      } catch {}
+      try { map.removeLayer(contourLayer); } catch {}
       contourLayer = null;
     }
   }
@@ -313,6 +296,22 @@
     const target = getStoreTimestamp();
     lastTimestamp = target;
 
+    const firstPoint = cache.flat().find((cp): cp is CachedPoint => cp !== null && cp.times.length > 0);
+    if (!firstPoint) {
+      clearContours();
+      status = 'No forecast data in viewport';
+      return;
+    }
+
+    const firstTime = firstPoint.times[0];
+    const lastTime = firstPoint.times[firstPoint.times.length - 1];
+    if (target < firstTime - 30 * 60_000 || target > lastTime + 30 * 60_000) {
+      clearContours();
+      const maxHour = Math.round((lastTime - firstTime) / 3600_000);
+      status = `Outside Snowline forecast range · available to +${maxHour} h`;
+      return;
+    }
+
     const field: GridPoint[][] = [];
     let displayStepHours: number | null = null;
 
@@ -320,8 +319,7 @@
       const row: GridPoint[] = [];
       for (let c = 0; c < cache[r].length; c++) {
         const cp = cache[r][c];
-
-        if (!cp) {
+        if (!cp || !cp.times.length) {
           row.push({ lat: 0, lon: 0, value: null });
           continue;
         }
@@ -333,12 +331,7 @@
         const idx = nearestIndex(cp.times, target);
         const profile = buildProfile(cp.forecast, idx);
         const wbz = wetBulbZeroHeight(profile);
-
-        row.push({
-          lat: cp.lat,
-          lon: cp.lon,
-          value: wbz.snowLevelM,
-        });
+        row.push({ lat: cp.lat, lon: cp.lon, value: wbz.snowLevelM });
       }
       field.push(row);
     }
@@ -363,24 +356,21 @@
 
     for (let level = min; level <= max; level += contourInterval) {
       const segments = contourSegments(field, level);
+      const is1000 = level % 1000 === 0;
+      const is500 = level % 500 === 0;
 
       for (const segment of segments) {
         L.polyline(segment, {
-          color: '#ffffff',
-          weight:
-            level % 1000 === 0 ? 2.6 :
-            level % 500 === 0 ? 2.0 :
-            1.1,
-          opacity:
-            level % 1000 === 0 ? 0.98 :
-            level % 500 === 0 ? 0.92 :
-            0.78,
+          color: is1000 ? '#8fd3ff' : is500 ? '#d8f1ff' : '#ffffff',
+          weight: is1000 ? 2.8 : is500 ? 2.0 : 0.9,
+          opacity: is1000 ? 1.0 : is500 ? 0.94 : 0.55,
           interactive: false,
         }).addTo(contourLayer);
         segmentCount += 1;
       }
 
-      if (segments.length) {
+      // Keep the map readable: label the important 500 m contours only.
+      if (is500 && segments.length) {
         const s = segments[Math.floor(segments.length / 2)];
         const lat = (s[0][0] + s[1][0]) / 2;
         const lon = (s[0][1] + s[1][1]) / 2;
@@ -390,24 +380,22 @@
           icon: L.divIcon({
             className: 'snowline-label',
             html: `<span>${level} m</span>`,
-            iconSize: [54, 18],
-            iconAnchor: [27, 9],
+            iconSize: [58, 18],
+            iconAnchor: [29, 9],
           }),
         }).addTo(contourLayer);
       }
     }
 
-    const resolution = displayStepHours ? `${displayStepHours}-hourly` : 'native timing';
-    status = `${segmentCount} contour segments · ${COLS}×${ROWS} grid · ${resolution}`;
+    const leadHours = Math.max(0, Math.round((target - firstTime) / 3600_000));
+    const resolution = displayStepHours ? `${displayStepHours} h` : 'native';
+    status = `+${leadHours} h · ${resolution} data · ${COLS}×${ROWS} grid`;
   }
 
   function scheduleViewportRefresh() {
     if (!enabled) return;
     if (moveTimer) clearTimeout(moveTimer);
-
-    moveTimer = setTimeout(() => {
-      refreshViewport();
-    }, 500);
+    moveTimer = setTimeout(() => refreshViewport(), 650);
   }
 
   function modelChanged() {
@@ -428,15 +416,12 @@
 
   onMount(() => {
     status = 'Starting…';
-
     map.on('moveend', scheduleViewportRefresh);
     map.on('zoomend', scheduleViewportRefresh);
 
     try {
       timestampListener = store.on('timestamp', () => {
-        if (enabled && cache.length && !loading) {
-          renderFromCache();
-        }
+        if (enabled && cache.length && !loading) renderFromCache();
       });
     } catch (e) {
       console.warn('Snowline timeline listener unavailable', e);
@@ -448,26 +433,22 @@
   onDestroy(() => {
     generation += 1;
     if (moveTimer) clearTimeout(moveTimer);
-
     map.off('moveend', scheduleViewportRefresh);
     map.off('zoomend', scheduleViewportRefresh);
 
     if (timestampListener !== null) {
-      try {
-        store.off(timestampListener);
-      } catch {}
+      try { store.off(timestampListener); } catch {}
     }
-
     clearContours();
   });
 </script>
 
 <style lang="less">
   .snowline-panel {
-    width: 290px;
+    width: 292px;
     padding: 12px;
     border-radius: 10px;
-    background: rgba(52, 52, 52, 0.94);
+    background: rgba(45, 45, 45, 0.95);
     color: white;
     box-shadow: 0 4px 20px rgba(0,0,0,0.28);
     font-size: 13px;
@@ -481,17 +462,8 @@
     margin-bottom: 10px;
   }
 
-  .title {
-    font-size: 17px;
-    font-weight: 800;
-  }
-
-  .subtitle,
-  .note {
-    opacity: 0.68;
-    font-size: 11px;
-    line-height: 1.35;
-  }
+  .title { font-size: 18px; font-weight: 800; }
+  .subtitle, .note { opacity: 0.72; font-size: 11px; line-height: 1.35; }
 
   .row {
     display: grid;
@@ -500,15 +472,9 @@
     margin-bottom: 8px;
   }
 
-  label {
-    display: grid;
-    gap: 4px;
-    font-size: 11px;
-    font-weight: 700;
-  }
+  label { display: grid; gap: 4px; font-size: 11px; font-weight: 700; }
 
-  select,
-  button {
+  select, button {
     width: 100%;
     box-sizing: border-box;
     border: 0;
@@ -519,9 +485,7 @@
     font-weight: 700;
   }
 
-  select option {
-    color: black;
-  }
+  select option { color: black; }
 
   button {
     margin-bottom: 8px;
@@ -529,16 +493,8 @@
     background: #e5403a;
   }
 
-  button:disabled {
-    opacity: 0.55;
-    cursor: default;
-  }
-
-  .switch {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-  }
+  button:disabled { opacity: 0.55; cursor: default; }
+  .switch { display: flex; align-items: center; gap: 5px; }
 
   .status {
     display: flex;
@@ -551,17 +507,17 @@
   }
 
   .legend {
-    display: flex;
+    display: grid;
+    grid-template-columns: 28px auto 28px auto;
     align-items: center;
-    gap: 8px;
+    gap: 6px;
     margin-bottom: 8px;
+    font-size: 10px;
+    opacity: 0.9;
   }
 
-  .line {
-    width: 30px;
-    height: 0;
-    border-top: 2px solid white;
-  }
+  .minor-line { width: 26px; border-top: 1px solid white; opacity: 0.65; }
+  .major-line { width: 26px; border-top: 2px solid #d8f1ff; }
 
   :global(.snowline-label) {
     background: transparent !important;
@@ -570,12 +526,13 @@
 
   :global(.snowline-label span) {
     display: inline-block;
-    padding: 1px 3px;
+    padding: 1px 4px;
     border-radius: 3px;
-    background: rgba(25,25,25,0.72);
+    background: rgba(18,18,18,0.82);
     color: white;
     font-size: 10px;
     font-weight: 800;
     white-space: nowrap;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.12);
   }
 </style>
