@@ -120,7 +120,8 @@
 
     <div class="chart-foot">
       <span>Min <b>{chart.minSnowline} m</b></span>
-      <span>Now <b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
+      <span>Selected <b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
+      <span>Δ terrain <b class:positive={chart.currentTerrainDifference !== null && chart.currentTerrainDifference > 0} class:negative={chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0}>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
       <span>Max <b>{chart.maxSnowline} m</b></span>
     </div>
 
@@ -129,7 +130,7 @@
     {#if chart.currentPrecip !== null && chart.currentPrecip >= 0.05}
       <div class="precip-now">💧 {formatPrecipMm(chart.currentPrecip)} mm/3h at selected time</div>
     {/if}
-    <div class="hint">Move or tap the graph for exact values. Tap Crossing terrain to jump Windy's timeline there.</div>
+    <div class="hint">Move Windy's timeline to update Selected and Δ terrain. Move or tap the graph for exact values.</div>
   {:else}
     <div class="empty">No snowline series is available for this point.</div>
   {/if}
@@ -183,6 +184,7 @@
     minSnowline: number;
     maxSnowline: number;
     currentSnowline: number | null;
+    currentTerrainDifference: number | null;
     currentPrecip: number | null;
     precipBars: PrecipBar[];
     hasPrecip: boolean;
@@ -341,6 +343,9 @@
     const currentValue = snowlineAt(p, currentIndex);
     const currentX = Number.isFinite(p.times[currentIndex]) ? x(p.times[currentIndex]) : null;
     const currentY = currentValue !== null ? y(currentValue) : null;
+    const currentTerrainDifference = currentValue !== null && terrain !== null && Number.isFinite(terrain)
+      ? Math.round((terrain - currentValue) / 10) * 10
+      : null;
     const nowX = Number.isFinite(realNowTime) && realNowTime >= t0 && realNowTime <= t1 ? x(realNowTime) : null;
     const terrainY = terrain !== null && Number.isFinite(terrain) ? Math.max(top, Math.min(bottom, y(terrain))) : null;
     const crossingX = crossingTime !== null ? x(crossingTime) : null;
@@ -389,6 +394,7 @@
       minSnowline: Math.round(Math.min(...snowValues) / 10) * 10,
       maxSnowline: Math.round(Math.max(...snowValues) / 10) * 10,
       currentSnowline: currentValue !== null ? Math.round(currentValue / 10) * 10 : null,
+      currentTerrainDifference,
       currentPrecip: precipMmAt(p.forecast, currentIndex),
       precipBars,
       hasPrecip: validPrecip.some(v => v >= 0.05),
@@ -480,9 +486,11 @@
   .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; }
   .plot-tooltip b { font-size: 8.7px; color: white; }
   .plot-tooltip span { margin-top: 1px; font-size: 8px; color: rgba(255,255,255,0.72); }
-  .chart-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: -2px; }
-  .chart-foot span { padding: 5px 4px; border-radius: 6px; background: rgba(255,255,255,0.045); color: rgba(255,255,255,0.62); text-align: center; font-size: 8.7px; }
-  .chart-foot b { color: white; font-size: 9.5px; }
+  .chart-foot { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: -2px; }
+  .chart-foot span { padding: 5px 3px; border-radius: 6px; background: rgba(255,255,255,0.045); color: rgba(255,255,255,0.62); text-align: center; font-size: 8.2px; }
+  .chart-foot b { color: white; font-size: 9px; }
+  .chart-foot b.positive { color: #70d7ff; }
+  .chart-foot b.negative { color: #ffb15b; }
   .forecast-summary { margin-top: 5px; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,0.035); color: rgba(255,255,255,0.62); font-size: 7.8px; line-height: 1.25; text-align: center; }
   .precip-now { margin-top: 5px; padding: 4px 7px; border-radius: 6px; background: rgba(70,217,255,0.08); color: rgba(170,235,255,0.92); text-align: center; font-size: 8.3px; font-weight: 700; }
   .hint { margin-top: 6px; color: rgba(255,255,255,0.44); font-size: 7.8px; line-height: 1.25; text-align: center; }
@@ -491,5 +499,7 @@
     .chart-shell { width: calc(100vw - 20px); padding: 9px 8px 8px; }
     .chart-head small { max-width: 220px; }
     .plot-tooltip { min-width: 108px; }
+    .chart-foot span { font-size: 7.6px; }
+    .chart-foot b { font-size: 8.4px; }
   }
 </style>
