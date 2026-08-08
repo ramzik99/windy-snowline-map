@@ -14,6 +14,8 @@ It is a thermal diagnostic only. A displayed snowline does **not** mean precipit
 
 - ECMWF-only snowline calculation
 - Wet-bulb-zero snowline proxy to +144 h
+- Compact draggable Snowline panel on desktop and mobile
+- Explanatory text moved into the in-panel **i** help
 - Label only, Contour only, and Label + contour modes
 - Adaptive contour spacing by zoom
 - Adaptive spatial sampling for a balance between detail and performance
@@ -29,24 +31,33 @@ It is a thermal diagnostic only. A displayed snowline does **not** mean precipit
 - Saved Snowline favourites
 - Clear-search control
 - Hide/show panel control
-- In-panel **i** help explaining how Snowline works
 - Persistent labels for searched places
 - Desktop Windy picker following
 - Mobile point selection through Windy's `singleclick` mechanism
 - Profile caching and queued viewport refreshes
 
+## Panel controls
+
+The main Snowline panel is intentionally compact. The normal view keeps the title and controls visible while explanatory text is kept inside the **i** help panel.
+
+The title bar can be dragged with a mouse or finger. The panel is constrained to remain inside the visible screen.
+
+The **i** button opens the full in-plugin explanation. The **−** button hides the panel without disabling Snowline, and the small **❄ Snowline** button restores it.
+
 ## In-plugin help
 
-The Snowline window includes an **i** button. It opens a compact explanation directly inside the plugin without leaving the map.
+The **i** panel explains:
 
-The help panel explains:
-
+- that Snowline is an approximate ECMWF wet-bulb-zero thermal rain–snow boundary
+- that the forecast runs up to 144 hours
 - that ECMWF temperature, dew point and geopotential height are used
 - that wet-bulb temperature is calculated through the vertical profile
 - that the lowest upward 0°C wet-bulb crossing is interpolated to estimate the snowline
 - that selected-point labels compare the calculated snowline with Windy map elevation
 - that the ±100 m zone is displayed as **NEAR SNOWLINE**
-- that contours are reconstructed from samples across the visible viewport
+- that the arrow on a point label shows the approximate 3-hour snowline tendency
+- that contours are reconstructed from sampled profiles across the visible viewport
+- that desktop uses Windy's picker while mobile uses Windy's `singleclick` location event
 - that the result is a thermal boundary and does not imply precipitation, snowfall or accumulation
 
 ## Contour resolution
@@ -204,7 +215,7 @@ Each published release must use a new version number.
 
 ## Current version
 
-**0.6.6**
+**0.6.7**
 
 ## Author
 
