@@ -14,8 +14,8 @@ It is a thermal diagnostic only. A displayed snowline does **not** mean precipit
 
 - ECMWF-only snowline calculation
 - Wet-bulb-zero snowline proxy to +144 h
-- Compact draggable Snowline panel on desktop and mobile
-- Explanatory text moved into the in-panel **i** help
+- Compact fixed Snowline panel
+- Separate **i** help window with all scientific explanation
 - Label only, Contour only, and Label + contour modes
 - Adaptive contour spacing by zoom
 - Adaptive spatial sampling for a balance between detail and performance
@@ -38,15 +38,15 @@ It is a thermal diagnostic only. A displayed snowline does **not** mean precipit
 
 ## Panel controls
 
-The main Snowline panel is intentionally compact. The normal view keeps the title and controls visible while explanatory text is kept inside the **i** help panel.
+The main Snowline panel stays compact and fixed in Windy's normal plugin position. The regular view contains the title, **i** help button, hide control, On/Off control, search and display modes.
 
-The title bar can be dragged with a mouse or finger. The panel is constrained to remain inside the visible screen.
+The **i** button opens a separate floating **How Snowline works** window over the map. It can be closed with its **×** button or by tapping/clicking outside the help window.
 
-The **i** button opens the full in-plugin explanation. The **−** button hides the panel without disabling Snowline, and the small **❄ Snowline** button restores it.
+The **−** button hides the main panel without disabling Snowline, and the small **❄ Snowline** button restores it.
 
-## In-plugin help
+## Help window
 
-The **i** panel explains:
+The separate **i** help window explains:
 
 - that Snowline is an approximate ECMWF wet-bulb-zero thermal rain–snow boundary
 - that the forecast runs up to 144 hours
@@ -215,7 +215,7 @@ Each published release must use a new version number.
 
 ## Current version
 
-**0.6.7**
+**0.6.8**
 
 ## Author
 
