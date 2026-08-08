@@ -4,20 +4,22 @@ export type GridPoint = {
   value: number | null;
 };
 
-export type ContourSegment = [[number, number], [number, number]];
+export type LatLon = [number, number];
+export type ContourSegment = [LatLon, LatLon];
+export type ContourPolyline = LatLon[];
 
 function interp(
-  p1: [number, number],
-  p2: [number, number],
+  p1: LatLon,
+  p2: LatLon,
   v1: number,
   v2: number,
   level: number
-): [number, number] {
+): LatLon {
   if (Math.abs(v2 - v1) < 1e-9) {
     return [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
   }
 
-  const f = (level - v1) / (v2 - v1);
+  const f = Math.max(0, Math.min(1, (level - v1) / (v2 - v1)));
   return [
     p1[0] + f * (p2[0] - p1[0]),
     p1[1] + f * (p2[1] - p1[1]),
@@ -27,6 +29,9 @@ function interp(
 /**
  * Marching-squares line segments for one contour level.
  * Grid is rows x cols; rows increase northward and columns eastward.
+ *
+ * Saddle cases (5 and 10) use a centre-value decider rather than a fixed
+ * connection. This reduces artificial contour flips and broken-looking lines.
  */
 export function contourSegments(
   grid: GridPoint[][],
@@ -48,16 +53,15 @@ export function contourSegments(
         nw.value === null
       ) continue;
 
-      const v = [sw.value, se.value, ne.value, nw.value];
-      const p: [number, number][] = [
+      const v = [sw.value, se.value, ne.value, nw.value] as number[];
+      const p: LatLon[] = [
         [sw.lat, sw.lon],
         [se.lat, se.lon],
         [ne.lat, ne.lon],
         [nw.lat, nw.lon],
       ];
 
-      // Edges: 0 bottom SW-SE, 1 right SE-NE, 2 top NE-NW, 3 left NW-SW
-      const edgePoint = (edge: number): [number, number] => {
+      const edgePoint = (edge: number): LatLon => {
         switch (edge) {
           case 0: return interp(p[0], p[1], v[0], v[1], level);
           case 1: return interp(p[1], p[2], v[1], v[2], level);
@@ -72,30 +76,114 @@ export function contourSegments(
       if (v[2] >= level) code |= 4;
       if (v[3] >= level) code |= 8;
 
-      const table: Record<number, number[][]> = {
-        0: [],
-        1: [[3, 0]],
-        2: [[0, 1]],
-        3: [[3, 1]],
-        4: [[1, 2]],
-        5: [[3, 2], [0, 1]],
-        6: [[0, 2]],
-        7: [[3, 2]],
-        8: [[2, 3]],
-        9: [[0, 2]],
-        10: [[0, 3], [1, 2]],
-        11: [[1, 2]],
-        12: [[1, 3]],
-        13: [[0, 1]],
-        14: [[3, 0]],
-        15: [],
-      };
+      let pairs: number[][];
 
-      for (const pair of table[code]) {
+      if (code === 5 || code === 10) {
+        const centre = (v[0] + v[1] + v[2] + v[3]) / 4;
+        const centreHigh = centre >= level;
+
+        if (code === 5) {
+          pairs = centreHigh
+            ? [[3, 0], [1, 2]]
+            : [[3, 2], [0, 1]];
+        } else {
+          pairs = centreHigh
+            ? [[0, 1], [2, 3]]
+            : [[0, 3], [1, 2]];
+        }
+      } else {
+        const table: Record<number, number[][]> = {
+          0: [],
+          1: [[3, 0]],
+          2: [[0, 1]],
+          3: [[3, 1]],
+          4: [[1, 2]],
+          6: [[0, 2]],
+          7: [[3, 2]],
+          8: [[2, 3]],
+          9: [[0, 2]],
+          11: [[1, 2]],
+          12: [[1, 3]],
+          13: [[0, 1]],
+          14: [[3, 0]],
+          15: [],
+        };
+        pairs = table[code] ?? [];
+      }
+
+      for (const pair of pairs) {
         out.push([edgePoint(pair[0]), edgePoint(pair[1])]);
       }
     }
   }
 
   return out;
+}
+
+function pointKey(p: LatLon): string {
+  // Shared cell-edge intersections should be identical; rounding protects
+  // against tiny floating-point differences without visibly moving a line.
+  return `${p[0].toFixed(6)},${p[1].toFixed(6)}`;
+}
+
+/** Stitch touching marching-squares segments into continuous polylines. */
+export function stitchSegments(segments: ContourSegment[]): ContourPolyline[] {
+  if (!segments.length) return [];
+
+  const endpointMap = new Map<string, number[]>();
+  const used = new Array<boolean>(segments.length).fill(false);
+
+  const addEndpoint = (key: string, index: number) => {
+    const list = endpointMap.get(key);
+    if (list) list.push(index);
+    else endpointMap.set(key, [index]);
+  };
+
+  segments.forEach((segment, i) => {
+    addEndpoint(pointKey(segment[0]), i);
+    addEndpoint(pointKey(segment[1]), i);
+  });
+
+  const extend = (line: ContourPolyline, atStart: boolean) => {
+    while (true) {
+      const end = atStart ? line[0] : line[line.length - 1];
+      const candidates = endpointMap.get(pointKey(end)) ?? [];
+      const nextIndex = candidates.find(i => !used[i]);
+      if (nextIndex === undefined) return;
+
+      used[nextIndex] = true;
+      const seg = segments[nextIndex];
+      const aMatches = pointKey(seg[0]) === pointKey(end);
+      const nextPoint = aMatches ? seg[1] : seg[0];
+
+      if (atStart) line.unshift(nextPoint);
+      else line.push(nextPoint);
+
+      // Closed contour: stop once both ends meet.
+      if (line.length > 3 && pointKey(line[0]) === pointKey(line[line.length - 1])) {
+        return;
+      }
+    }
+  };
+
+  const lines: ContourPolyline[] = [];
+
+  for (let i = 0; i < segments.length; i++) {
+    if (used[i]) continue;
+    used[i] = true;
+
+    const line: ContourPolyline = [segments[i][0], segments[i][1]];
+    extend(line, false);
+    extend(line, true);
+    lines.push(line);
+  }
+
+  return lines;
+}
+
+export function contourPolylines(
+  grid: GridPoint[][],
+  level: number
+): ContourPolyline[] {
+  return stitchSegments(contourSegments(grid, level));
 }
