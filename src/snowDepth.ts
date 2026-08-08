@@ -6,15 +6,28 @@ function normaliseKey(key: string): string {
 
 function isSnowDepthKey(key: string): boolean {
   const k = normaliseKey(key);
-  return k.includes('snowdepth') || k.includes('snow-depth');
+  return k.includes('snowdepth')
+    || k.includes('snow-depth')
+    || k.includes('snowcover')
+    || k.includes('snow-cover')
+    || k === 'h-snow'
+    || k === 'hsnow'
+    || k.startsWith('h-snow-')
+    || k.startsWith('hsnow-');
 }
 
 function toCentimetres(key: string, raw: number): number | null {
   if (!Number.isFinite(raw) || raw < 0) return null;
   const k = normaliseKey(key);
+
   if (k.includes('-cm') || k.endsWith('cm')) return raw;
   if (k.includes('-mm') || k.endsWith('mm')) return raw / 10;
-  // Windy/ECMWF snow-depth point fields are normally represented in metres.
+
+  // Windy's internal `snowcover` field is the Snow depth product and is
+  // delivered in the user-facing depth scale used by the point forecast.
+  if (k.includes('snowcover') || k.includes('snow-cover')) return raw;
+
+  // Model-native snow-depth / H_SNOW fields are normally metres.
   return raw * 100;
 }
 
