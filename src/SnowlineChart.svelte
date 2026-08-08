@@ -28,6 +28,7 @@
     <div class="snowline-chart-legend">
       <span><i class="snowline-chart-key-line snowline-key"></i> Snowline</span>
       {#if chart.terrainY !== null}<span><i class="snowline-chart-key-line terrain-key"></i> Terrain {Math.round(terrainM ?? 0)} m</span>{/if}
+      <span><i class="snowline-chart-key-line now-key"></i> Now</span>
       <span><i class="snowline-chart-key-dot"></i> Selected time</span>
       {#if crossing?.crossingTime}<span><i class="snowline-chart-key-cross"></i> Crossing terrain</span>{/if}
       {#if chart.hasPrecip}<span><i class="snowline-chart-key-bar"></i> Precip mm/3h</span>{/if}
@@ -59,6 +60,12 @@
         <text x="34" y="156" text-anchor="end" class="axis">{chart.minLabel}</text>
 
         <polyline points={chart.points} class="snowline-line" />
+
+        {#if chart.nowX !== null}
+          <line x1={chart.nowX} x2={chart.nowX} y1="14" y2="177" class="now-line" />
+          <rect x={Math.max(39, Math.min(322, chart.nowX - 13))} y="15" width="26" height="12" rx="3" class="now-tag-bg" />
+          <text x={Math.max(52, Math.min(335, chart.nowX))} y="24" text-anchor="middle" class="now-tag">Now</text>
+        {/if}
 
         {#if chart.currentX !== null && chart.currentY !== null}
           <line x1={chart.currentX} x2={chart.currentX} y1="14" y2="177" class="cursor" />
@@ -141,7 +148,9 @@
 
   const dispatch = createEventDispatcher<{ close: void }>();
   let timestamp = Date.now();
+  let realNow = Date.now();
   let timestampListener: number | null = null;
+  let realNowTimer: ReturnType<typeof setInterval> | null = null;
   let chartShell: HTMLDivElement | null = null;
   let svgEl: SVGSVGElement | null = null;
   let position = { x: 24, y: 68 };
@@ -165,6 +174,7 @@
     terrainY: number | null;
     currentX: number | null;
     currentY: number | null;
+    nowX: number | null;
     crossingX: number | null;
     minLabel: string;
     midLabel: string;
@@ -185,7 +195,7 @@
   };
 
   $: crossing = terrainCrossingState(point, terrainM, timestamp);
-  $: chart = buildChart(point, terrainM, timestamp, crossing?.crossingTime ?? null);
+  $: chart = buildChart(point, terrainM, timestamp, crossing?.crossingTime ?? null, realNow);
 
   function nearestIndex(times: number[], target: number): number {
     let best = 0, distance = Infinity;
@@ -309,7 +319,7 @@
     };
   }
 
-  function buildChart(p: any, terrain: number | null, target: number, crossingTime: number | null): ChartData | null {
+  function buildChart(p: any, terrain: number | null, target: number, crossingTime: number | null, realNowTime: number): ChartData | null {
     if (!p || !Array.isArray(p.times) || !p.times.length) return null;
     const entries = p.times.map((time: number, index: number) => ({ time, value: snowlineAt(p, index), index }))
       .filter((item: any) => item.value !== null && Number.isFinite(item.value));
@@ -331,6 +341,7 @@
     const currentValue = snowlineAt(p, currentIndex);
     const currentX = Number.isFinite(p.times[currentIndex]) ? x(p.times[currentIndex]) : null;
     const currentY = currentValue !== null ? y(currentValue) : null;
+    const nowX = Number.isFinite(realNowTime) && realNowTime >= t0 && realNowTime <= t1 ? x(realNowTime) : null;
     const terrainY = terrain !== null && Number.isFinite(terrain) ? Math.max(top, Math.min(bottom, y(terrain))) : null;
     const crossingX = crossingTime !== null ? x(crossingTime) : null;
 
@@ -369,6 +380,7 @@
       terrainY,
       currentX,
       currentY,
+      nowX,
       crossingX,
       minLabel: `${Math.round(min)} m`,
       midLabel: `${Math.round((min + max) / 2)} m`,
@@ -392,6 +404,8 @@
   onMount(() => {
     const width = Math.min(390, window.innerWidth - 24);
     position = { x: Math.max(6, (window.innerWidth - width) / 2), y: window.innerWidth <= 520 ? 58 : 68 };
+    realNow = Date.now();
+    realNowTimer = setInterval(() => { realNow = Date.now(); }, 30_000);
     try {
       const current = store.get('timestamp');
       if (typeof current === 'number' && Number.isFinite(current)) timestamp = current;
@@ -404,6 +418,7 @@
 
   onDestroy(() => {
     window.removeEventListener('pointermove', dragMove);
+    if (realNowTimer) clearInterval(realNowTimer);
     if (timestampListener !== null) try { store.off(timestampListener); } catch {}
   });
 </script>
@@ -434,6 +449,7 @@
   .snowline-chart-key-line { width: 14px; height: 0; border-top: 2px solid; display: inline-block; background: transparent !important; }
   .snowline-chart-key-line.snowline-key { border-color: #70d7ff; }
   .snowline-chart-key-line.terrain-key { border-color: #ffb15b; border-top-style: dashed; }
+  .snowline-chart-key-line.now-key { border-color: #ff6b57; }
   .snowline-chart-key-dot { width: 6px; height: 6px; border-radius: 50%; background: white; display: inline-block; }
   .snowline-chart-key-cross { width: 7px; height: 7px; border-radius: 50%; border: 2px solid #ffe45c; display: inline-block; }
   .snowline-chart-key-bar { width: 12px; height: 7px; border-radius: 2px 2px 0 0; background: rgba(70,217,255,0.72); display: inline-block; }
@@ -446,6 +462,9 @@
   .precip-axis { fill: rgba(112,215,255,0.78); font-weight: 700; }
   .terrain-line { stroke: #ffb15b; stroke-width: 1.4; stroke-dasharray: 5 4; opacity: 0.88; }
   .snowline-line { fill: none; stroke: #70d7ff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+  .now-line { stroke: #ff6b57; stroke-width: 1.5; opacity: 0.92; }
+  .now-tag-bg { fill: rgba(255,107,87,0.92); }
+  .now-tag { fill: #ffffff; font-size: 7px; font-family: sans-serif; font-weight: 800; }
   .cursor { stroke: rgba(255,255,255,0.48); stroke-width: 1; stroke-dasharray: 2 3; }
   .current-dot { fill: #ffffff; stroke: #70d7ff; stroke-width: 2.2; }
   .crossing-line { stroke: rgba(255,228,92,0.7); stroke-width: 1.4; stroke-dasharray: 3 3; }
