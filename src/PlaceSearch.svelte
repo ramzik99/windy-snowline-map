@@ -1,20 +1,37 @@
 <div class="place-search">
   <form on:submit|preventDefault={submitSearch} on:keydown|stopPropagation on:keyup|stopPropagation>
-    <input
-      bind:value={query}
-      on:input={scheduleSearch}
-      on:focus={() => { if (visibleResults.length || favourites.length) open = true; }}
-      aria-label="Search places"
-      placeholder="Search place…"
-      autocomplete="off"
-      spellcheck="false"
-    />
-    <button class="clear-button" type="button" aria-label="Clear search" title="Clear" on:click={clearSearch} disabled={!query && !open}>×</button>
-    <button class="fav-button" class:active={showFavourites} type="button" aria-label="Show favourites" title="Favourites" on:click={toggleFavourites}>★</button>
-    <button type="submit" aria-label="Search" title="Search" disabled={searching || query.trim().length < 2}>
-      {searching ? '…' : '⌕'}
-    </button>
+    <div class="search-line">
+      <input
+        bind:value={query}
+        on:input={scheduleSearch}
+        on:focus={() => { if (visibleResults.length || favourites.length) open = true; }}
+        aria-label="Search places"
+        placeholder="Search place…"
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <button class="search-button" type="submit" aria-label="Search" title="Search" disabled={searching || query.trim().length < 2}>
+        {searching ? '…' : '⌕'}
+      </button>
+    </div>
+
+    <div class="utility-row">
+      <button class="location-button" class:busy={locating} type="button" aria-label="Use current location" title="Use current location" on:click={useCurrentLocation} disabled={locating}>
+        <span class="location-icon">⌖</span>
+        <span>{locating ? 'Locating…' : 'My location'}</span>
+      </button>
+      <button class="fav-button" class:active={showFavourites} type="button" aria-label="Show favourites" title="Favourites" on:click={toggleFavourites}>
+        <span>★</span><span>Saved</span>
+      </button>
+      <button class="clear-button" type="button" aria-label="Clear search" title="Clear" on:click={clearSearch} disabled={!query && !open}>
+        <span>×</span><span>Clear</span>
+      </button>
+    </div>
   </form>
+
+  {#if locationError}
+    <div class="location-message">{locationError}</div>
+  {/if}
 
   {#if open}
     <div class="results">
@@ -57,6 +74,8 @@
 
   let query = '';
   let searching = false;
+  let locating = false;
+  let locationError = '';
   let open = false;
   let showFavourites = false;
   let remoteResults: SearchResult[] = [];
@@ -130,13 +149,53 @@
     requestId += 1;
     query = '';
     searching = false;
+    locationError = '';
     open = false;
     showFavourites = false;
     remoteResults = [];
     dispatch('clear');
   }
 
+  function useCurrentLocation() {
+    locationError = '';
+    open = false;
+    showFavourites = false;
+    if (!navigator.geolocation) {
+      locationError = 'Location is not available on this device.';
+      return;
+    }
+
+    locating = true;
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        locating = false;
+        const lat = Number(position.coords.latitude);
+        const lon = Number(position.coords.longitude);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+          locationError = 'Could not read your location.';
+          return;
+        }
+        query = 'My location';
+        remoteResults = [];
+        dispatch('select', {
+          lat,
+          lon,
+          primary: 'My location',
+          secondary: 'Current device location',
+        });
+      },
+      error => {
+        locating = false;
+        if (error.code === 1) locationError = 'Location permission was denied.';
+        else if (error.code === 2) locationError = 'Current location is unavailable.';
+        else locationError = 'Location request timed out.';
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  }
+
   function scheduleSearch() {
+    locationError = '';
     showFavourites = false;
     if (timer) clearTimeout(timer);
     controller?.abort();
@@ -185,6 +244,7 @@
   }
 
   function toggleFavourites() {
+    locationError = '';
     showFavourites = !showFavourites;
     open = showFavourites || visibleResults.length > 0;
     if (showFavourites) {
@@ -196,6 +256,7 @@
 
   function chooseResult(result: SearchResult) {
     query = result.primary;
+    locationError = '';
     open = false;
     showFavourites = false;
     remoteResults = [];
@@ -211,35 +272,71 @@
 </script>
 
 <style lang="less">
-  .place-search { position: relative; margin-top: 7px; }
-  form { display: grid; grid-template-columns: 1fr 26px 28px 28px; gap: 4px; }
-  input, form button {
-    box-sizing: border-box; height: 28px; border: 1px solid rgba(255,255,255,0.16);
-    border-radius: 6px; background: rgba(10,14,18,0.62); color: white;
+  .place-search { position: relative; margin-top: 9px; }
+  form { display: flex; flex-direction: column; gap: 5px; }
+
+  .search-line { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 5px; }
+  input, button {
+    box-sizing: border-box;
+    border: 1px solid rgba(255,255,255,0.14);
+    border-radius: 7px;
+    background: rgba(13,16,20,0.76);
+    color: white;
   }
-  input { width: 100%; min-width: 0; padding: 0 7px; font-size: 10.5px; outline: none; }
-  input:focus { border-color: rgba(80,190,255,0.72); box-shadow: 0 0 0 1px rgba(80,190,255,0.18); }
-  input::placeholder { color: rgba(255,255,255,0.48); }
-  form button { padding: 0; font-size: 16px; line-height: 1; font-weight: 800; cursor: pointer; }
-  form button:disabled { opacity: 0.32; cursor: default; }
-  .clear-button { color: rgba(255,255,255,0.72); font-size: 17px; font-weight: 500; }
-  .fav-button { color: rgba(255,255,255,0.62); }
-  .fav-button.active { color: #ffe45c; border-color: rgba(255,228,92,0.55); }
+  input {
+    width: 100%; min-width: 0; height: 34px; padding: 0 10px;
+    font-size: 11px; outline: none;
+  }
+  input:focus { border-color: rgba(80,190,255,0.78); box-shadow: 0 0 0 1px rgba(80,190,255,0.18); }
+  input::placeholder { color: rgba(255,255,255,0.46); }
+
+  button { cursor: pointer; }
+  button:disabled { opacity: 0.34; cursor: default; }
+  .search-button { height: 34px; padding: 0; font-size: 18px; line-height: 1; font-weight: 800; }
+
+  .utility-row { display: grid; grid-template-columns: 1.45fr 1fr 0.82fr; gap: 5px; }
+  .utility-row button {
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    min-width: 0; height: 30px; padding: 0 7px;
+    color: rgba(255,255,255,0.76); font-size: 9px; line-height: 1; font-weight: 750;
+    background: rgba(255,255,255,0.055);
+  }
+  .location-button { border-color: rgba(80,190,255,0.28); }
+  .location-button:hover, .location-button:focus { background: rgba(80,190,255,0.14); border-color: rgba(80,190,255,0.58); outline: none; }
+  .location-button.busy { color: rgba(112,215,255,0.9); }
+  .location-icon { font-size: 15px; line-height: 1; color: #70d7ff; }
+  .fav-button span:first-child { font-size: 13px; }
+  .fav-button.active { color: #ffe45c; border-color: rgba(255,228,92,0.48); background: rgba(255,228,92,0.08); }
+  .clear-button span:first-child { font-size: 14px; font-weight: 500; }
+
+  .location-message {
+    margin-top: 5px; padding: 5px 7px; border-radius: 6px;
+    background: rgba(255,157,61,0.10); color: rgba(255,207,160,0.95);
+    font-size: 8.7px; line-height: 1.2;
+  }
+
   .results {
-    position: absolute; z-index: 5000; left: 0; right: 0; top: 32px; overflow: hidden;
-    border: 1px solid rgba(255,255,255,0.16); border-radius: 7px;
-    background: rgba(18,21,25,0.98); box-shadow: 0 5px 14px rgba(0,0,0,0.38);
+    position: absolute; z-index: 5000; left: 0; right: 0; top: 72px; overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.16); border-radius: 8px;
+    background: rgba(18,21,25,0.985); box-shadow: 0 6px 18px rgba(0,0,0,0.42);
   }
-  .result-row { display: grid; grid-template-columns: 1fr 30px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+  .result-row { display: grid; grid-template-columns: 1fr 34px; border-bottom: 1px solid rgba(255,255,255,0.08); }
   .result {
-    display: block; width: 100%; min-width: 0; padding: 6px 7px; border: 0;
+    display: block; width: 100%; min-width: 0; padding: 7px 8px; border: 0; border-radius: 0;
     background: transparent; color: rgba(255,255,255,0.94); text-align: left; cursor: pointer;
   }
   .result:hover, .result:focus, .star:hover, .star:focus { background: rgba(80,190,255,0.16); outline: none; }
   .result-main { display: block; font-size: 10px; line-height: 1.15; font-weight: 750; }
   .result-sub { display: block; margin-top: 2px; font-size: 8.5px; line-height: 1.1; opacity: 0.6; }
-  .star { border: 0; border-left: 1px solid rgba(255,255,255,0.08); background: transparent; color: rgba(255,255,255,0.52); font-size: 15px; cursor: pointer; }
+  .star { border: 0; border-left: 1px solid rgba(255,255,255,0.08); border-radius: 0; background: transparent; color: rgba(255,255,255,0.52); font-size: 15px; cursor: pointer; }
   .star.saved { color: #ffe45c; }
-  .empty, .credit { padding: 5px 7px; color: rgba(255,255,255,0.58); font-size: 8.5px; line-height: 1.15; }
+  .empty, .credit { padding: 6px 8px; color: rgba(255,255,255,0.58); font-size: 8.5px; line-height: 1.15; }
   .credit { text-align: right; }
+
+  @media (max-width: 520px) {
+    .place-search { margin-top: 8px; }
+    input, .search-button { height: 36px; }
+    .utility-row button { height: 32px; font-size: 9.3px; }
+    .results { top: 78px; }
+  }
 </style>
