@@ -12,22 +12,24 @@
       <small>{placeName || 'Selected point'} · ECMWF</small>
     </div>
     <div class="chart-actions">
-      <button
-        class="drag-button"
-        type="button"
-        aria-label="Drag snowline graph"
-        title="Drag graph"
-        on:pointerdown={startDrag}
-      >↕</button>
+      <button class="drag-button" type="button" aria-label="Drag snowline graph" title="Drag graph" on:pointerdown={startDrag}>↕</button>
       <button type="button" aria-label="Close snowline graph" title="Close" on:click={() => dispatch('close')}>×</button>
     </div>
   </div>
+
+  {#if crossing}
+    <div class:down={crossing.direction === 'below'} class:up={crossing.direction === 'above'} class="crossing-summary">
+      <b>{crossing.summary}</b>
+      <small>{crossing.detail}</small>
+    </div>
+  {/if}
 
   {#if chart && chart.points}
     <div class="snowline-chart-legend">
       <span><i class="snowline-chart-key-line snowline-key"></i> Snowline</span>
       {#if chart.terrainY !== null}<span><i class="snowline-chart-key-line terrain-key"></i> Terrain {Math.round(terrainM ?? 0)} m</span>{/if}
       <span><i class="snowline-chart-key-dot"></i> Selected time</span>
+      {#if crossing?.crossingTime}<span><i class="snowline-chart-key-cross"></i> First crossing</span>{/if}
       {#if chart.hasPrecip}<span><i class="snowline-chart-key-bar"></i> Precip mm/3h</span>{/if}
     </div>
 
@@ -52,6 +54,11 @@
       {#if chart.currentX !== null && chart.currentY !== null}
         <line x1={chart.currentX} x2={chart.currentX} y1="14" y2="177" class="cursor" />
         <circle cx={chart.currentX} cy={chart.currentY} r="4.4" class="current-dot" />
+      {/if}
+
+      {#if chart.crossingX !== null && chart.terrainY !== null}
+        <line x1={chart.crossingX} x2={chart.crossingX} y1="14" y2="152" class="crossing-line" />
+        <circle cx={chart.crossingX} cy={chart.terrainY} r="4.2" class="crossing-dot" />
       {/if}
 
       {#if chart.hasPrecip}
@@ -86,6 +93,7 @@
   import store from '@windy/store';
   import { buildProfile, wetBulbZeroHeight } from './snowLevel';
   import { precipMmAt, formatPrecipMm } from './precip';
+  import { terrainCrossingState } from './terrainCrossing';
 
   export let point: any;
   export let terrainM: number | null = null;
@@ -105,6 +113,7 @@
     terrainY: number | null;
     currentX: number | null;
     currentY: number | null;
+    crossingX: number | null;
     minLabel: string;
     midLabel: string;
     maxLabel: string;
@@ -117,7 +126,8 @@
     hasPrecip: boolean;
   };
 
-  $: chart = buildChart(point, terrainM, timestamp);
+  $: crossing = terrainCrossingState(point, terrainM, timestamp);
+  $: chart = buildChart(point, terrainM, timestamp, crossing?.crossingTime ?? null);
 
   function nearestIndex(times: number[], target: number): number {
     let best = 0, distance = Infinity;
@@ -175,7 +185,7 @@
     window.removeEventListener('pointermove', dragMove);
   }
 
-  function buildChart(p: any, terrain: number | null, target: number): ChartData | null {
+  function buildChart(p: any, terrain: number | null, target: number, crossingTime: number | null): ChartData | null {
     if (!p || !Array.isArray(p.times) || !p.times.length) return null;
     const entries = p.times.map((time: number, index: number) => ({ time, value: snowlineAt(p, index), index }))
       .filter((item: any) => item.value !== null && Number.isFinite(item.value));
@@ -198,6 +208,7 @@
     const currentX = Number.isFinite(p.times[currentIndex]) ? x(p.times[currentIndex]) : null;
     const currentY = currentValue !== null ? y(currentValue) : null;
     const terrainY = terrain !== null && Number.isFinite(terrain) ? Math.max(top, Math.min(bottom, y(terrain))) : null;
+    const crossingX = crossingTime !== null ? x(crossingTime) : null;
 
     const precipValues = p.times.map((_: number, index: number) => precipMmAt(p.forecast, index));
     const validPrecip = precipValues.filter((v: number | null): v is number => v !== null && Number.isFinite(v));
@@ -215,6 +226,7 @@
       terrainY,
       currentX,
       currentY,
+      crossingX,
       minLabel: `${Math.round(min)} m`,
       midLabel: `${Math.round((min + max) / 2)} m`,
       maxLabel: `${Math.round(max)} m`,
@@ -263,12 +275,18 @@
   .chart-head button:hover { background: rgba(255,255,255,0.17); color: white; }
   .drag-button { cursor: grab !important; touch-action: none; font-size: 14px !important; }
   .drag-button:active { cursor: grabbing !important; }
+  .crossing-summary { margin-top: 7px; padding: 6px 8px; border-radius: 7px; background: rgba(255,255,255,0.05); border-left: 3px solid rgba(255,255,255,0.35); }
+  .crossing-summary.down { border-left-color: #70d7ff; background: rgba(70,217,255,0.08); }
+  .crossing-summary.up { border-left-color: #ffb15b; background: rgba(255,177,91,0.08); }
+  .crossing-summary b { display: block; font-size: 9.5px; }
+  .crossing-summary small { display: block; margin-top: 2px; font-size: 8px; color: rgba(255,255,255,0.58); }
   .snowline-chart-legend { display: flex; flex-wrap: wrap; gap: 9px; margin: 8px 2px 1px; padding: 0; background: transparent !important; color: rgba(255,255,255,0.7); font-size: 8.5px; }
   .snowline-chart-legend span { display: inline-flex; align-items: center; gap: 4px; padding: 0; background: transparent !important; }
   .snowline-chart-key-line { width: 14px; height: 0; border-top: 2px solid; display: inline-block; background: transparent !important; }
   .snowline-chart-key-line.snowline-key { border-color: #70d7ff; }
   .snowline-chart-key-line.terrain-key { border-color: #ffb15b; border-top-style: dashed; }
   .snowline-chart-key-dot { width: 6px; height: 6px; border-radius: 50%; background: white; display: inline-block; }
+  .snowline-chart-key-cross { width: 7px; height: 7px; border-radius: 50%; border: 2px solid #ffe45c; display: inline-block; }
   .snowline-chart-key-bar { width: 12px; height: 7px; border-radius: 2px 2px 0 0; background: rgba(70,217,255,0.72); display: inline-block; }
   svg { display: block; width: 100%; height: auto; margin-top: 1px; overflow: visible; }
   .plot-bg { fill: rgba(255,255,255,0.025); stroke: rgba(255,255,255,0.07); stroke-width: 1; }
@@ -280,6 +298,8 @@
   .snowline-line { fill: none; stroke: #70d7ff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
   .cursor { stroke: rgba(255,255,255,0.48); stroke-width: 1; stroke-dasharray: 2 3; }
   .current-dot { fill: #ffffff; stroke: #70d7ff; stroke-width: 2.2; }
+  .crossing-line { stroke: rgba(255,228,92,0.7); stroke-width: 1; stroke-dasharray: 3 3; }
+  .crossing-dot { fill: #15191e; stroke: #ffe45c; stroke-width: 2.2; }
   .precip-base { stroke: rgba(112,215,255,0.18); stroke-width: 1; }
   .precip-bar { fill: rgba(70,217,255,0.48); }
   .precip-bar.wet { fill: rgba(70,217,255,0.82); }
@@ -291,6 +311,6 @@
   .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
   @media (max-width: 520px) {
     .chart-shell { width: calc(100vw - 20px); padding: 9px 8px 8px; }
-    .chart-head small { max-width: 210px; }
+    .chart-head small { max-width: 220px; }
   }
 </style>
