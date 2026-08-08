@@ -40,7 +40,10 @@
   import { onMount, onDestroy } from 'svelte';
   import { map } from '@windy/map';
   import store from '@windy/store';
+  import { singleclick } from '@windy/singleclick';
+  import { isMobile } from '@windy/rootScope';
   import { getElevation, getMeteogramForecastData } from '@windy/fetch';
+  import config from './pluginConfig';
   import PlaceSearch from './PlaceSearch.svelte';
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
   import { contourPolylines, type GridPoint, type ContourPolyline } from './contours';
@@ -183,7 +186,25 @@
   }
 
   async function probeLocation(lat: number, lon: number) { if (!enabled || !labelsEnabled() || !Number.isFinite(lat) || !Number.isFinite(lon)) return; const myClick = ++clickGeneration; clickedPoint = null; clickedMapElevationM = null; clickedLatLon = [lat, lon]; probeLoading = true; showClickLabel(lat, lon, 'Snowline …', 'Reading point'); try { const [cp, mapElevation] = await Promise.all([loadPoint(lat, lon), loadMapElevation(lat, lon)]); if (myClick !== clickGeneration || !enabled || !labelsEnabled()) return; if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; } clickedPoint = cp; clickedMapElevationM = mapElevation; updatePersistentClickLabel(); } finally { if (myClick === clickGeneration) probeLoading = false; } }
-  function handleMapClick(e: any) { if (!enabled || !labelsEnabled() || !e?.latlng) return; searchPinned = false; probeLocation(Number(e.latlng.lat), Number(e.latlng.lng)); }
+
+  function latLonFromSingleClick(value: any): [number, number] | null {
+    if (!value) return null;
+    const lat = Number(value.lat ?? value.latitude ?? value.latlng?.lat);
+    const lon = Number(value.lon ?? value.lng ?? value.longitude ?? value.latlng?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return [lat, lon];
+  }
+
+  function handleSingleClick(value: any) {
+    if (!enabled || !labelsEnabled()) return;
+    const position = latLonFromSingleClick(value);
+    if (!position) return;
+    const [lat, lon] = position;
+    searchPinned = true;
+    lastPickerKey = '';
+    if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
+    probeLocation(lat, lon);
+  }
 
   function handlePlaceSelect(event: CustomEvent<PlaceSelection>) {
     if (!enabled || !event?.detail) return;
@@ -199,12 +220,12 @@
     searchPinned = false;
     lastPickerKey = '';
     clearPointState();
-    setTimeout(() => syncPickerFromStore(true), 0);
+    if (!isMobile) setTimeout(() => syncPickerFromStore(true), 0);
   }
 
   function pickerLatLon(value: any): [number, number] | null { if (!value) return null; const lat = Number(value.lat ?? value.latitude), lon = Number(value.lon ?? value.lng ?? value.longitude); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null; return [lat, lon]; }
   function schedulePickerProbe(value: any, force = false) {
-    if (!enabled || !labelsEnabled()) return;
+    if (isMobile || !enabled || !labelsEnabled()) return;
     const position = pickerLatLon(value);
     if (!position) {
       if (searchPinned) return;
@@ -220,7 +241,7 @@
     if (pickerTimer) clearTimeout(pickerTimer);
     pickerTimer = setTimeout(() => probeLocation(lat, lon), PICKER_PROBE_DELAY_MS);
   }
-  function syncPickerFromStore(force = false) { if (!enabled || !labelsEnabled()) return; try { schedulePickerProbe(store.get('pickerLocation'), force); } catch {} }
+  function syncPickerFromStore(force = false) { if (isMobile || !enabled || !labelsEnabled()) return; try { schedulePickerProbe(store.get('pickerLocation'), force); } catch {} }
 
   function lineLength(line: ContourPolyline): number { let total = 0; for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i], meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180; total += Math.hypot((b[1] - a[1]) * Math.cos(meanLat), b[0] - a[0]); } return total; }
   function midpointAlongLine(line: ContourPolyline): [number, number] | null { if (line.length < 2) return null; const lengths: number[] = []; let total = 0; for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i], meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180, d = Math.hypot((b[1] - a[1]) * Math.cos(meanLat), b[0] - a[0]); lengths.push(d); total += d; } if (total <= 0) return line[Math.floor(line.length / 2)]; const target = total / 2; let travelled = 0; for (let i = 0; i < lengths.length; i++) { const d = lengths[i]; if (travelled + d >= target) { const f = d > 0 ? (target - travelled) / d : 0, a = line[i], b = line[i + 1]; return [a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])]; } travelled += d; } return line[line.length - 1]; }
@@ -236,22 +257,26 @@
     drawDeclutteredLabels(labelCandidates, nextLayer); nextLayer.addTo(map); const oldLayer = contourLayer; contourLayer = nextLayer; if (oldLayer) try { map.removeLayer(oldLayer); } catch {}
   }
 
-  function handleMapNavigation() { if (!enabled) return; if (contoursEnabled()) { if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 700); } if (labelsEnabled()) setTimeout(() => syncPickerFromStore(), 180); }
-  function setDisplayMode(mode: DisplayMode) { if (!enabled || displayMode === mode) return; displayMode = mode; generation += 1; viewportLoading = false; refreshQueued = false; if (!contoursEnabled()) clearContours(); else refreshViewport(); if (!labelsEnabled()) clearPointState(); else syncPickerFromStore(true); }
-  function toggleEnabled() { if (enabled) { if (contoursEnabled()) refreshViewport(); if (labelsEnabled()) syncPickerFromStore(true); } else { generation += 1; viewportLoading = false; refreshQueued = false; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearContours(); clearPointState(); } }
+  function handleMapNavigation() { if (!enabled) return; if (contoursEnabled()) { if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 700); } if (!isMobile && labelsEnabled()) setTimeout(() => syncPickerFromStore(), 180); }
+  function setDisplayMode(mode: DisplayMode) { if (!enabled || displayMode === mode) return; displayMode = mode; generation += 1; viewportLoading = false; refreshQueued = false; if (!contoursEnabled()) clearContours(); else refreshViewport(); if (!labelsEnabled()) clearPointState(); else if (!isMobile) syncPickerFromStore(true); }
+  function toggleEnabled() { if (enabled) { if (contoursEnabled()) refreshViewport(); if (!isMobile && labelsEnabled()) syncPickerFromStore(true); } else { generation += 1; viewportLoading = false; refreshQueued = false; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearContours(); clearPointState(); } }
 
   onMount(() => {
-    map.on('moveend', handleMapNavigation); map.on('zoomend', handleMapNavigation); map.on('click', handleMapClick);
+    map.on('moveend', handleMapNavigation); map.on('zoomend', handleMapNavigation);
+    singleclick.on(config.name, handleSingleClick);
     try { timestampListener = store.on('timestamp', () => { if (enabled && contoursEnabled() && cache.length && !viewportLoading) renderFromCache(); if (enabled && labelsEnabled()) updatePersistentClickLabel(); }); } catch (e) { console.warn('Snowline timeline listener unavailable', e); }
-    try { pickerLocationListener = store.on('pickerLocation', (value: any) => schedulePickerProbe(value)); } catch (e) { console.warn('Snowline picker-location listener unavailable', e); }
-    pickerSyncTimer = setInterval(() => syncPickerFromStore(), PICKER_SYNC_MS);
+    if (!isMobile) {
+      try { pickerLocationListener = store.on('pickerLocation', (value: any) => schedulePickerProbe(value)); } catch (e) { console.warn('Snowline picker-location listener unavailable', e); }
+      pickerSyncTimer = setInterval(() => syncPickerFromStore(), PICKER_SYNC_MS);
+    }
     if (contoursEnabled()) refreshViewport();
-    if (labelsEnabled()) syncPickerFromStore(true);
+    if (!isMobile && labelsEnabled()) syncPickerFromStore(true);
   });
   onDestroy(() => {
     generation += 1; clickGeneration += 1; refreshQueued = false;
     if (moveTimer) clearTimeout(moveTimer); if (pickerTimer) clearTimeout(pickerTimer); if (pickerSyncTimer) clearInterval(pickerSyncTimer);
-    map.off('moveend', handleMapNavigation); map.off('zoomend', handleMapNavigation); map.off('click', handleMapClick);
+    map.off('moveend', handleMapNavigation); map.off('zoomend', handleMapNavigation);
+    singleclick.off(config.name, handleSingleClick);
     if (timestampListener !== null) try { store.off(timestampListener); } catch {}
     if (pickerLocationListener !== null) try { store.off(pickerLocationListener); } catch {}
     clearContours(); clearClickLayer(); profileCache.clear(); clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null;
