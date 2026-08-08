@@ -770,20 +770,23 @@
 
   :global(.snowline-loading) {
     position: absolute;
-    top: 10px;
-    right: 10px;
+    left: 50%;
+    bottom: 82px;
+    transform: translateX(-50%);
     z-index: 1000;
     margin: 0 !important;
-    padding: 5px 8px;
-    border-radius: 6px;
-    background: rgba(15,17,20,0.88);
+    padding: 6px 10px;
+    border-radius: 999px;
+    background: rgba(15,17,20,0.92);
     color: white;
     font-size: 11px;
-    font-weight: 700;
+    line-height: 1;
+    font-weight: 800;
     align-items: center;
-    gap: 6px;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+    gap: 7px;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.36);
     pointer-events: none;
+    white-space: nowrap;
   }
   :global(.snowline-loading::before) {
     content: '';
@@ -795,6 +798,14 @@
     animation: snowline-spin 0.8s linear infinite;
   }
   @keyframes snowline-spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 520px) {
+    :global(.snowline-loading) {
+      bottom: 92px;
+      font-size: 10.5px;
+      padding: 6px 9px;
+    }
+  }
 
   :global(.snowline-label), :global(.snowline-click-label) {
     background: transparent !important;
