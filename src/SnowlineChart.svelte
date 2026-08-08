@@ -29,7 +29,7 @@
       <span><i class="snowline-chart-key-line snowline-key"></i> Snowline</span>
       {#if chart.terrainY !== null}<span><i class="snowline-chart-key-line terrain-key"></i> Terrain {Math.round(terrainM ?? 0)} m</span>{/if}
       <span><i class="snowline-chart-key-dot"></i> Selected time</span>
-      {#if crossing?.crossingTime}<span><i class="snowline-chart-key-cross"></i> First crossing</span>{/if}
+      {#if crossing?.crossingTime}<span><i class="snowline-chart-key-cross"></i> Crossing terrain</span>{/if}
       {#if chart.hasPrecip}<span><i class="snowline-chart-key-bar"></i> Precip mm/3h</span>{/if}
     </div>
 
