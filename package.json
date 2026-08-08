@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "0.6.1",
-  "description": "ECMWF wet-bulb-zero Snowline proxy to +144 h with built-in place search and reliable saved favourites, Label only, Contour only, and Label + contour modes, automatic picker-label hiding, concise point labels, ±100 m near-snowline wording, 3-hour snowline tendency, adaptive contour spacing by zoom, Windy map elevation, caching and decluttered contours. Thermal snowline only; precipitation is not implied.",
+  "version": "0.6.2",
+  "description": "ECMWF wet-bulb-zero Snowline proxy to +144 h with built-in place search and reliable saved favourites, persistent search-result labels, Label only, Contour only, and Label + contour modes, automatic Windy picker-label hiding, concise point labels, ±100 m near-snowline wording, 3-hour snowline tendency, adaptive contour spacing by zoom, Windy map elevation, caching and decluttered contours. Thermal snowline only; precipitation is not implied.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
