@@ -53,11 +53,11 @@
         <div>The lowest upward crossing of 0°C wet-bulb temperature is interpolated to estimate the wet-bulb-zero snowline.</div>
         <div>Point labels compare that snowline with Windy map elevation. More than 100 m above is <b>ABOVE SNOWLINE</b>, more than 100 m below is <b>BELOW SNOWLINE</b>, and within ±100 m is <b>NEAR SNOWLINE</b>.</div>
         <div>The arrow on a point label shows the approximate snowline tendency over the next 3 hours.</div>
-        <div>Where available, ECMWF 3-hour precipitation is shown as water-equivalent <b>mm/3h</b>. Dry points are left uncluttered.</div>
+        <div>Where available, ECMWF precipitation is shown as water-equivalent <b>mm/3h</b>. Snowline requests Windy's point-forecast data for the selected location so precipitation can be shown without adding extra requests to the contour grid.</div>
         <div>Contours are reconstructed from ECMWF vertical profiles sampled across the visible map. Sampling density and contour spacing increase with zoom, and the contours update with the Windy forecast timestep.</div>
         <div>Desktop clicks create the Snowline point label directly. Valid Windy picker updates can refine a selected point, but an empty or stale picker state never removes the label. Mobile uses Windy's single-click location event.</div>
         <div>Search, favourites and My location recenter the map while preserving the current zoom level.</div>
-        <div>Point labels include a <b>⛅</b> button for Windy's native forecast and a graph button for a compact Snowline-versus-time view with precipitation bars.</div>
+        <div>Point labels include a <b>⛅</b> button for Windy's native forecast and a graph button for a compact Snowline-versus-time view with precipitation bars. The graph can be moved with its ↕ drag button.</div>
         <div>Search, mobile taps and desktop selections are tracked separately so the correct point label persists until another point is selected or × is pressed.</div>
         <div>Search results and favourites use their exact stored coordinates. The share-node button copies the place name, coordinates, <b>valid time</b>, <b>lead time</b>, snowline, elevation, precipitation and tendency.</div>
         <div class="info-caveat">Snowline remains a thermal boundary — precipitation amount alone does not guarantee snowfall or accumulation.</div>
@@ -78,6 +78,7 @@
   import SnowlineChart from './SnowlineChart.svelte';
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
   import { precipMmAt, formatPrecipMm } from './precip';
+  import { loadSelectedPrecipFields } from './selectedPrecip';
   import { contourPolylines, type GridPoint, type ContourPolyline } from './contours';
 
   type CachedPoint = { lat: number; lon: number; forecast: Record<string, unknown>; header: Record<string, unknown>; times: number[]; runTime: number | null; };
@@ -196,9 +197,34 @@
 
   function formatCoordinate(lat: number, lon: number): string { const latHem = lat >= 0 ? 'N' : 'S', lonHem = lon >= 0 ? 'E' : 'W'; return `${Math.abs(lat).toFixed(4)}°${latHem}, ${Math.abs(lon).toFixed(4)}°${lonHem}`; }
   function formatUtc(timestamp: number): string { const d = new Date(timestamp), pad = (value: number) => String(value).padStart(2, '0'); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())} UTC`; }
+
+  function clickNativeForecastDetail(): boolean {
+    const selectors = [
+      '.picker-content [data-do="openDetail"]',
+      '.picker-content [data-do="openDetailMobile"]',
+      '[data-do="openDetail"]',
+      '[data-do="openDetailMobile"]',
+    ];
+    for (const selector of selectors) {
+      const element = document.querySelector(selector) as HTMLElement | null;
+      if (element) {
+        try { element.click(); return true; } catch {}
+      }
+    }
+    return false;
+  }
+
   function openWindyForecast(lat: number, lon: number) {
+    // Ask Windy to place its native picker at the exact Snowline point, then
+    // automatically perform the native picker detail action. No map movement or
+    // zoom is requested here, and the embedded Snowline plugin remains open.
     try { (singleclick as any).fire('click', { lat, lon }); }
-    catch (e) { console.warn('Snowline could not open Windy forecast detail', e); }
+    catch (e) { console.warn('Snowline could not place Windy picker', e); }
+
+    if (clickNativeForecastDetail()) return;
+    for (const delay of [90, 180, 320, 520, 800]) {
+      setTimeout(() => { clickNativeForecastDetail(); }, delay);
+    }
   }
 
   async function resolvePlaceName(lat: number, lon: number): Promise<string> {
@@ -244,9 +270,33 @@
   }
 
   async function probeLocation(lat: number, lon: number, source: PointSource, placeName: string | null = null) {
-    if (!enabled || !labelsEnabled() || !Number.isFinite(lat) || !Number.isFinite(lon)) return; chartOpen = false; const myClick = ++clickGeneration; clickedPoint = null; clickedMapElevationM = null; clickedLatLon = [lat, lon]; clickedPlaceName = placeName; pointSource = source; probeLoading = true; showClickLabel(lat, lon, 'Snowline …', 'Reading point');
-    try { const [cp, mapElevation] = await Promise.all([loadPoint(lat, lon), loadMapElevation(lat, lon)]); if (myClick !== clickGeneration || pointSource !== source || !enabled || !labelsEnabled()) return; if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; } clickedPoint = cp; clickedMapElevationM = mapElevation; updatePersistentClickLabel(); }
-    finally { if (myClick === clickGeneration) probeLoading = false; }
+    if (!enabled || !labelsEnabled() || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    chartOpen = false;
+    const myClick = ++clickGeneration;
+    clickedPoint = null;
+    clickedMapElevationM = null;
+    clickedLatLon = [lat, lon];
+    clickedPlaceName = placeName;
+    pointSource = source;
+    probeLoading = true;
+    showClickLabel(lat, lon, 'Snowline …', 'Reading point');
+    try {
+      const [cp, mapElevation, precipFields] = await Promise.all([
+        loadPoint(lat, lon),
+        loadMapElevation(lat, lon),
+        loadSelectedPrecipFields(lat, lon, FORECAST_DAYS),
+      ]);
+      if (myClick !== clickGeneration || pointSource !== source || !enabled || !labelsEnabled()) return;
+      if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; }
+      const selectedPoint: CachedPoint = Object.keys(precipFields).length
+        ? { ...cp, forecast: { ...cp.forecast, ...precipFields } }
+        : cp;
+      clickedPoint = selectedPoint;
+      clickedMapElevationM = mapElevation;
+      updatePersistentClickLabel();
+    } finally {
+      if (myClick === clickGeneration) probeLoading = false;
+    }
   }
 
   function latLonFromSingleClick(value: any): [number, number] | null { if (!value) return null; const lat = Number(value.lat ?? value.latitude ?? value.latlng?.lat); const lon = Number(value.lon ?? value.lng ?? value.longitude ?? value.latlng?.lng); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null; return [lat, lon]; }
