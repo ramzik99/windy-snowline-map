@@ -1,0 +1,90 @@
+import { buildProfile, wetBulbZeroHeight } from './snowLevel';
+
+export type CrossingState = {
+  summary: string;
+  detail: string;
+  crossingIndex: number | null;
+  crossingTime: number | null;
+  direction: 'below' | 'above' | 'none';
+};
+
+function snowlineAt(point: any, index: number): number | null {
+  try {
+    const result = wetBulbZeroHeight(buildProfile(point.forecast, index));
+    return result.snowLevelM !== null && Number.isFinite(result.snowLevelM) ? result.snowLevelM : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatLead(hours: number): string {
+  const rounded = Math.max(0, Math.round(hours));
+  if (rounded < 24) return `${rounded} h`;
+  const days = Math.floor(rounded / 24);
+  const rem = rounded % 24;
+  return rem ? `${days}d ${rem}h` : `${days}d`;
+}
+
+function formatUtc(time: number): string {
+  const d = new Date(time);
+  const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  return `${day} ${hh} UTC`;
+}
+
+export function terrainCrossingState(point: any, terrainM: number | null, targetTime: number): CrossingState | null {
+  if (!point || !Array.isArray(point.times) || !point.times.length || terrainM === null || !Number.isFinite(terrainM)) return null;
+
+  let startIndex = 0;
+  let best = Infinity;
+  point.times.forEach((time: number, index: number) => {
+    const d = Math.abs(time - targetTime);
+    if (d < best) { best = d; startIndex = index; }
+  });
+
+  const current = snowlineAt(point, startIndex);
+  if (current === null) return null;
+  const currentBelowTerrain = current <= terrainM;
+
+  for (let i = startIndex + 1; i < point.times.length; i++) {
+    const value = snowlineAt(point, i);
+    if (value === null) continue;
+    const below = value <= terrainM;
+    if (below !== currentBelowTerrain) {
+      const crossingTime = point.times[i];
+      const leadHours = (crossingTime - point.times[startIndex]) / 3600_000;
+      if (below) {
+        return {
+          summary: `SL below terrain in ${formatLead(leadHours)}`,
+          detail: `Snowline falls below local terrain around ${formatUtc(crossingTime)}`,
+          crossingIndex: i,
+          crossingTime,
+          direction: 'below',
+        };
+      }
+      return {
+        summary: `SL above terrain in ${formatLead(leadHours)}`,
+        detail: `Snowline rises above local terrain around ${formatUtc(crossingTime)}`,
+        crossingIndex: i,
+        crossingTime,
+        direction: 'above',
+      };
+    }
+  }
+
+  return currentBelowTerrain
+    ? {
+        summary: 'SL below terrain through +144 h',
+        detail: 'Snowline remains below local terrain through the available +144 h forecast',
+        crossingIndex: null,
+        crossingTime: null,
+        direction: 'none',
+      }
+    : {
+        summary: 'SL above terrain through +144 h',
+        detail: 'Snowline remains above local terrain through the available +144 h forecast',
+        crossingIndex: null,
+        crossingTime: null,
+        direction: 'none',
+      };
+}
