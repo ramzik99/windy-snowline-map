@@ -1,6 +1,6 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "ECMWF wet-bulb-zero Snowline proxy to +144 h with stitched 100 m contours, persistent terrain-aware point probes, adaptive sampling, caching, decluttered labels, and an in-map loading indicator.",
   "main": "dist/plugin.min.js",
   "type": "module",
