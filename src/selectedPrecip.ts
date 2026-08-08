@@ -1,9 +1,9 @@
 import { getPointForecastData } from '@windy/fetch';
 
-function isArrayLike(value: unknown): boolean {
-  if (Array.isArray(value)) return value.length > 0;
+function isNumericArrayLike(value: unknown): boolean {
   if (ArrayBuffer.isView(value as any)) return Number((value as any)?.length) > 0;
-  return !!value && typeof value === 'object' && Number.isFinite(Number((value as any)?.length));
+  if (!Array.isArray(value) || !value.length) return false;
+  return value.some(item => typeof item === 'number' || typeof item === 'string');
 }
 
 function isPrecipKey(key: string): boolean {
@@ -13,16 +13,37 @@ function isPrecipKey(key: string): boolean {
     && !k.includes('snow');
 }
 
-function collectPrecipFields(value: unknown, out: Record<string, unknown>, depth = 0) {
-  if (!value || typeof value !== 'object' || depth > 6) return;
-  const obj = value as Record<string, unknown>;
+function collectFromRecordArray(items: unknown[], out: Record<string, unknown>) {
+  if (!items.length || !items.every(item => !!item && typeof item === 'object' && !Array.isArray(item))) return;
+  const keys = new Set<string>();
+  for (const item of items as Record<string, unknown>[]) {
+    for (const key of Object.keys(item)) if (isPrecipKey(key)) keys.add(key);
+  }
+  for (const key of keys) {
+    const values = (items as Record<string, unknown>[]).map(item => {
+      const raw = item[key];
+      const n = typeof raw === 'number' ? raw : Number(raw);
+      return Number.isFinite(n) ? n : null;
+    });
+    if (values.some(value => value !== null)) out[key] = values;
+  }
+}
 
-  for (const [key, field] of Object.entries(obj)) {
-    if (isPrecipKey(key) && isArrayLike(field)) out[key] = field;
+function collectPrecipFields(value: unknown, out: Record<string, unknown>, depth = 0) {
+  if (!value || typeof value !== 'object' || depth > 7) return;
+
+  if (Array.isArray(value)) {
+    collectFromRecordArray(value, out);
+    for (const child of value.slice(0, 3)) collectPrecipFields(child, out, depth + 1);
+    return;
   }
 
+  const obj = value as Record<string, unknown>;
+  for (const [key, field] of Object.entries(obj)) {
+    if (isPrecipKey(key) && isNumericArrayLike(field)) out[key] = field;
+  }
   for (const child of Object.values(obj)) {
-    if (child && typeof child === 'object' && !isArrayLike(child)) {
+    if (child && typeof child === 'object' && !isNumericArrayLike(child)) {
       collectPrecipFields(child, out, depth + 1);
     }
   }
