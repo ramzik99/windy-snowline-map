@@ -1,6 +1,6 @@
 import { getPointForecastData } from '@windy/fetch';
 
-export type SnowForecastModel = 'ecmwf' | 'gfs' | 'icon';
+export type SnowForecastModel = 'ecmwf';
 
 function isNumericArrayLike(value: unknown): boolean {
   if (ArrayBuffer.isView(value as any)) return Number((value as any)?.length) > 0;
@@ -21,7 +21,10 @@ function isPrecipKey(key: string): boolean {
 
 function isSnowDepthKey(key: string): boolean {
   const k = normaliseKey(key);
-  return k.includes('snowdepth')
+  return k === 'sd'
+    || k === 'sde'
+    || k === 'snow'
+    || k.includes('snowdepth')
     || k.includes('snow-depth')
     || k.includes('snowcover')
     || k.includes('snow-cover')
@@ -52,11 +55,11 @@ function collectFromRecordArray(items: unknown[], out: Record<string, unknown>) 
 }
 
 function collectSelectedFields(value: unknown, out: Record<string, unknown>, depth = 0) {
-  if (!value || typeof value !== 'object' || depth > 7) return;
+  if (!value || typeof value !== 'object' || depth > 9) return;
 
   if (Array.isArray(value)) {
     collectFromRecordArray(value, out);
-    for (const child of value.slice(0, 3)) collectSelectedFields(child, out, depth + 1);
+    for (const child of value) collectSelectedFields(child, out, depth + 1);
     return;
   }
 
@@ -65,10 +68,29 @@ function collectSelectedFields(value: unknown, out: Record<string, unknown>, dep
     if (isWantedKey(key) && isNumericArrayLike(field)) out[key] = field;
   }
   for (const child of Object.values(obj)) {
-    if (child && typeof child === 'object' && !isNumericArrayLike(child)) {
-      collectSelectedFields(child, out, depth + 1);
-    }
+    if (child && typeof child === 'object' && !isNumericArrayLike(child)) collectSelectedFields(child, out, depth + 1);
   }
+}
+
+function hasSnowDepth(out: Record<string, unknown>): boolean {
+  return Object.keys(out).some(isSnowDepthKey);
+}
+
+async function requestPointFields(
+  model: SnowForecastModel,
+  lat: number,
+  lon: number,
+  days: number,
+  options?: Record<string, string>,
+): Promise<Record<string, unknown>> {
+  const response = await getPointForecastData(
+    model,
+    { lat, lon, step: 1, days, source: 'detail' } as any,
+    options,
+  );
+  const out: Record<string, unknown> = {};
+  collectSelectedFields(response as unknown, out);
+  return out;
 }
 
 export async function loadSelectedPrecipFields(
@@ -78,18 +100,30 @@ export async function loadSelectedPrecipFields(
   model: SnowForecastModel = 'ecmwf',
 ): Promise<Record<string, unknown>> {
   try {
-    const response = await getPointForecastData(
-      model,
-      { lat, lon, step: 1, days, source: 'detail' } as any,
-    );
-    const out: Record<string, unknown> = {};
-    collectSelectedFields(response as unknown, out);
-    if (!Object.keys(out).length) {
-      console.warn(`Snow forecast ${model}: no precipitation or snow-depth field found in Windy point forecast payload`);
+    const out = await requestPointFields(model, lat, lon, days);
+
+    // Windy's generic point feed does not guarantee every map overlay. Ask once
+    // more for the snow-cover view when the ordinary response omitted depth.
+    // Unsupported options are ignored by the backend, so the normal feed still
+    // remains the authoritative source.
+    if (!hasSnowDepth(out)) {
+      try {
+        const snow = await requestPointFields(model, lat, lon, days, {
+          overlay: 'snowcover',
+          display: 'meteogram',
+          extended: 'true',
+        });
+        for (const [key, value] of Object.entries(snow)) {
+          if (isSnowDepthKey(key) && !(key in out)) out[key] = value;
+        }
+      } catch (e) {
+        console.info('Snow forecast: ECMWF point feed has no separate snow-depth series', e);
+      }
     }
+
     return out;
   } catch (e) {
-    console.warn(`Snow forecast ${model} point-weather request failed`, lat, lon, e);
+    console.warn('Snow forecast ECMWF point-weather request failed', lat, lon, e);
     return {};
   }
 }
