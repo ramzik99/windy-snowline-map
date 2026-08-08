@@ -57,6 +57,7 @@
   let panelHidden = false;
   let displayMode: DisplayMode = 'both';
   let viewportLoading = false;
+  let refreshQueued = false;
   let probeLoading = false;
   let cache: (CachedPoint | null)[][] = [];
   let contourLayer: any = null;
@@ -79,7 +80,7 @@
   const MAX_CONCURRENT = 8;
   const FORECAST_DAYS = 6;
   const MAX_FORECAST_HOURS = 144;
-  const PROFILE_CACHE_MAX = 900;
+  const PROFILE_CACHE_MAX = 1200;
   const LABEL_MIN_DISTANCE_PX = 92;
   const MIN_VALID_FRACTION = 0.35;
   const NEAR_SNOWLINE_METRES = 100;
@@ -126,12 +127,40 @@
   function cachedProfile(lat: number, lon: number): CachedPoint | null { const key = profileKey(lat, lon), point = profileCache.get(key); if (!point) return null; if (activeRunTime !== null && point.runTime !== null && Math.abs(point.runTime - activeRunTime) >= 60_000) { profileCache.delete(key); return null; } profileCache.delete(key); profileCache.set(key, point); return point; }
   async function loadPoint(lat: number, lon: number): Promise<CachedPoint | null> { const existing = cachedProfile(lat, lon); if (existing) return existing; try { const response = await getMeteogramForecastData(MODEL, { lat, lon, step: 1, days: FORECAST_DAYS }); const { forecast, header } = extractPayload(response); if (!Object.keys(forecast).length) return null; const runTime = parseTime(header.refTime); invalidateForNewRun(runTime); const point: CachedPoint = { lat, lon, forecast, header, times: buildForecastTimes(forecast, header), runTime }; rememberProfile(point); return point; } catch (e) { console.warn('Snowline point failed', lat, lon, e); return null; } }
   async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> { const out = new Array<R>(items.length); let next = 0; async function worker() { while (true) { const i = next++; if (i >= items.length) return; out[i] = await fn(items[i]); } } await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker())); return out; }
-  function gridShapeForZoom(): { rows: number; cols: number } { const zoom = Number(map.getZoom?.() ?? 6), mapWidth = Number(map.getSize?.().x ?? 800); if (zoom <= 4) return { rows: 9, cols: 13 }; if (zoom <= 7) return { rows: 11, cols: 17 }; if (mapWidth < 520) return { rows: 13, cols: 19 }; return { rows: 15, cols: 21 }; }
+  function gridShapeForZoom(): { rows: number; cols: number } {
+    const zoom = Number(map.getZoom?.() ?? 6);
+    const mapWidth = Number(map.getSize?.().x ?? 800);
+    const mobile = mapWidth < 520;
+    if (zoom <= 4) return { rows: 9, cols: 13 };
+    if (zoom <= 6) return { rows: 11, cols: 17 };
+    if (zoom <= 8) return mobile ? { rows: 13, cols: 19 } : { rows: 15, cols: 23 };
+    return mobile ? { rows: 15, cols: 23 } : { rows: 19, cols: 27 };
+  }
   function buildViewportPoints(): { points: ViewportPoint[]; rows: number; cols: number } { const { rows, cols } = gridShapeForZoom(), b = map.getBounds(); const south = Math.max(-75, b.getSouth()), north = Math.min(75, b.getNorth()), west = b.getWest(), east = b.getEast(); const latStep = (north - south) / (rows - 1), lonStep = (east - west) / (cols - 1), points: ViewportPoint[] = []; for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) points.push({ lat: south + r * latStep, lon: west + c * lonStep, r, c }); return { points, rows, cols }; }
 
   async function refreshViewport() {
-    if (!enabled || !contoursEnabled() || viewportLoading) return; const myGeneration = ++generation; viewportLoading = true; const { points, rows, cols } = buildViewportPoints();
-    try { const results = await mapLimit(points, MAX_CONCURRENT, async p => ({ ...p, result: await loadPoint(p.lat, p.lon) })); if (myGeneration !== generation || !enabled || !contoursEnabled()) return; const valid = results.filter(item => item.result && item.result.times.length).length; if (valid < Math.max(4, Math.floor(points.length * MIN_VALID_FRACTION))) { console.warn('Snowline refresh kept previous contours: too few valid profiles', valid, points.length); return; } const nextCache: (CachedPoint | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null)); for (const item of results) if (item.result) nextCache[item.r][item.c] = item.result; cache = nextCache; renderFromCache(); } finally { if (myGeneration === generation) viewportLoading = false; }
+    if (!enabled || !contoursEnabled()) return;
+    if (viewportLoading) { refreshQueued = true; return; }
+    refreshQueued = false;
+    const myGeneration = ++generation;
+    viewportLoading = true;
+    const { points, rows, cols } = buildViewportPoints();
+    try {
+      const results = await mapLimit(points, MAX_CONCURRENT, async p => ({ ...p, result: await loadPoint(p.lat, p.lon) }));
+      if (myGeneration !== generation || !enabled || !contoursEnabled()) return;
+      const valid = results.filter(item => item.result && item.result.times.length).length;
+      if (valid < Math.max(4, Math.floor(points.length * MIN_VALID_FRACTION))) { console.warn('Snowline refresh kept previous contours: too few valid profiles', valid, points.length); return; }
+      const nextCache: (CachedPoint | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null));
+      for (const item of results) if (item.result) nextCache[item.r][item.c] = item.result;
+      cache = nextCache;
+      renderFromCache();
+    } finally {
+      if (myGeneration === generation) viewportLoading = false;
+      if (refreshQueued && enabled && contoursEnabled()) {
+        refreshQueued = false;
+        setTimeout(() => refreshViewport(), 0);
+      }
+    }
   }
 
   function clearContours() { if (contourLayer) { try { map.removeLayer(contourLayer); } catch {} contourLayer = null; } }
@@ -207,9 +236,9 @@
     drawDeclutteredLabels(labelCandidates, nextLayer); nextLayer.addTo(map); const oldLayer = contourLayer; contourLayer = nextLayer; if (oldLayer) try { map.removeLayer(oldLayer); } catch {}
   }
 
-  function handleMapNavigation() { if (!enabled) return; if (contoursEnabled()) { if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 650); } if (labelsEnabled()) setTimeout(() => syncPickerFromStore(), 180); }
-  function setDisplayMode(mode: DisplayMode) { if (!enabled || displayMode === mode) return; displayMode = mode; generation += 1; viewportLoading = false; if (!contoursEnabled()) clearContours(); else refreshViewport(); if (!labelsEnabled()) clearPointState(); else syncPickerFromStore(true); }
-  function toggleEnabled() { if (enabled) { if (contoursEnabled()) refreshViewport(); if (labelsEnabled()) syncPickerFromStore(true); } else { generation += 1; viewportLoading = false; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearContours(); clearPointState(); } }
+  function handleMapNavigation() { if (!enabled) return; if (contoursEnabled()) { if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 700); } if (labelsEnabled()) setTimeout(() => syncPickerFromStore(), 180); }
+  function setDisplayMode(mode: DisplayMode) { if (!enabled || displayMode === mode) return; displayMode = mode; generation += 1; viewportLoading = false; refreshQueued = false; if (!contoursEnabled()) clearContours(); else refreshViewport(); if (!labelsEnabled()) clearPointState(); else syncPickerFromStore(true); }
+  function toggleEnabled() { if (enabled) { if (contoursEnabled()) refreshViewport(); if (labelsEnabled()) syncPickerFromStore(true); } else { generation += 1; viewportLoading = false; refreshQueued = false; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearContours(); clearPointState(); } }
 
   onMount(() => {
     map.on('moveend', handleMapNavigation); map.on('zoomend', handleMapNavigation); map.on('click', handleMapClick);
@@ -220,7 +249,7 @@
     if (labelsEnabled()) syncPickerFromStore(true);
   });
   onDestroy(() => {
-    generation += 1; clickGeneration += 1;
+    generation += 1; clickGeneration += 1; refreshQueued = false;
     if (moveTimer) clearTimeout(moveTimer); if (pickerTimer) clearTimeout(pickerTimer); if (pickerSyncTimer) clearInterval(pickerSyncTimer);
     map.off('moveend', handleMapNavigation); map.off('zoomend', handleMapNavigation); map.off('click', handleMapClick);
     if (timestampListener !== null) try { store.off(timestampListener); } catch {}
