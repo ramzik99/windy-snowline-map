@@ -2,7 +2,7 @@
   <div class="panel-copy">
     <div class="title">Snowline</div>
     <div class="description">
-      Level that separates snow from rain, estimated from wet-bulb freezing level using ECMWF. Runs up to 144 hours only.
+      Approximate rain–snow boundary, estimated from ECMWF wet-bulb zero height. Runs up to 144 hours only.
     </div>
   </div>
   <label class="switch">
@@ -35,8 +35,10 @@
   let loading = false;
   let cache: (CachedPoint | null)[][] = [];
   let contourLayer: any = null;
+  let clickLabel: any = null;
   let moveTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
+  let clickGeneration = 0;
   let timestampListener: number | null = null;
 
   const MODEL = 'ecmwf' as const;
@@ -232,12 +234,9 @@
 
   function gridShapeForZoom(): { rows: number; cols: number } {
     const zoom = Number(map.getZoom?.() ?? 6);
-
-    // Save requests when viewing a continent, retain the proven 17×11 regional
-    // grid for normal use, and add detail only when the user zooms locally.
-    if (zoom <= 4) return { rows: 9, cols: 13 };   // 117 profiles
-    if (zoom <= 7) return { rows: 11, cols: 17 }; // 187 profiles
-    return { rows: 15, cols: 21 };                // 315 profiles
+    if (zoom <= 4) return { rows: 9, cols: 13 };
+    if (zoom <= 7) return { rows: 11, cols: 17 };
+    return { rows: 15, cols: 21 };
   }
 
   function buildViewportPoints(): {
@@ -305,6 +304,69 @@
       try { map.removeLayer(contourLayer); } catch {}
       contourLayer = null;
     }
+  }
+
+  function clearClickLabel() {
+    if (clickLabel) {
+      try { map.removeLayer(clickLabel); } catch {}
+      clickLabel = null;
+    }
+  }
+
+  function showClickLabel(lat: number, lon: number, text: string, color = '#ffffff') {
+    clearClickLabel();
+    clickLabel = L.marker([lat, lon], {
+      interactive: false,
+      zIndexOffset: 2000,
+      icon: L.divIcon({
+        className: 'snowline-click-label',
+        html: `<span style="--snowline-color:${color}">${text}</span>`,
+        iconSize: [104, 30],
+        iconAnchor: [52, 36],
+      }),
+    }).addTo(map);
+  }
+
+  async function handleMapClick(e: any) {
+    if (!enabled || !e?.latlng) return;
+
+    const lat = Number(e.latlng.lat);
+    const lon = Number(e.latlng.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+    const myClick = ++clickGeneration;
+    showClickLabel(lat, lon, 'Snowline …');
+
+    const cp = await loadPoint(lat, lon);
+    if (myClick !== clickGeneration || !enabled) return;
+
+    if (!cp || !cp.times.length) {
+      showClickLabel(lat, lon, 'No data');
+      return;
+    }
+
+    const target = getStoreTimestamp();
+    const firstTime = cp.times[0];
+    const lastTime = cp.times[cp.times.length - 1];
+    const hardEnd = firstTime + MAX_FORECAST_HOURS * 3600_000;
+    const effectiveEnd = Math.min(lastTime, hardEnd);
+
+    if (target < firstTime - 30 * 60_000 || target > effectiveEnd + 30 * 60_000) {
+      showClickLabel(lat, lon, 'Outside +144 h');
+      return;
+    }
+
+    const idx = nearestIndex(cp.times, target);
+    const profile = buildProfile(cp.forecast, idx);
+    const wbz = wetBulbZeroHeight(profile);
+
+    if (wbz.snowLevelM === null || !Number.isFinite(wbz.snowLevelM)) {
+      showClickLabel(lat, lon, 'No snowline');
+      return;
+    }
+
+    const rounded = Math.round(wbz.snowLevelM / 10) * 10;
+    showClickLabel(lat, lon, `${rounded} m`, colorForLevel(wbz.snowLevelM));
   }
 
   function lineLength(line: ContourPolyline): number {
@@ -476,18 +538,22 @@
       refreshViewport();
     } else {
       generation += 1;
+      clickGeneration += 1;
       loading = false;
       clearContours();
+      clearClickLabel();
     }
   }
 
   onMount(() => {
     map.on('moveend', scheduleViewportRefresh);
     map.on('zoomend', scheduleViewportRefresh);
+    map.on('click', handleMapClick);
 
     try {
       timestampListener = store.on('timestamp', () => {
         if (enabled && cache.length && !loading) renderFromCache();
+        clearClickLabel();
       });
     } catch (e) {
       console.warn('Snowline timeline listener unavailable', e);
@@ -498,15 +564,18 @@
 
   onDestroy(() => {
     generation += 1;
+    clickGeneration += 1;
     if (moveTimer) clearTimeout(moveTimer);
     map.off('moveend', scheduleViewportRefresh);
     map.off('zoomend', scheduleViewportRefresh);
+    map.off('click', handleMapClick);
 
     if (timestampListener !== null) {
       try { store.off(timestampListener); } catch {}
     }
 
     clearContours();
+    clearClickLabel();
   });
 </script>
 
@@ -569,7 +638,8 @@
     }
   }
 
-  :global(.snowline-label) {
+  :global(.snowline-label),
+  :global(.snowline-click-label) {
     background: transparent !important;
     border: 0 !important;
   }
@@ -586,5 +656,23 @@
     white-space: nowrap;
     text-shadow: 0 1px 2px rgba(0,0,0,0.8);
     box-shadow: 0 0 0 1px rgba(255,255,255,0.12);
+  }
+
+  :global(.snowline-click-label span) {
+    display: inline-block;
+    min-width: 64px;
+    padding: 4px 7px;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.22);
+    border-bottom: 4px solid var(--snowline-color, white);
+    background: rgba(15,17,20,0.94);
+    color: white;
+    font-size: 12px;
+    line-height: 1.1;
+    font-weight: 800;
+    text-align: center;
+    white-space: nowrap;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.8);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.32);
   }
 </style>
