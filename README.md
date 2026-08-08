@@ -24,14 +24,30 @@ It is a thermal diagnostic only. A displayed snowline does **not** mean precipit
 - Above / Near / Below Snowline point classification
 - ±100 m Near Snowline transition band
 - 3-hour snowline tendency
+- Dismissible selected-point labels
 - Built-in place search
 - Saved Snowline favourites
 - Clear-search control
 - Hide/show panel control
+- In-panel **i** help explaining how Snowline works
 - Persistent labels for searched places
 - Desktop Windy picker following
 - Mobile point selection through Windy's `singleclick` mechanism
 - Profile caching and queued viewport refreshes
+
+## In-plugin help
+
+The Snowline window includes an **i** button. It opens a compact explanation directly inside the plugin without leaving the map.
+
+The help panel explains:
+
+- that ECMWF temperature, dew point and geopotential height are used
+- that wet-bulb temperature is calculated through the vertical profile
+- that the lowest upward 0°C wet-bulb crossing is interpolated to estimate the snowline
+- that selected-point labels compare the calculated snowline with Windy map elevation
+- that the ±100 m zone is displayed as **NEAR SNOWLINE**
+- that contours are reconstructed from samples across the visible viewport
+- that the result is a thermal boundary and does not imply precipitation, snowfall or accumulation
 
 ## Contour resolution
 
@@ -97,6 +113,8 @@ The ±100 m band is a practical transition/uncertainty display zone. It is not i
 
 The label also reports the approximate snowline tendency over the following three hours, for example `↑120 m/3h`, `↓80 m/3h`, or `→ steady`.
 
+Every selected-point label has its own **× close button**. Closing a label removes that point display without turning off contours or the Snowline plugin.
+
 ## Desktop and mobile point selection
 
 Windy's `pickerLocation` state is designed for desktop use, so Snowline uses different mechanisms by platform:
@@ -114,7 +132,7 @@ Snowline contains a compact place search using OpenStreetMap Nominatim results.
 
 Search results can be saved with the ☆ button. Saved places are stored locally in the browser/app environment and can be reopened from the ★ favourites button.
 
-The × button clears the current search and searched-point label.
+The × button in the search box clears the current search and searched-point label.
 
 ## Forecast timing
 
@@ -186,7 +204,7 @@ Each published release must use a new version number.
 
 ## Current version
 
-**0.6.5**
+**0.6.6**
 
 ## Author
 
