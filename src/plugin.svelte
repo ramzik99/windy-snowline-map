@@ -1,12 +1,12 @@
 {#if panelHidden}
-  <button class="show-panel" type="button" aria-label="Show Snowline panel" on:click={() => panelHidden = false}>❄ Snowline</button>
+  <button class="show-panel" type="button" aria-label="Show Snow forecast panel" on:click={() => panelHidden = false}>❄ Snow forecast</button>
 {:else}
   <div class="snowline-panel">
     <div class="top-row">
-      <div class="title">Snowline</div>
+      <div class="title">Snow forecast</div>
       <div class="top-controls">
-        <button class="info-button" class:active={infoOpen} type="button" aria-label="How Snowline works" title="How it works" on:click={() => infoOpen = true}>i</button>
-        <button class="hide-button" type="button" aria-label="Hide Snowline panel" title="Hide" on:click={() => panelHidden = true}>−</button>
+        <button class="info-button" class:active={infoOpen} type="button" aria-label="How Snow forecast works" title="How it works" on:click={() => infoOpen = true}>i</button>
+        <button class="hide-button" type="button" aria-label="Hide Snow forecast panel" title="Hide" on:click={() => panelHidden = true}>−</button>
         <label class="switch">
           <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
           <span>{enabled ? 'On' : 'Off'}</span>
@@ -42,26 +42,16 @@
 
 {#if infoOpen}
   <div class="info-overlay" role="presentation" on:click={() => infoOpen = false}>
-    <div class="info-window" role="dialog" aria-modal="true" aria-label="How Snowline works" on:click|stopPropagation>
+    <div class="info-window" role="dialog" aria-modal="true" aria-label="How Snow forecast works" on:click|stopPropagation>
       <div class="info-head">
-        <b>How Snowline works</b>
+        <b>How Snow forecast works</b>
         <button type="button" aria-label="Close information" title="Close" on:click={() => infoOpen = false}>×</button>
       </div>
       <div class="info-body">
-        <div><b>Snowline</b> is an approximate ECMWF rain–snow thermal boundary derived from wet-bulb-zero height. Runs up to 144 hours only.</div>
-        <div>ECMWF temperature, dew point and geopotential height are used to calculate wet-bulb temperature through the vertical profile.</div>
-        <div>The lowest upward crossing of 0°C wet-bulb temperature is interpolated to estimate the wet-bulb-zero snowline.</div>
-        <div>Point labels compare that snowline with Windy map elevation. More than 100 m above is <b>ABOVE SNOWLINE</b>, more than 100 m below is <b>BELOW SNOWLINE</b>, and within ±100 m is <b>NEAR SNOWLINE</b>.</div>
-        <div>The arrow on a point label shows the approximate snowline tendency over the next 3 hours.</div>
-        <div>Point labels and the graph also show the first forecast time when the snowline crosses local terrain, or state that it stays above/below terrain through +144 h.</div>
-        <div>Where available, ECMWF precipitation is shown as water-equivalent <b>mm/3h</b>. Snowline requests Windy's point-forecast data for the selected location so precipitation can be shown without adding extra requests to the contour grid.</div>
-        <div>Contours are reconstructed from ECMWF vertical profiles sampled across the visible map. Sampling density and contour spacing increase with zoom, and the contours update with the Windy forecast timestep.</div>
-        <div>Desktop clicks create the Snowline point label directly. Valid Windy picker updates can refine a selected point, but an empty or stale picker state never removes the label. Mobile uses Windy's single-click location event.</div>
-        <div>Search, favourites and My location recenter the map while preserving the current zoom level.</div>
-        <div>Point labels include a <b>⛅</b> button that opens Windy's native detail forecast directly for the selected point and a graph button for a compact Snowline-versus-time view with precipitation bars. The graph can be moved with its ↕ drag button.</div>
-        <div>Search, mobile taps and desktop selections are tracked separately so the correct point label persists until another point is selected or × is pressed.</div>
-        <div>Search results and favourites use their exact stored coordinates. The share-node button copies the place name, coordinates, <b>valid time</b>, <b>lead time</b>, snowline, elevation, precipitation, terrain-crossing outlook and tendency.</div>
-        <div class="info-caveat">Snowline remains a thermal boundary — precipitation amount alone does not guarantee snowfall or accumulation.</div>
+        <div><b>Snow forecast</b> uses ECMWF temperature, dew point and geopotential height to estimate the wet-bulb-zero snowline. Runs up to 144 hours only.</div>
+        <div>Map contours show the approximate rain–snow thermal boundary. Point labels compare that boundary with Windy map elevation: above, below or within ±100 m of the snowline.</div>
+        <div>The point graph shows snowline through time together with precipitation and modelled snow depth when available. Tap the graph for exact values or download it as PNG.</div>
+        <div class="info-caveat">This is a thermal forecast aid. Snowline, precipitation and modelled snow depth do not guarantee local snowfall or accumulation.</div>
       </div>
     </div>
   </div>
@@ -146,7 +136,7 @@
   function contoursEnabled(): boolean { return displayMode === 'contour' || displayMode === 'both'; }
   function labelsEnabled(): boolean { return displayMode === 'label' || displayMode === 'both'; }
   function contourIntervalForZoom(): number { const zoom = Number(map.getZoom?.() ?? 6); if (zoom <= 4) return 500; if (zoom <= 7) return 200; return 100; }
-  function hexToRgb(hex: string): [number, number, number] { const h = hex.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+  function hexToRgb(hex: string): [number, number, number] { const h = hex.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16)]; }
   function rgbToHex(r: number, g: number, b: number): string { const part = (v: number) => Math.round(v).toString(16).padStart(2, '0'); return `#${part(r)}${part(g)}${part(b)}`; }
   function colorForLevel(level: number): string {
     if (level <= COLOUR_STOPS[0].value) return COLOUR_STOPS[0].color;
@@ -228,7 +218,7 @@
     L.circleMarker([lat, lon], { radius: status === 'neutral' ? 4 : 5, weight: 2, color: '#ffffff', fillColor: accent, fillOpacity: 1, interactive: false }).addTo(clickLayer);
     const detail = detailText ? `<small>${detailText}</small>` : '';
     const outlook = outlookText ? `<em>${outlookText}</em>` : '';
-    const actions = clickedPoint && clickedLatLon ? '<button class="snowline-label-forecast" type="button" aria-label="Show Windy forecast" title="Show Windy forecast">⛅</button><button class="snowline-label-chart" type="button" aria-label="Show Snowline graph" title="Snowline graph">⌁</button><button class="snowline-label-share" type="button" aria-label="Copy Snowline details" title="Copy Snowline details">share</button>' : '';
+    const actions = clickedPoint && clickedLatLon ? '<button class="snowline-label-forecast" type="button" aria-label="Show Windy forecast" title="Show Windy forecast">⛅</button><button class="snowline-label-chart" type="button" aria-label="Show Snow forecast graph" title="Snow forecast graph">⌁</button><button class="snowline-label-share" type="button" aria-label="Copy Snowline details" title="Copy Snowline details">share</button>' : '';
     const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${actions}<button class="snowline-label-close" type="button" aria-label="Close Snowline label" title="Close">×</button><b>${mainText}</b>${detail}${outlook}</span>`, iconSize: [250, outlookText ? 74 : 60], iconAnchor: [125, outlookText ? 82 : 68] }) }).addTo(clickLayer);
     marker.on('click', (event: any) => {
       const original = event?.originalEvent; const target = original?.target as HTMLElement | undefined; const forecast = target?.closest?.('.snowline-label-forecast'); const graph = target?.closest?.('.snowline-label-chart'); const share = target?.closest?.('.snowline-label-share') as HTMLButtonElement | null; const close = target?.closest?.('.snowline-label-close');
