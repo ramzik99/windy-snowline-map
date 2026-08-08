@@ -21,7 +21,14 @@ function isPrecipKey(key: string): boolean {
 
 function isSnowDepthKey(key: string): boolean {
   const k = normaliseKey(key);
-  return k.includes('snowdepth') || k.includes('snow-depth');
+  return k.includes('snowdepth')
+    || k.includes('snow-depth')
+    || k.includes('snowcover')
+    || k.includes('snow-cover')
+    || k === 'h-snow'
+    || k === 'hsnow'
+    || k.startsWith('h-snow-')
+    || k.startsWith('hsnow-');
 }
 
 function isWantedKey(key: string): boolean {
