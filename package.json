@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "4.0.0",
-  "description": "ECMWF Snow forecast to +144 h with wet-bulb-zero snowline contours, terrain-aware point forecasts, precipitation and modelled snow depth. Version 4.0.0 reorganises the detailed graph into clearly separated altitude, precipitation and snow-depth panels, uses one authoritative selected forecast timestep throughout the graph, and exports a clean presentation-ready PNG independent of UI state.",
+  "version": "4.0.1",
+  "description": "ECMWF Snow forecast to +144 h with wet-bulb-zero snowline contours, terrain-aware point forecasts, precipitation and modelled snow depth. Version 4.0.1 fixes graph label overlap, keeps unavailable snow depth visible as an explicit state, and expands PNG export to include the lower forecast panels, selected values and terrain-crossing summary.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
