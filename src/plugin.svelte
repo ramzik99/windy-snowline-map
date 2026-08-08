@@ -38,6 +38,7 @@
     length: number;
     is1000: boolean;
   };
+  type ProbeStatus = 'above' | 'below' | 'near' | 'neutral';
 
   let enabled = true;
   let loading = false;
@@ -62,6 +63,7 @@
   const PROFILE_CACHE_MAX = 900;
   const LABEL_MIN_DISTANCE_PX = 92;
   const MIN_VALID_FRACTION = 0.35;
+  const NEAR_SNOWLINE_METRES = 50;
 
   const profileCache = new Map<string, CachedPoint>();
 
@@ -390,15 +392,30 @@
     }
   }
 
-  function showClickLabel(lat: number, lon: number, mainText: string, detailText = '', color = '#ffffff') {
+  function statusColor(status: ProbeStatus): string {
+    if (status === 'above') return '#46d9ff';
+    if (status === 'below') return '#ff9d3d';
+    if (status === 'near') return '#ffe45c';
+    return '#ffffff';
+  }
+
+  function showClickLabel(
+    lat: number,
+    lon: number,
+    mainText: string,
+    detailText = '',
+    snowlineColor = '#ffffff',
+    status: ProbeStatus = 'neutral'
+  ) {
     clearClickLayer();
     clickLayer = L.layerGroup().addTo(map);
 
+    const accent = statusColor(status);
     L.circleMarker([lat, lon], {
-      radius: 4,
+      radius: status === 'neutral' ? 4 : 5,
       weight: 2,
       color: '#ffffff',
-      fillColor: color,
+      fillColor: accent,
       fillOpacity: 1,
       interactive: false,
     }).addTo(clickLayer);
@@ -408,10 +425,10 @@
       interactive: false,
       zIndexOffset: 2000,
       icon: L.divIcon({
-        className: 'snowline-click-label',
-        html: `<span style="--snowline-color:${color}"><b>${mainText}</b>${detail}</span>`,
-        iconSize: [170, 44],
-        iconAnchor: [85, 52],
+        className: `snowline-click-label snowline-probe-${status}`,
+        html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}"><b>${mainText}</b>${detail}</span>`,
+        iconSize: [172, 48],
+        iconAnchor: [86, 56],
       }),
     }).addTo(clickLayer);
   }
@@ -444,15 +461,30 @@
 
     const snowline = wbz.snowLevelM;
     const rounded = Math.round(snowline / 10) * 10;
-    let detail = 'ECMWF wet-bulb zero proxy';
 
     if (clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM)) {
       const terrainRounded = Math.round(clickedMapElevationM / 10) * 10;
-      const relation = clickedMapElevationM >= snowline ? 'above snowline' : 'below snowline';
-      detail = `Map elevation ${terrainRounded} m · ${relation}`;
+      const difference = clickedMapElevationM - snowline;
+
+      let status: ProbeStatus;
+      let headline: string;
+      if (difference > NEAR_SNOWLINE_METRES) {
+        status = 'above';
+        headline = '↑ ABOVE SNOWLINE';
+      } else if (difference < -NEAR_SNOWLINE_METRES) {
+        status = 'below';
+        headline = '↓ BELOW SNOWLINE';
+      } else {
+        status = 'near';
+        headline = '≈ NEAR SNOWLINE';
+      }
+
+      const detail = `Here ${terrainRounded} m · Snowline ${rounded} m`;
+      showClickLabel(lat, lon, headline, detail, colorForLevel(snowline), status);
+      return;
     }
 
-    showClickLabel(lat, lon, `Snowline ${rounded} m`, detail, colorForLevel(snowline));
+    showClickLabel(lat, lon, `Snowline ${rounded} m`, '', colorForLevel(snowline));
   }
 
   async function handleMapClick(e: any) {
@@ -466,7 +498,7 @@
     clickedPoint = null;
     clickedMapElevationM = null;
     clickedLatLon = [lat, lon];
-    showClickLabel(lat, lon, 'Snowline …', 'Loading ECMWF + map elevation');
+    showClickLabel(lat, lon, 'Snowline …', 'Loading');
     setLoadingIndicator(true, 'Reading snowline…');
 
     const [cp, mapElevation] = await Promise.all([
@@ -785,19 +817,33 @@
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: 2px;
-    min-width: 112px;
-    padding: 5px 8px;
-    border-radius: 7px;
-    border: 1px solid rgba(255,255,255,0.22);
+    gap: 3px;
+    min-width: 122px;
+    padding: 6px 9px 5px;
+    border-radius: 8px;
+    border: 2px solid var(--probe-accent, rgba(255,255,255,0.4));
     border-bottom: 4px solid var(--snowline-color, white);
-    background: rgba(15,17,20,0.95);
+    background: rgba(12,14,17,0.96);
     color: white;
     text-align: center;
     white-space: nowrap;
     text-shadow: 0 1px 2px rgba(0,0,0,0.8);
-    box-shadow: 0 2px 8px rgba(0,0,0,0.32);
+    box-shadow: 0 3px 10px rgba(0,0,0,0.38);
   }
-  :global(.snowline-click-label b) { font-size: 12px; line-height: 1.1; font-weight: 800; }
-  :global(.snowline-click-label small) { font-size: 9px; line-height: 1.15; font-weight: 600; opacity: 0.78; }
+  :global(.snowline-click-label b) {
+    color: var(--probe-accent, white);
+    font-size: 13px;
+    line-height: 1.05;
+    font-weight: 900;
+    letter-spacing: 0.25px;
+  }
+  :global(.snowline-click-label small) {
+    font-size: 9.5px;
+    line-height: 1.1;
+    font-weight: 700;
+    opacity: 0.9;
+  }
+  :global(.snowline-probe-above span) { background: rgba(8,27,38,0.97); }
+  :global(.snowline-probe-below span) { background: rgba(39,23,10,0.97); }
+  :global(.snowline-probe-near span)  { background: rgba(38,34,10,0.97); }
 </style>
