@@ -9,8 +9,9 @@
       autocomplete="off"
       spellcheck="false"
     />
-    <button class="fav-button" class:active={showFavourites} type="button" aria-label="Show favourites" on:click={toggleFavourites}>★</button>
-    <button type="submit" aria-label="Search" disabled={searching || query.trim().length < 2}>
+    <button class="clear-button" type="button" aria-label="Clear search" title="Clear" on:click={clearSearch} disabled={!query && !open}>×</button>
+    <button class="fav-button" class:active={showFavourites} type="button" aria-label="Show favourites" title="Favourites" on:click={toggleFavourites}>★</button>
+    <button type="submit" aria-label="Search" title="Search" disabled={searching || query.trim().length < 2}>
       {searching ? '…' : '⌕'}
     </button>
   </form>
@@ -51,7 +52,7 @@
     secondary: string;
   };
 
-  const dispatch = createEventDispatcher<{ select: SearchResult }>();
+  const dispatch = createEventDispatcher<{ select: SearchResult; clear: void }>();
   const STORAGE_KEY = 'snowline:favourites:v1';
 
   let query = '';
@@ -121,6 +122,18 @@
     else favourites = [{ ...result }, ...favourites].slice(0, 30);
     saveFavourites();
     open = true;
+  }
+
+  function clearSearch() {
+    if (timer) { clearTimeout(timer); timer = null; }
+    controller?.abort();
+    requestId += 1;
+    query = '';
+    searching = false;
+    open = false;
+    showFavourites = false;
+    remoteResults = [];
+    dispatch('clear');
   }
 
   function scheduleSearch() {
@@ -199,7 +212,7 @@
 
 <style lang="less">
   .place-search { position: relative; margin-top: 7px; }
-  form { display: grid; grid-template-columns: 1fr 28px 28px; gap: 4px; }
+  form { display: grid; grid-template-columns: 1fr 26px 28px 28px; gap: 4px; }
   input, form button {
     box-sizing: border-box; height: 28px; border: 1px solid rgba(255,255,255,0.16);
     border-radius: 6px; background: rgba(10,14,18,0.62); color: white;
@@ -208,7 +221,8 @@
   input:focus { border-color: rgba(80,190,255,0.72); box-shadow: 0 0 0 1px rgba(80,190,255,0.18); }
   input::placeholder { color: rgba(255,255,255,0.48); }
   form button { padding: 0; font-size: 16px; line-height: 1; font-weight: 800; cursor: pointer; }
-  form button:disabled { opacity: 0.45; cursor: default; }
+  form button:disabled { opacity: 0.32; cursor: default; }
+  .clear-button { color: rgba(255,255,255,0.72); font-size: 17px; font-weight: 500; }
   .fav-button { color: rgba(255,255,255,0.62); }
   .fav-button.active { color: #ffe45c; border-color: rgba(255,228,92,0.55); }
   .results {
