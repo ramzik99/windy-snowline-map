@@ -5,13 +5,11 @@
       on:input={scheduleSearch}
       on:focus={() => { if (visibleResults.length || favourites.length) open = true; }}
       aria-label="Search places"
-      placeholder="Search place or favourite…"
+      placeholder="Search place…"
       autocomplete="off"
       spellcheck="false"
     />
-    <button class="fav-button" type="button" aria-label="Show favourites" on:click={toggleFavourites}>
-      ★
-    </button>
+    <button class="fav-button" class:active={showFavourites} type="button" aria-label="Show favourites" on:click={toggleFavourites}>★</button>
     <button type="submit" aria-label="Search" disabled={searching || query.trim().length < 2}>
       {searching ? '…' : '⌕'}
     </button>
@@ -21,14 +19,23 @@
     <div class="results">
       {#if visibleResults.length}
         {#each visibleResults as result}
-          <button class="result" type="button" on:click={() => chooseResult(result)}>
-            <span class="result-main">{result.favourite ? '★ ' : ''}{result.primary}</span>
-            {#if result.secondary}<span class="result-sub">{result.secondary}</span>{/if}
-          </button>
+          <div class="result-row">
+            <button class="result" type="button" on:click={() => chooseResult(result)}>
+              <span class="result-main">{result.primary}</span>
+              {#if result.secondary}<span class="result-sub">{result.secondary}</span>{/if}
+            </button>
+            <button
+              class="star"
+              class:saved={isFavourite(result)}
+              type="button"
+              aria-label={isFavourite(result) ? 'Remove favourite' : 'Add favourite'}
+              on:click={() => toggleFavourite(result)}
+            >{isFavourite(result) ? '★' : '☆'}</button>
+          </div>
         {/each}
-        {#if remoteResults.length}<div class="credit">Search © OpenStreetMap contributors</div>{/if}
+        {#if !showFavourites && remoteResults.length}<div class="credit">Search © OpenStreetMap contributors</div>{/if}
       {:else if !searching}
-        <div class="empty">{showFavourites ? 'No favourites found' : 'No places found'}</div>
+        <div class="empty">{showFavourites ? 'No saved favourites' : 'No places found'}</div>
       {/if}
     </div>
   {/if}
@@ -36,17 +43,16 @@
 
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-  import store from '@windy/store';
 
   type SearchResult = {
     lat: number;
     lon: number;
     primary: string;
     secondary: string;
-    favourite: boolean;
   };
 
   const dispatch = createEventDispatcher<{ select: SearchResult }>();
+  const STORAGE_KEY = 'snowline:favourites:v1';
 
   let query = '';
   let searching = false;
@@ -57,69 +63,64 @@
   let timer: ReturnType<typeof setTimeout> | null = null;
   let controller: AbortController | null = null;
   let requestId = 0;
-  let favPoisListener: number | null = null;
-  let favPoisMobileListener: number | null = null;
 
   $: favouriteMatches = query.trim()
-    ? favourites.filter(item => `${item.primary} ${item.secondary}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 5)
-    : favourites.slice(0, 8);
+    ? favourites.filter(item => `${item.primary} ${item.secondary}`.toLowerCase().includes(query.trim().toLowerCase())).slice(0, 6)
+    : favourites.slice(0, 10);
+
   $: visibleResults = showFavourites
     ? favouriteMatches
-    : [...favouriteMatches, ...remoteResults].slice(0, 8);
+    : mergeResults(favouriteMatches, remoteResults).slice(0, 8);
+
+  function resultKey(item: SearchResult): string {
+    return `${item.lat.toFixed(5)},${item.lon.toFixed(5)}`;
+  }
+
+  function mergeResults(first: SearchResult[], second: SearchResult[]): SearchResult[] {
+    const merged = new Map<string, SearchResult>();
+    for (const item of [...first, ...second]) merged.set(resultKey(item), item);
+    return [...merged.values()];
+  }
 
   function splitName(name: string): { primary: string; secondary: string } {
     const parts = name.split(',').map(part => part.trim()).filter(Boolean);
-    return { primary: parts[0] || 'Favourite', secondary: parts.slice(1, 3).join(', ') };
+    return { primary: parts[0] || 'Place', secondary: parts.slice(1, 3).join(', ') };
   }
 
-  function resultFromObject(value: any): SearchResult | null {
-    if (!value || typeof value !== 'object') return null;
-    const lat = Number(value.lat ?? value.latitude ?? value.y);
-    const lon = Number(value.lon ?? value.lng ?? value.longitude ?? value.x);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-    const rawName = String(value.name ?? value.title ?? value.label ?? value.display_name ?? value.displayName ?? 'Favourite');
-    const { primary, secondary } = splitName(rawName);
-    return { lat, lon, primary, secondary, favourite: true };
-  }
-
-  function resultFromString(raw: string): SearchResult | null {
-    const text = raw.trim();
-    if (!text) return null;
-
+  function loadFavourites() {
     try {
-      const parsed = JSON.parse(text);
-      const fromJson = resultFromObject(parsed);
-      if (fromJson) return fromJson;
-    } catch {}
-
-    const coordMatch = text.match(/(-?\d{1,2}(?:\.\d+)?)\s*[,;| ]\s*(-?\d{1,3}(?:\.\d+)?)/);
-    if (!coordMatch) return null;
-    const lat = Number(coordMatch[1]), lon = Number(coordMatch[2]);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return null;
-
-    const remainder = text.replace(coordMatch[0], '').replace(/^[\s,;|:-]+|[\s,;|:-]+$/g, '');
-    const { primary, secondary } = splitName(remainder || 'Favourite');
-    return { lat, lon, primary, secondary, favourite: true };
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) { favourites = []; return; }
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) { favourites = []; return; }
+      favourites = parsed
+        .map((item: any) => ({
+          lat: Number(item?.lat), lon: Number(item?.lon),
+          primary: String(item?.primary ?? 'Favourite'),
+          secondary: String(item?.secondary ?? ''),
+        }))
+        .filter((item: SearchResult) => Number.isFinite(item.lat) && Number.isFinite(item.lon));
+    } catch {
+      favourites = [];
+    }
   }
 
-  function parseFavouriteList(value: unknown): SearchResult[] {
-    if (!Array.isArray(value)) return [];
-    const out: SearchResult[] = [];
-    for (const item of value) {
-      const parsed = typeof item === 'string' ? resultFromString(item) : resultFromObject(item);
-      if (parsed) out.push(parsed);
-    }
-    return out;
+  function saveFavourites() {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(favourites)); }
+    catch (e) { console.warn('Snowline could not save favourites', e); }
   }
 
-  function refreshFavourites() {
-    const merged: SearchResult[] = [];
-    for (const key of ['favPois', 'favPoisMobile']) {
-      try { merged.push(...parseFavouriteList(store.get(key as any))); } catch {}
-    }
-    const dedup = new Map<string, SearchResult>();
-    for (const item of merged) dedup.set(`${item.lat.toFixed(5)},${item.lon.toFixed(5)}`, item);
-    favourites = [...dedup.values()];
+  function isFavourite(result: SearchResult): boolean {
+    const key = resultKey(result);
+    return favourites.some(item => resultKey(item) === key);
+  }
+
+  function toggleFavourite(result: SearchResult) {
+    const key = resultKey(result);
+    if (isFavourite(result)) favourites = favourites.filter(item => resultKey(item) !== key);
+    else favourites = [{ ...result }, ...favourites].slice(0, 30);
+    saveFavourites();
+    open = true;
   }
 
   function scheduleSearch() {
@@ -153,7 +154,7 @@
         remoteResults = Array.isArray(data) ? data.map((item: any) => {
           const lat = Number(item.lat), lon = Number(item.lon);
           const { primary, secondary } = splitName(String(item.display_name ?? 'Place'));
-          return { lat, lon, primary, secondary, favourite: false };
+          return { lat, lon, primary, secondary };
         }).filter((item: SearchResult) => Number.isFinite(item.lat) && Number.isFinite(item.lon)) : [];
       }
     } catch (e: any) {
@@ -188,17 +189,11 @@
     dispatch('select', result);
   }
 
-  onMount(() => {
-    refreshFavourites();
-    try { favPoisListener = store.on('favPois' as any, refreshFavourites); } catch {}
-    try { favPoisMobileListener = store.on('favPoisMobile' as any, refreshFavourites); } catch {}
-  });
+  onMount(loadFavourites);
 
   onDestroy(() => {
     if (timer) clearTimeout(timer);
     controller?.abort();
-    if (favPoisListener !== null) try { store.off(favPoisListener); } catch {}
-    if (favPoisMobileListener !== null) try { store.off(favPoisMobileListener); } catch {}
   });
 </script>
 
@@ -214,20 +209,23 @@
   input::placeholder { color: rgba(255,255,255,0.48); }
   form button { padding: 0; font-size: 16px; line-height: 1; font-weight: 800; cursor: pointer; }
   form button:disabled { opacity: 0.45; cursor: default; }
-  .fav-button { color: #ffe45c; }
+  .fav-button { color: rgba(255,255,255,0.62); }
+  .fav-button.active { color: #ffe45c; border-color: rgba(255,228,92,0.55); }
   .results {
     position: absolute; z-index: 5000; left: 0; right: 0; top: 32px; overflow: hidden;
     border: 1px solid rgba(255,255,255,0.16); border-radius: 7px;
     background: rgba(18,21,25,0.98); box-shadow: 0 5px 14px rgba(0,0,0,0.38);
   }
+  .result-row { display: grid; grid-template-columns: 1fr 30px; border-bottom: 1px solid rgba(255,255,255,0.08); }
   .result {
-    display: block; width: 100%; padding: 6px 7px; border: 0;
-    border-bottom: 1px solid rgba(255,255,255,0.08); background: transparent;
-    color: rgba(255,255,255,0.94); text-align: left; cursor: pointer;
+    display: block; width: 100%; min-width: 0; padding: 6px 7px; border: 0;
+    background: transparent; color: rgba(255,255,255,0.94); text-align: left; cursor: pointer;
   }
-  .result:hover, .result:focus { background: rgba(80,190,255,0.16); outline: none; }
+  .result:hover, .result:focus, .star:hover, .star:focus { background: rgba(80,190,255,0.16); outline: none; }
   .result-main { display: block; font-size: 10px; line-height: 1.15; font-weight: 750; }
   .result-sub { display: block; margin-top: 2px; font-size: 8.5px; line-height: 1.1; opacity: 0.6; }
+  .star { border: 0; border-left: 1px solid rgba(255,255,255,0.08); background: transparent; color: rgba(255,255,255,0.52); font-size: 15px; cursor: pointer; }
+  .star.saved { color: #ffe45c; }
   .empty, .credit { padding: 5px 7px; color: rgba(255,255,255,0.58); font-size: 8.5px; line-height: 1.15; }
   .credit { text-align: right; }
 </style>
