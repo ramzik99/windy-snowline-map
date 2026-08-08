@@ -5,7 +5,7 @@ const config: ExternalPluginConfig = {
   version: '1.0.0',
   icon: '❄️',
   title: 'Snowline',
-  description: 'ECMWF wet-bulb-zero snowline proxy with a wider fixed panel, separate How it works help window, built-in place search, saved favourites, clear-search control, hide/show panel control, source-aware point labels for search, desktop picker and mobile taps, dismissible wider point labels, node-style share-copy control with place, coordinates, valid time, ECMWF lead time, snowline, elevation and tendency, persistent search-result labels, Windy singleclick point selection for reliable mobile tapping, Label only, Contour only, and Label + contour modes, desktop Windy picker following, concise point labels, ±100 m near-snowline wording, 3-hour snowline tendency, higher adaptive contour sampling by zoom, queued viewport refreshes, Windy map elevation, caching, and a hard +144 h forecast limit. Thermal snowline only; precipitation is not implied.',
+  description: 'ECMWF wet-bulb-zero snowline proxy to +144 h with adaptive contours, exact point labels, Windy map elevation, ±100 m near-snowline classification, 3-hour tendency, place search and favourites. Supports desktop picker and mobile single-tap selection, persistent source-aware labels, close/share controls, valid and lead times, compact help, caching and responsive sampling. Thermal boundary only; precipitation is not implied.',
   author: 'Ramzi Kandah',
   repository: 'https://github.com/ramzik99/windy-snowline-map',
   desktopUI: 'embedded',
