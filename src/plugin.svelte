@@ -75,7 +75,7 @@
   const PROFILE_CACHE_MAX = 900;
   const LABEL_MIN_DISTANCE_PX = 92;
   const MIN_VALID_FRACTION = 0.35;
-  const NEAR_SNOWLINE_METRES = 50;
+  const NEAR_SNOWLINE_METRES = 100;
   const profileCache = new Map<string, CachedPoint>();
 
   const COLOUR_STOPS: ColourStop[] = [
