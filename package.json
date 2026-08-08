@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "0.4.0",
-  "description": "Snowline: level separating snow from rain, estimated from wet-bulb freezing level using ECMWF; forecast to +144 h only.",
+  "version": "0.4.1",
+  "description": "ECMWF wet-bulb-zero Snowline proxy to +144 h with stitched colour-coded 100 m contours and adaptive viewport sampling.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
