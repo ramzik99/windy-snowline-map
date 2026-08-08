@@ -46,8 +46,7 @@
   let clickLayer: any = null;
   let clickedPoint: CachedPoint | null = null;
   let clickedLatLon: [number, number] | null = null;
-  let loadingControl: any = null;
-  let loadingElement: HTMLElement | null = null;
+  let loadingElement: HTMLDivElement | null = null;
   let moveTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
   let clickGeneration = 0;
@@ -319,6 +318,23 @@
     loadingElement.style.display = show ? 'flex' : 'none';
   }
 
+  function installLoadingIndicator() {
+    const container = map.getContainer?.();
+    if (!container || loadingElement) return;
+    const div = document.createElement('div');
+    div.className = 'snowline-loading';
+    div.textContent = 'Snowline updating…';
+    div.style.display = 'none';
+    container.appendChild(div);
+    loadingElement = div;
+  }
+
+  function removeLoadingIndicator() {
+    if (!loadingElement) return;
+    try { loadingElement.remove(); } catch {}
+    loadingElement = null;
+  }
+
   async function refreshViewport() {
     if (!enabled || loading) return;
 
@@ -425,8 +441,7 @@
 
     if (terrain !== null && Number.isFinite(terrain)) {
       const terrainRounded = Math.round(terrain / 10) * 10;
-      const difference = terrain - snowline;
-      const relation = difference >= 0 ? 'above snowline' : 'below snowline';
+      const relation = terrain >= snowline ? 'above snowline' : 'below snowline';
       detail = `Model terrain ${terrainRounded} m · ${relation}`;
     }
 
@@ -644,15 +659,7 @@
   }
 
   onMount(() => {
-    loadingControl = L.control({ position: 'topright' });
-    loadingControl.onAdd = () => {
-      const div = L.DomUtil.create('div', 'snowline-loading');
-      div.textContent = 'Snowline updating…';
-      div.style.display = 'none';
-      loadingElement = div;
-      return div;
-    };
-    loadingControl.addTo(map);
+    installLoadingIndicator();
 
     map.on('moveend', scheduleViewportRefresh);
     map.on('zoomend', scheduleViewportRefresh);
@@ -681,16 +688,13 @@
     if (timestampListener !== null) {
       try { store.off(timestampListener); } catch {}
     }
-    if (loadingControl) {
-      try { map.removeControl(loadingControl); } catch {}
-    }
 
+    removeLoadingIndicator();
     clearContours();
     clearClickLayer();
     profileCache.clear();
     clickedPoint = null;
     clickedLatLon = null;
-    loadingElement = null;
   });
 </script>
 
@@ -719,7 +723,11 @@
   }
 
   :global(.snowline-loading) {
-    margin: 8px !important;
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 1000;
+    margin: 0 !important;
     padding: 5px 8px;
     border-radius: 6px;
     background: rgba(15,17,20,0.88);
