@@ -27,6 +27,7 @@ It is a thermal diagnostic only. A displayed snowline does **not** mean precipit
 - ±100 m Near Snowline transition band
 - 3-hour snowline tendency
 - Dismissible selected-point labels
+- Share/copy button on selected-point labels
 - Built-in place search
 - Saved Snowline favourites
 - Clear-search control
@@ -58,6 +59,7 @@ The separate **i** help window explains:
 - that the arrow on a point label shows the approximate 3-hour snowline tendency
 - that contours are reconstructed from sampled profiles across the visible viewport
 - that desktop uses Windy's picker while mobile uses Windy's `singleclick` location event
+- that the **↗** control copies point and forecast details
 - that the result is a thermal boundary and does not imply precipitation, snowfall or accumulation
 
 ## Contour resolution
@@ -124,7 +126,14 @@ The ±100 m band is a practical transition/uncertainty display zone. It is not i
 
 The label also reports the approximate snowline tendency over the following three hours, for example `↑120 m/3h`, `↓80 m/3h`, or `→ steady`.
 
-Every selected-point label has its own **× close button**. Closing a label removes that point display without turning off contours or the Snowline plugin.
+Every selected-point label has two compact controls:
+
+- **↗ Share/copy** — copies a plain-text summary containing the place name, coordinates, forecast valid time, ECMWF lead time, snowline, terrain elevation and 3-hour tendency.
+- **× Close** — removes that point label without turning off contours or the Snowline plugin.
+
+For points selected from Snowline search or favourites, the stored place name is used directly. For map-tap or picker points, Snowline resolves a place name only when the share button is pressed, so ordinary point loading is not slowed down.
+
+The copied text also includes the reminder that Snowline is a thermal boundary and precipitation is not implied.
 
 ## Desktop and mobile point selection
 
@@ -215,7 +224,7 @@ Each published release must use a new version number.
 
 ## Current version
 
-**0.6.8**
+**0.6.9**
 
 ## Author
 
