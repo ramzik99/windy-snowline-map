@@ -153,7 +153,7 @@
     const { lat, lon } = event.detail;
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
     const zoom = Math.max(Number(map.getZoom?.() ?? 7), 9);
-    suppressPickerClearUntil = Date.now() + 2500;
+    suppressPickerClearUntil = Number.POSITIVE_INFINITY;
     map.setView([lat, lon], Math.min(zoom, 10), { animate: true });
     setTimeout(() => {
       try { map.fire('click', { latlng: { lat, lng: lon } }); }
@@ -172,6 +172,7 @@
       clearPointState();
       return;
     }
+    suppressPickerClearUntil = 0;
     const [lat, lon] = position, key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
     if (!force && key === lastPickerKey) return;
     lastPickerKey = key;
