@@ -2,10 +2,10 @@ import type { ExternalPluginConfig } from '@windy/interfaces';
 
 const config: ExternalPluginConfig = {
   name: 'windy-plugin-snowline-map-100m',
-  version: '0.4.8',
+  version: '0.4.9',
   icon: '❄️',
   title: 'Snowline',
-  description: 'ECMWF wet-bulb-zero snowline proxy with Label only and Label + contour modes, Windy map-elevation point probes, adaptive sampling, caching, decluttering, and a hard +144 h forecast limit.',
+  description: 'ECMWF wet-bulb-zero snowline proxy with Label only and Label + contour modes, Windy map-elevation point probes with a ±100 m near-snowline band, adaptive sampling, caching, decluttering, and a hard +144 h forecast limit.',
   author: 'Ramzi Kandah',
   repository: 'https://github.com/ramzik99/windy-snowline-map',
   desktopUI: 'embedded',
