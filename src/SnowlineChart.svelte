@@ -12,6 +12,7 @@
       <small>{placeName || 'Selected point'} · ECMWF</small>
     </div>
     <div class="chart-actions">
+      <button class="now-button" type="button" aria-label="Reset Windy timeline to now" title="Back to now" on:click={resetToNow}>↺ Now</button>
       <button class="drag-button" type="button" aria-label="Drag snowline graph" title="Drag graph" on:pointerdown={startDrag}>↕</button>
       <button type="button" aria-label="Close snowline graph" title="Close" on:click={() => dispatch('close')}>×</button>
     </div>
@@ -260,15 +261,26 @@
     window.removeEventListener('pointermove', dragMove);
   }
 
-  function jumpToCrossing(time: number) {
+  function setTimeline(time: number, warning: string) {
     if (!Number.isFinite(time)) return;
     try {
       (store as any).set('timestamp', time);
       timestamp = time;
       tooltip = null;
     } catch (e) {
-      console.warn('Snowline could not jump Windy timeline to terrain crossing', e);
+      console.warn(warning, e);
     }
+  }
+
+  function jumpToCrossing(time: number) {
+    setTimeline(time, 'Snowline could not jump Windy timeline to terrain crossing');
+  }
+
+  function resetToNow() {
+    if (!point || !Array.isArray(point.times) || !point.times.length) return;
+    realNow = Date.now();
+    const idx = nearestIndex(point.times, realNow);
+    setTimeline(point.times[idx], 'Snowline could not reset Windy timeline to now');
   }
 
   function clearTooltip() { tooltip = null; }
@@ -407,6 +419,7 @@
   .chart-actions { display: flex; gap: 5px; }
   .chart-head button { width: 23px; height: 23px; padding: 0; border: 0; border-radius: 6px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.82); font-size: 17px; line-height: 20px; cursor: pointer; }
   .chart-head button:hover { background: rgba(255,255,255,0.17); color: white; }
+  .now-button { width: auto !important; min-width: 46px; padding: 0 7px !important; font-size: 10px !important; line-height: 21px !important; font-weight: 800; white-space: nowrap; }
   .drag-button { cursor: grab !important; touch-action: none; font-size: 14px !important; }
   .drag-button:active { cursor: grabbing !important; }
   .crossing-summary { margin-top: 7px; padding: 5px 8px; border-radius: 7px; background: rgba(255,255,255,0.05); border-left: 3px solid rgba(255,255,255,0.35); }
@@ -459,7 +472,7 @@
   .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
   @media (max-width: 520px) {
     .chart-shell { width: calc(100vw - 20px); padding: 9px 8px 8px; }
-    .chart-head small { max-width: 220px; }
+    .chart-head small { max-width: 180px; }
     .plot-tooltip { min-width: 104px; }
     .chart-foot span { font-size: 7.6px; }
     .chart-foot b { font-size: 8.4px; }
