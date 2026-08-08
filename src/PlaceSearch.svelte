@@ -127,7 +127,7 @@
 
   function saveFavourites() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(favourites)); }
-    catch (e) { console.warn('Snowline could not save favourites', e); }
+    catch (e) { console.warn('Snow forecast could not save favourites', e); }
   }
 
   function isFavourite(result: SearchResult): boolean {
@@ -157,9 +157,11 @@
   }
 
   function useCurrentLocation() {
+    query = '';
     locationError = '';
     open = false;
     showFavourites = false;
+    remoteResults = [];
     if (!navigator.geolocation) {
       locationError = 'Location is not available on this device.';
       return;
@@ -175,7 +177,7 @@
           locationError = 'Could not read your location.';
           return;
         }
-        query = 'My location';
+        query = '';
         remoteResults = [];
         dispatch('select', {
           lat,
@@ -230,7 +232,7 @@
         }).filter((item: SearchResult) => Number.isFinite(item.lat) && Number.isFinite(item.lon)) : [];
       }
     } catch (e: any) {
-      if (e?.name !== 'AbortError') console.warn('Snowline place search failed', e);
+      if (e?.name !== 'AbortError') console.warn('Snow forecast place search failed', e);
       if (id === requestId) remoteResults = [];
     } finally {
       if (id === requestId) searching = false;
@@ -244,6 +246,7 @@
   }
 
   function toggleFavourites() {
+    query = '';
     locationError = '';
     showFavourites = !showFavourites;
     open = showFavourites || visibleResults.length > 0;
@@ -255,7 +258,7 @@
   }
 
   function chooseResult(result: SearchResult) {
-    query = result.primary;
+    query = '';
     locationError = '';
     open = false;
     showFavourites = false;
