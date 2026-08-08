@@ -2,7 +2,7 @@
   <div class="header">
     <div>
       <div class="title">❄️ Snowline Map</div>
-      <div class="subtitle">WBZ isolines · 100 m interval · 1-hourly · up to 15 days</div>
+      <div class="subtitle">WBZ isolines · 100 m interval · 1 h (0–5 d) / 3 h (5–15 d)</div>
     </div>
     <label class="switch">
       <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
@@ -48,8 +48,8 @@
   </div>
 
   <div class="note">
-    Fast mode: 17×11 sampling grid. Timeline changes redraw from cached profiles;
-    map movement fetches a new viewport grid.
+    Fast adaptive mode: 17×11 grid. A 15-day 3-hourly base loads first;
+    days 0–5 are then refined to 1-hourly in the background.
   </div>
 </div>
 
@@ -64,12 +64,17 @@
 
   type Model = 'ecmwf' | 'gfs' | 'icon';
 
-  type CachedPoint = {
-    lat: number;
-    lon: number;
+  type ForecastSlice = {
     forecast: Record<string, unknown>;
     header: Record<string, unknown>;
     times: number[];
+  };
+
+  type CachedPoint = {
+    lat: number;
+    lon: number;
+    coarse: ForecastSlice;
+    fine: ForecastSlice | null;
   };
 
   let enabled = true;
@@ -77,22 +82,23 @@
   let contourInterval = 100;
 
   let loading = false;
+  let fineLoading = false;
   let loaded = 0;
   let total = 0;
   let status = 'Waiting for map…';
   let lastTimestamp: number | null = null;
 
-  let cache: CachedPoint[][] = [];
+  let cache: (CachedPoint | null)[][] = [];
   let contourLayer: any = null;
   let moveTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
   let timestampListener: number | null = null;
 
-  // Fast-mode balance: fewer requests than 21×15, still much smoother than the old 13×9 grid.
   const ROWS = 11;
   const COLS = 17;
   const MAX_CONCURRENT = 8;
   const FORECAST_DAYS = 15;
+  const FINE_DAYS = 5;
 
   function getStoreTimestamp(): number {
     try {
@@ -178,27 +184,44 @@
     };
   }
 
-  async function loadPoint(lat: number, lon: number): Promise<CachedPoint | null> {
+  async function fetchSlice(
+    lat: number,
+    lon: number,
+    step: 1 | 3,
+    days: number
+  ): Promise<ForecastSlice | null> {
     try {
       const response = await getMeteogramForecastData(
         model,
-        { lat, lon, step: 1, days: FORECAST_DAYS }
+        { lat, lon, step, days }
       );
 
       const { forecast, header } = extractPayload(response);
       if (!Object.keys(forecast).length) return null;
 
       return {
-        lat,
-        lon,
         forecast,
         header,
         times: buildForecastTimes(forecast, header),
       };
     } catch (e) {
-      console.warn('Snowline point failed', lat, lon, e);
+      console.warn('Snowline point failed', lat, lon, step, days, e);
       return null;
     }
+  }
+
+  function useFineForTarget(cp: CachedPoint, target: number): boolean {
+    if (!cp.fine || !cp.fine.times.length) return false;
+    const first = cp.fine.times[0];
+    const last = cp.fine.times[cp.fine.times.length - 1];
+    return target >= first - 30 * 60_000 && target <= last + 30 * 60_000;
+  }
+
+  function targetNeedsFine(target: number): boolean {
+    const firstPoint = cache.flat().find((cp): cp is CachedPoint => cp !== null);
+    const first = firstPoint?.coarse.times?.[0];
+    if (!first) return false;
+    return target >= first - 3 * 3600_000 && target <= first + FINE_DAYS * 24 * 3600_000;
   }
 
   async function mapLimit<T, R>(
@@ -227,6 +250,7 @@
   function buildViewportPoints(): { lat: number; lon: number; r: number; c: number }[] {
     const b = map.getBounds();
 
+    // Avoid pathological polar sampling.
     const south = Math.max(-75, b.getSouth());
     const north = Math.min(75, b.getNorth());
     const west = b.getWest();
@@ -254,32 +278,74 @@
 
     const myGeneration = ++generation;
     loading = true;
+    fineLoading = false;
     loaded = 0;
-    status = 'Fetching pressure profiles…';
+    status = 'Loading 15-day 3-hourly base…';
 
     const points = buildViewportPoints();
     total = points.length;
 
     const results = await mapLimit(points, MAX_CONCURRENT, async p => {
-      const result = await loadPoint(p.lat, p.lon);
+      const coarse = await fetchSlice(p.lat, p.lon, 3, FORECAST_DAYS);
       loaded += 1;
-      return { ...p, result };
+      return { ...p, coarse };
     });
 
     if (myGeneration !== generation) return;
 
-    const nextCache: CachedPoint[][] = Array.from(
+    const nextCache: (CachedPoint | null)[][] = Array.from(
       { length: ROWS },
       () => Array(COLS).fill(null)
     );
 
     for (const item of results) {
-      if (item.result) nextCache[item.r][item.c] = item.result;
+      if (item.coarse) {
+        nextCache[item.r][item.c] = {
+          lat: item.lat,
+          lon: item.lon,
+          coarse: item.coarse,
+          fine: null,
+        };
+      }
     }
 
     cache = nextCache;
     loading = false;
-    status = `${loaded}/${total} profiles loaded`;
+    renderFromCache();
+
+    if (targetNeedsFine(getStoreTimestamp())) {
+      void refineNearTerm(myGeneration);
+    }
+  }
+
+  async function refineNearTerm(myGeneration = generation) {
+    if (!enabled || fineLoading || !cache.length || myGeneration !== generation) return;
+
+    const points: { lat: number; lon: number; r: number; c: number }[] = [];
+    for (let r = 0; r < cache.length; r++) {
+      for (let c = 0; c < cache[r].length; c++) {
+        const cp = cache[r][c];
+        if (cp && !cp.fine) points.push({ lat: cp.lat, lon: cp.lon, r, c });
+      }
+    }
+    if (!points.length) return;
+
+    fineLoading = true;
+    status = 'Base ready · refining days 0–5 to hourly…';
+
+    const results = await mapLimit(points, MAX_CONCURRENT, async p => ({
+      ...p,
+      fine: await fetchSlice(p.lat, p.lon, 1, FINE_DAYS),
+    }));
+
+    if (myGeneration !== generation) return;
+
+    for (const item of results) {
+      const cp = cache[item.r]?.[item.c];
+      if (item.fine && cp) cp.fine = item.fine;
+    }
+
+    fineLoading = false;
     renderFromCache();
   }
 
@@ -313,8 +379,9 @@
           continue;
         }
 
-        const idx = nearestIndex(cp.times, target);
-        const profile = buildProfile(cp.forecast, idx);
+        const slice = useFineForTarget(cp, target) ? cp.fine! : cp.coarse;
+        const idx = nearestIndex(slice.times, target);
+        const profile = buildProfile(slice.forecast, idx);
         const wbz = wetBulbZeroHeight(profile);
 
         row.push({
@@ -363,6 +430,7 @@
         segmentCount += 1;
       }
 
+      // Add one lightweight label per contour level if possible.
       if (segments.length) {
         const s = segments[Math.floor(segments.length / 2)];
         const lat = (s[0][0] + s[1][0]) / 2;
@@ -380,7 +448,10 @@
       }
     }
 
-    status = `${segmentCount} contour segments · ${COLS}×${ROWS} grid · 1-hourly · up to 15 days`;
+    const resolution = cache.flat().some(cp => cp && useFineForTarget(cp, target))
+      ? '1-hourly'
+      : '3-hourly';
+    status = `${segmentCount} contour segments · ${COLS}×${ROWS} grid · ${resolution}`;
   }
 
   function scheduleViewportRefresh() {
@@ -417,7 +488,9 @@
     try {
       timestampListener = store.on('timestamp', () => {
         if (enabled && cache.length && !loading) {
+          const target = getStoreTimestamp();
           renderFromCache();
+          if (targetNeedsFine(target)) void refineNearTerm();
         }
       });
     } catch (e) {
@@ -540,8 +613,8 @@
   .legend {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin-bottom: 8px;
+    gap: 7px;
+    margin-bottom: 7px;
     font-size: 11px;
   }
 
@@ -551,10 +624,6 @@
     border-top: 2px solid white;
   }
 
-  .note {
-    margin-top: 6px;
-  }
-
   :global(.snowline-label) {
     background: transparent !important;
     border: 0 !important;
@@ -562,14 +631,12 @@
 
   :global(.snowline-label span) {
     display: inline-block;
-    white-space: nowrap;
     padding: 1px 4px;
     border-radius: 3px;
-    background: rgba(45,45,45,0.78);
-    color: #fff;
-    font-size: 10px;
+    background: rgba(40,40,40,0.72);
+    color: white;
+    font-size: 9px;
     font-weight: 800;
-    line-height: 14px;
-    text-shadow: 0 1px 2px rgba(0,0,0,0.65);
+    white-space: nowrap;
   }
 </style>
