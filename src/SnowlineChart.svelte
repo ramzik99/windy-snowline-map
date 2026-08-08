@@ -20,18 +20,17 @@
   {#if crossing}
     <div class:down={crossing.direction === 'below'} class:up={crossing.direction === 'above'} class="crossing-summary">
       <b>{crossing.summary}</b>
-      <small>{crossing.detail}</small>
     </div>
   {/if}
 
   {#if chart && chart.points}
     <div class="snowline-chart-legend">
       <span><i class="snowline-chart-key-line snowline-key"></i> Snowline</span>
-      {#if chart.terrainY !== null}<span><i class="snowline-chart-key-line terrain-key"></i> Terrain {Math.round(terrainM ?? 0)} m</span>{/if}
+      {#if chart.terrainY !== null}<span><i class="snowline-chart-key-line terrain-key"></i> Terrain</span>{/if}
       <span><i class="snowline-chart-key-line now-key"></i> Now</span>
-      <span><i class="snowline-chart-key-dot"></i> Selected time</span>
-      {#if crossing?.crossingTime}<span><i class="snowline-chart-key-cross"></i> Crossing terrain</span>{/if}
-      {#if chart.hasPrecip}<span><i class="snowline-chart-key-bar"></i> Precip mm/3h</span>{/if}
+      <span><i class="snowline-chart-key-dot"></i> Selected</span>
+      {#if crossing?.crossingTime}<span><i class="snowline-chart-key-cross"></i> Crossing</span>{/if}
+      {#if chart.hasPrecip}<span><i class="snowline-chart-key-bar"></i> Precip</span>{/if}
     </div>
 
     <div class="plot-wrap">
@@ -112,7 +111,7 @@
         <div class="plot-tooltip" style={`left:${tooltip.cssX}px;top:${tooltip.cssY}px;`}>
           <b>{tooltip.timeLabel}</b>
           <span>SL {tooltip.snowline !== null ? `${tooltip.snowline} m` : '—'}</span>
-          {#if tooltip.terrainDifference !== null}<span>{tooltip.terrainDifference >= 0 ? '+' : ''}{tooltip.terrainDifference} m vs terrain</span>{/if}
+          {#if tooltip.terrainDifference !== null}<span>Δ terrain {tooltip.terrainDifference >= 0 ? '+' : ''}{tooltip.terrainDifference} m</span>{/if}
           {#if tooltip.precip !== null}<span>💧 {formatPrecipMm(tooltip.precip)} mm/3h</span>{/if}
         </div>
       {/if}
@@ -126,11 +125,7 @@
     </div>
 
     <div class="forecast-summary">{chart.summaryLine}</div>
-
-    {#if chart.currentPrecip !== null && chart.currentPrecip >= 0.05}
-      <div class="precip-now">💧 {formatPrecipMm(chart.currentPrecip)} mm/3h at selected time</div>
-    {/if}
-    <div class="hint">Move Windy's timeline to update Selected and Δ terrain. Move or tap the graph for exact values.</div>
+    <div class="hint">Tap graph for exact values · Tap crossing marker to jump timeline</div>
   {:else}
     <div class="empty">No snowline series is available for this point.</div>
   {/if}
@@ -185,12 +180,8 @@
     maxSnowline: number;
     currentSnowline: number | null;
     currentTerrainDifference: number | null;
-    currentPrecip: number | null;
     precipBars: PrecipBar[];
     hasPrecip: boolean;
-    minSnowlineTime: number;
-    peakPrecip: number | null;
-    peakPrecipTime: number | null;
     summaryLine: string;
     minScale: number;
     maxScale: number;
@@ -280,9 +271,7 @@
     }
   }
 
-  function clearTooltip() {
-    tooltip = null;
-  }
+  function clearTooltip() { tooltip = null; }
 
   function handlePlotPointer(event: PointerEvent) {
     if (!svgEl || !chart || !point?.times?.length) return;
@@ -309,16 +298,7 @@
 
     const cssX = Math.max(72, Math.min(rect.width - 72, ((x / 360) * rect.width)));
     const cssY = Math.max(8, Math.min(rect.height - 72, (snowlineY !== null ? (snowlineY / 205) * rect.height - 58 : 24)));
-    tooltip = {
-      x,
-      cssX,
-      cssY,
-      snowlineY,
-      snowline,
-      terrainDifference,
-      precip,
-      timeLabel: formatTooltipTime(time),
-    };
+    tooltip = { x, cssX, cssY, snowlineY, snowline, terrainDifference, precip, timeLabel: formatTooltipTime(time) };
   }
 
   function buildChart(p: any, terrain: number | null, target: number, crossingTime: number | null, realNowTime: number): ChartData | null {
@@ -366,19 +346,13 @@
     let peakPrecipTime: number | null = null;
     precipValues.forEach((value: number | null, index: number) => {
       if (value === null || !Number.isFinite(value)) return;
-      if (peakPrecip === null || value > peakPrecip) {
-        peakPrecip = value;
-        peakPrecipTime = p.times[index];
-      }
+      if (peakPrecip === null || value > peakPrecip) { peakPrecip = value; peakPrecipTime = p.times[index]; }
     });
 
-    const summaryParts = [
-      `Lowest SL ${Math.round(Number(minEntry.value) / 10) * 10} m ${formatShortUtc(minEntry.time)}`,
-    ];
+    const summaryParts = [`Min ${formatShortUtc(minEntry.time)}`];
     if (peakPrecip !== null && peakPrecip >= 0.05 && peakPrecipTime !== null) {
-      summaryParts.push(`Peak precip ${formatPrecipMm(peakPrecip)} mm/3h ${formatShortUtc(peakPrecipTime)}`);
+      summaryParts.push(`Peak precip ${formatPrecipMm(peakPrecip)} mm · ${formatShortUtc(peakPrecipTime)}`);
     }
-    if (crossingTime !== null) summaryParts.push(`Crossing terrain ${formatShortUtc(crossingTime)}`);
 
     return {
       points,
@@ -395,12 +369,8 @@
       maxSnowline: Math.round(Math.max(...snowValues) / 10) * 10,
       currentSnowline: currentValue !== null ? Math.round(currentValue / 10) * 10 : null,
       currentTerrainDifference,
-      currentPrecip: precipMmAt(p.forecast, currentIndex),
       precipBars,
       hasPrecip: validPrecip.some(v => v >= 0.05),
-      minSnowlineTime: minEntry.time,
-      peakPrecip,
-      peakPrecipTime,
       summaryLine: summaryParts.join(' · '),
       minScale: min,
       maxScale: max,
@@ -430,13 +400,7 @@
 </script>
 
 <style lang="less">
-  .chart-shell {
-    position: fixed; z-index: 10020;
-    width: min(390px, calc(100vw - 24px)); padding: 10px 10px 9px;
-    border: 1px solid rgba(80,190,255,0.45); border-radius: 11px;
-    background: rgba(20,24,29,0.975); color: white;
-    box-shadow: 0 10px 34px rgba(0,0,0,0.48); backdrop-filter: blur(4px);
-  }
+  .chart-shell { position: fixed; z-index: 10020; width: min(390px, calc(100vw - 24px)); padding: 10px 10px 9px; border: 1px solid rgba(80,190,255,0.45); border-radius: 11px; background: rgba(20,24,29,0.975); color: white; box-shadow: 0 10px 34px rgba(0,0,0,0.48); backdrop-filter: blur(4px); }
   .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
   .chart-head b { display: block; font-size: 13px; line-height: 1.05; }
   .chart-head small { display: block; margin-top: 3px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.58); font-size: 9px; }
@@ -445,12 +409,11 @@
   .chart-head button:hover { background: rgba(255,255,255,0.17); color: white; }
   .drag-button { cursor: grab !important; touch-action: none; font-size: 14px !important; }
   .drag-button:active { cursor: grabbing !important; }
-  .crossing-summary { margin-top: 7px; padding: 6px 8px; border-radius: 7px; background: rgba(255,255,255,0.05); border-left: 3px solid rgba(255,255,255,0.35); }
+  .crossing-summary { margin-top: 7px; padding: 5px 8px; border-radius: 7px; background: rgba(255,255,255,0.05); border-left: 3px solid rgba(255,255,255,0.35); }
   .crossing-summary.down { border-left-color: #70d7ff; background: rgba(70,217,255,0.08); }
   .crossing-summary.up { border-left-color: #ffb15b; background: rgba(255,177,91,0.08); }
   .crossing-summary b { display: block; font-size: 9.5px; }
-  .crossing-summary small { display: block; margin-top: 2px; font-size: 8px; color: rgba(255,255,255,0.58); }
-  .snowline-chart-legend { display: flex; flex-wrap: wrap; gap: 9px; margin: 8px 2px 1px; padding: 0; background: transparent !important; color: rgba(255,255,255,0.7); font-size: 8.5px; }
+  .snowline-chart-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 7px 2px 1px; padding: 0; background: transparent !important; color: rgba(255,255,255,0.68); font-size: 8.2px; }
   .snowline-chart-legend span { display: inline-flex; align-items: center; gap: 4px; padding: 0; background: transparent !important; }
   .snowline-chart-key-line { width: 14px; height: 0; border-top: 2px solid; display: inline-block; background: transparent !important; }
   .snowline-chart-key-line.snowline-key { border-color: #70d7ff; }
@@ -482,7 +445,7 @@
   .precip-base { stroke: rgba(112,215,255,0.18); stroke-width: 1; }
   .precip-bar { fill: rgba(70,217,255,0.48); }
   .precip-bar.wet { fill: rgba(70,217,255,0.82); }
-  .plot-tooltip { position: absolute; z-index: 4; min-width: 118px; transform: translateX(-50%); padding: 5px 7px; border-radius: 6px; background: rgba(8,11,15,0.96); border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 4px 12px rgba(0,0,0,0.35); pointer-events: none; }
+  .plot-tooltip { position: absolute; z-index: 4; min-width: 112px; transform: translateX(-50%); padding: 5px 7px; border-radius: 6px; background: rgba(8,11,15,0.96); border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 4px 12px rgba(0,0,0,0.35); pointer-events: none; }
   .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; }
   .plot-tooltip b { font-size: 8.7px; color: white; }
   .plot-tooltip span { margin-top: 1px; font-size: 8px; color: rgba(255,255,255,0.72); }
@@ -491,14 +454,13 @@
   .chart-foot b { color: white; font-size: 9px; }
   .chart-foot b.positive { color: #70d7ff; }
   .chart-foot b.negative { color: #ffb15b; }
-  .forecast-summary { margin-top: 5px; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,0.035); color: rgba(255,255,255,0.62); font-size: 7.8px; line-height: 1.25; text-align: center; }
-  .precip-now { margin-top: 5px; padding: 4px 7px; border-radius: 6px; background: rgba(70,217,255,0.08); color: rgba(170,235,255,0.92); text-align: center; font-size: 8.3px; font-weight: 700; }
-  .hint { margin-top: 6px; color: rgba(255,255,255,0.44); font-size: 7.8px; line-height: 1.25; text-align: center; }
+  .forecast-summary { margin-top: 5px; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,0.035); color: rgba(255,255,255,0.58); font-size: 7.8px; line-height: 1.25; text-align: center; }
+  .hint { margin-top: 5px; color: rgba(255,255,255,0.38); font-size: 7.5px; line-height: 1.2; text-align: center; }
   .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
   @media (max-width: 520px) {
     .chart-shell { width: calc(100vw - 20px); padding: 9px 8px 8px; }
     .chart-head small { max-width: 220px; }
-    .plot-tooltip { min-width: 108px; }
+    .plot-tooltip { min-width: 104px; }
     .chart-foot span { font-size: 7.6px; }
     .chart-foot b { font-size: 8.4px; }
   }
