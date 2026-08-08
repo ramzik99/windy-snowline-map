@@ -45,8 +45,8 @@
         <div>Point labels compare that snowline with Windy map elevation. More than 100 m above is <b>ABOVE SNOWLINE</b>, more than 100 m below is <b>BELOW SNOWLINE</b>, and within ±100 m is <b>NEAR SNOWLINE</b>.</div>
         <div>The arrow on a point label shows the approximate snowline tendency over the next 3 hours.</div>
         <div>Contours are reconstructed from ECMWF vertical profiles sampled across the visible map. Sampling density and contour spacing increase with zoom, and the contours update with the Windy forecast timestep.</div>
-        <div>Desktop follows Windy's picker, with a direct-click fallback if picker state arrives late. Mobile uses Windy's single-click location event so a map tap supplies the selected coordinates directly.</div>
-        <div>Search, mobile taps and desktop picker selections are tracked separately so the correct point label persists or closes for each selection source.</div>
+        <div>Desktop clicks create the Snowline point label directly. Valid Windy picker updates can refine a selected point, but an empty or stale picker state never removes the label. Mobile uses Windy's single-click location event.</div>
+        <div>Search, mobile taps and desktop selections are tracked separately so the correct point label persists until another point is selected or × is pressed.</div>
         <div>Search results and favourites use their exact stored coordinates. The <b>share-node</b> button on a point label copies the place name, coordinates, <b>valid time</b>, <b>lead time</b>, snowline, elevation and tendency. The × button dismisses the label.</div>
         <div class="info-caveat">Thermal boundary only — precipitation, snowfall and accumulation are not implied.</div>
       </div>
@@ -92,8 +92,6 @@
   let pointSource: PointSource | null = null;
   let moveTimer: ReturnType<typeof setTimeout> | null = null;
   let pickerTimer: ReturnType<typeof setTimeout> | null = null;
-  let pickerClearTimer: ReturnType<typeof setTimeout> | null = null;
-  let desktopClickFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   let pickerSyncTimer: ReturnType<typeof setInterval> | null = null;
   let generation = 0;
   let clickGeneration = 0;
@@ -112,10 +110,9 @@
   const LABEL_MIN_DISTANCE_PX = 92;
   const MIN_VALID_FRACTION = 0.35;
   const NEAR_SNOWLINE_METRES = 100;
-  const PICKER_PROBE_DELAY_MS = 260;
+  const PICKER_PROBE_DELAY_MS = 180;
   const PICKER_SYNC_MS = 700;
-  const PICKER_CLOSE_GRACE_MS = 1100;
-  const DESKTOP_CLICK_FALLBACK_MS = 420;
+  const DESKTOP_PICKER_SETTLE_MS = 650;
   const SEARCH_PICKER_GUARD_MS = 900;
   const TENDENCY_HOURS = 3;
   const profileCache = new Map<string, CachedPoint>();
@@ -197,8 +194,6 @@
   function dismissPointLabel() {
     if (pointSource === 'desktop-picker' && clickedLatLon) dismissedPickerKey = `${clickedLatLon[0].toFixed(5)},${clickedLatLon[1].toFixed(5)}`;
     if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
-    if (pickerClearTimer) { clearTimeout(pickerClearTimer); pickerClearTimer = null; }
-    if (desktopClickFallbackTimer) { clearTimeout(desktopClickFallbackTimer); desktopClickFallbackTimer = null; }
     clearPointState();
   }
   function statusColor(status: ProbeStatus): string { if (status === 'above') return '#46d9ff'; if (status === 'below') return '#ff9d3d'; if (status === 'near') return '#ffe45c'; return '#ffffff'; }
@@ -357,20 +352,13 @@
       return;
     }
 
-    if (Date.now() < ignorePickerUntil || pointSource === 'search') return;
+    if (Date.now() < ignorePickerUntil) return;
     const clickKey = `${lat.toFixed(5)},${lon.toFixed(5)}`;
     dismissedPickerKey = '';
-    if (desktopClickFallbackTimer) clearTimeout(desktopClickFallbackTimer);
-    desktopClickFallbackTimer = setTimeout(() => {
-      desktopClickFallbackTimer = null;
-      if (!enabled || !labelsEnabled() || pointSource === 'search') return;
-      try {
-        const pickerPosition = pickerLatLon(store.get('pickerLocation'));
-        if (pickerPosition) { schedulePickerProbe(store.get('pickerLocation'), true); return; }
-      } catch {}
-      lastPickerKey = clickKey;
-      void probeLocation(lat, lon, 'desktop-picker');
-    }, DESKTOP_CLICK_FALLBACK_MS);
+    lastPickerKey = clickKey;
+    ignorePickerUntil = Date.now() + DESKTOP_PICKER_SETTLE_MS;
+    if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
+    void probeLocation(lat, lon, 'desktop-picker');
   }
 
   function handlePlaceSelect(event: CustomEvent<PlaceSelection>) {
@@ -383,8 +371,6 @@
     lastPickerKey = '';
     dismissedPickerKey = '';
     if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
-    if (pickerClearTimer) { clearTimeout(pickerClearTimer); pickerClearTimer = null; }
-    if (desktopClickFallbackTimer) { clearTimeout(desktopClickFallbackTimer); desktopClickFallbackTimer = null; }
     pointSource = 'search';
     map.setView([lat, lon], Math.min(zoom, 10), { animate: true });
     setTimeout(() => { if (pointSource === 'search') void probeLocation(lat, lon, 'search', placeName || null); }, 180);
@@ -395,42 +381,30 @@
     ignorePickerUntil = 0;
     if (wasSearch) clearPointState();
     lastPickerKey = '';
-    if (!isMobile) setTimeout(() => syncPickerFromStore(true), 0);
+    dismissedPickerKey = '';
   }
 
   function pickerLatLon(value: any): [number, number] | null { if (!value) return null; const lat = Number(value.lat ?? value.latitude), lon = Number(value.lon ?? value.lng ?? value.longitude); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null; return [lat, lon]; }
   function schedulePickerProbe(value: any, force = false) {
     if (isMobile || !enabled || !labelsEnabled()) return;
     const position = pickerLatLon(value);
-
-    if (!position) {
-      if (pickerClearTimer) return;
-      pickerClearTimer = setTimeout(() => {
-        pickerClearTimer = null;
-        let current: [number, number] | null = null;
-        try { current = pickerLatLon(store.get('pickerLocation')); } catch {}
-        if (current) { schedulePickerProbe({ lat: current[0], lon: current[1] }, true); return; }
-        lastPickerKey = '';
-        dismissedPickerKey = '';
-        if (pointSource === 'desktop-picker') clearPointState();
-      }, PICKER_CLOSE_GRACE_MS);
-      return;
-    }
-
-    if (pickerClearTimer) { clearTimeout(pickerClearTimer); pickerClearTimer = null; }
-    if (desktopClickFallbackTimer) { clearTimeout(desktopClickFallbackTimer); desktopClickFallbackTimer = null; }
-    if (!force && Date.now() < ignorePickerUntil) return;
+    if (!position) return;
+    if (pointSource === 'search') return;
+    if (Date.now() < ignorePickerUntil) return;
 
     const [lat, lon] = position, key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
     if (key === dismissedPickerKey) return;
     if (dismissedPickerKey && key !== dismissedPickerKey) dismissedPickerKey = '';
+
+    const activeKey = clickedLatLon ? `${clickedLatLon[0].toFixed(5)},${clickedLatLon[1].toFixed(5)}` : '';
+    if (key === activeKey && pointSource === 'desktop-picker') { lastPickerKey = key; return; }
     if (!force && key === lastPickerKey && pointSource === 'desktop-picker') return;
 
     lastPickerKey = key;
     if (pickerTimer) clearTimeout(pickerTimer);
     pickerTimer = setTimeout(() => {
       pickerTimer = null;
-      if (key === dismissedPickerKey) return;
+      if (key === dismissedPickerKey || pointSource === 'search') return;
       void probeLocation(lat, lon, 'desktop-picker');
     }, PICKER_PROBE_DELAY_MS);
   }
@@ -450,9 +424,9 @@
     drawDeclutteredLabels(labelCandidates, nextLayer); nextLayer.addTo(map); const oldLayer = contourLayer; contourLayer = nextLayer; if (oldLayer) try { map.removeLayer(oldLayer); } catch {}
   }
 
-  function handleMapNavigation() { if (!enabled) return; if (contoursEnabled()) { if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 700); } if (!isMobile && labelsEnabled()) setTimeout(() => syncPickerFromStore(), 180); }
-  function setDisplayMode(mode: DisplayMode) { if (!enabled || displayMode === mode) return; displayMode = mode; generation += 1; viewportLoading = false; refreshQueued = false; if (!contoursEnabled()) clearContours(); else refreshViewport(); if (!labelsEnabled()) clearPointState(); else if (!isMobile) syncPickerFromStore(true); }
-  function toggleEnabled() { if (enabled) { if (contoursEnabled()) refreshViewport(); if (!isMobile && labelsEnabled()) syncPickerFromStore(true); } else { generation += 1; viewportLoading = false; refreshQueued = false; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } if (pickerClearTimer) { clearTimeout(pickerClearTimer); pickerClearTimer = null; } if (desktopClickFallbackTimer) { clearTimeout(desktopClickFallbackTimer); desktopClickFallbackTimer = null; } clearContours(); clearPointState(); } }
+  function handleMapNavigation() { if (!enabled) return; if (contoursEnabled()) { if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 700); } }
+  function setDisplayMode(mode: DisplayMode) { if (!enabled || displayMode === mode) return; displayMode = mode; generation += 1; viewportLoading = false; refreshQueued = false; if (!contoursEnabled()) clearContours(); else refreshViewport(); if (!labelsEnabled()) clearPointState(); else if (!isMobile && !clickedLatLon) syncPickerFromStore(true); }
+  function toggleEnabled() { if (enabled) { if (contoursEnabled()) refreshViewport(); if (!isMobile && labelsEnabled() && !clickedLatLon) syncPickerFromStore(true); } else { generation += 1; viewportLoading = false; refreshQueued = false; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearContours(); clearPointState(); } }
 
   onMount(() => {
     map.on('moveend', handleMapNavigation); map.on('zoomend', handleMapNavigation);
@@ -464,7 +438,7 @@
   });
   onDestroy(() => {
     generation += 1; clickGeneration += 1; refreshQueued = false;
-    if (moveTimer) clearTimeout(moveTimer); if (pickerTimer) clearTimeout(pickerTimer); if (pickerClearTimer) clearTimeout(pickerClearTimer); if (desktopClickFallbackTimer) clearTimeout(desktopClickFallbackTimer); if (pickerSyncTimer) clearInterval(pickerSyncTimer);
+    if (moveTimer) clearTimeout(moveTimer); if (pickerTimer) clearTimeout(pickerTimer); if (pickerSyncTimer) clearInterval(pickerSyncTimer);
     map.off('moveend', handleMapNavigation); map.off('zoomend', handleMapNavigation);
     singleclick.off(config.name, handleSingleClick);
     if (timestampListener !== null) try { store.off(timestampListener); } catch {}
