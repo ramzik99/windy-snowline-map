@@ -1,22 +1,11 @@
 {#if panelHidden}
   <button class="show-panel" type="button" aria-label="Show Snowline panel" on:click={() => panelHidden = false}>❄ Snowline</button>
 {:else}
-  <div
-    class="snowline-panel"
-    bind:this={panelElement}
-    style={`transform: translate3d(${panelX}px, ${panelY}px, 0);`}
-  >
-    <div
-      class="top-row"
-      class:dragging={panelDragging}
-      on:pointerdown={startPanelDrag}
-      on:pointermove={movePanelDrag}
-      on:pointerup={endPanelDrag}
-      on:pointercancel={endPanelDrag}
-    >
+  <div class="snowline-panel">
+    <div class="top-row">
       <div class="title">Snowline</div>
       <div class="top-controls">
-        <button class="info-button" class:active={infoOpen} type="button" aria-label="How Snowline works" title="How it works" on:click={() => infoOpen = !infoOpen}>i</button>
+        <button class="info-button" class:active={infoOpen} type="button" aria-label="How Snowline works" title="How it works" on:click={() => infoOpen = true}>i</button>
         <button class="hide-button" type="button" aria-label="Hide Snowline panel" title="Hide" on:click={() => panelHidden = true}>−</button>
         <label class="switch">
           <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
@@ -24,24 +13,6 @@
         </label>
       </div>
     </div>
-
-    {#if infoOpen}
-      <div class="info-card">
-        <div class="info-head">
-          <b>How it works</b>
-          <button type="button" aria-label="Close information" title="Close" on:click={() => infoOpen = false}>×</button>
-        </div>
-        <div><b>Snowline</b> is an approximate ECMWF rain–snow thermal boundary derived from wet-bulb-zero height. Runs up to 144 hours only.</div>
-        <div>ECMWF temperature, dew point and geopotential height are used to calculate wet-bulb temperature through the vertical profile.</div>
-        <div>The lowest upward crossing of 0°C wet-bulb temperature is interpolated to estimate the wet-bulb-zero snowline.</div>
-        <div>Point labels compare that snowline with Windy map elevation. More than 100 m above is <b>ABOVE SNOWLINE</b>, more than 100 m below is <b>BELOW SNOWLINE</b>, and within ±100 m is <b>NEAR SNOWLINE</b>.</div>
-        <div>The arrow on a point label shows the approximate snowline tendency over the next 3 hours.</div>
-        <div>Contours are reconstructed from ECMWF vertical profiles sampled across the visible map. Sampling density and contour spacing increase with zoom, and the contours update with the Windy forecast timestep.</div>
-        <div>Desktop follows Windy's picker. Mobile uses Windy's single-click location event so a map tap supplies the selected coordinates directly.</div>
-        <div>Search results and favourites use their exact stored coordinates. The × on a point label dismisses that label.</div>
-        <div class="info-caveat">Thermal boundary only — precipitation, snowfall and accumulation are not implied.</div>
-      </div>
-    {/if}
 
     <PlaceSearch on:select={handlePlaceSelect} on:clear={handleSearchClear} />
 
@@ -57,6 +28,28 @@
         {probeLoading ? 'Reading point…' : 'Updating contours…'}
       </div>
     {/if}
+  </div>
+{/if}
+
+{#if infoOpen}
+  <div class="info-overlay" role="presentation" on:click={() => infoOpen = false}>
+    <div class="info-window" role="dialog" aria-modal="true" aria-label="How Snowline works" on:click|stopPropagation>
+      <div class="info-head">
+        <b>How Snowline works</b>
+        <button type="button" aria-label="Close information" title="Close" on:click={() => infoOpen = false}>×</button>
+      </div>
+      <div class="info-body">
+        <div><b>Snowline</b> is an approximate ECMWF rain–snow thermal boundary derived from wet-bulb-zero height. Runs up to 144 hours only.</div>
+        <div>ECMWF temperature, dew point and geopotential height are used to calculate wet-bulb temperature through the vertical profile.</div>
+        <div>The lowest upward crossing of 0°C wet-bulb temperature is interpolated to estimate the wet-bulb-zero snowline.</div>
+        <div>Point labels compare that snowline with Windy map elevation. More than 100 m above is <b>ABOVE SNOWLINE</b>, more than 100 m below is <b>BELOW SNOWLINE</b>, and within ±100 m is <b>NEAR SNOWLINE</b>.</div>
+        <div>The arrow on a point label shows the approximate snowline tendency over the next 3 hours.</div>
+        <div>Contours are reconstructed from ECMWF vertical profiles sampled across the visible map. Sampling density and contour spacing increase with zoom, and the contours update with the Windy forecast timestep.</div>
+        <div>Desktop follows Windy's picker. Mobile uses Windy's single-click location event so a map tap supplies the selected coordinates directly.</div>
+        <div>Search results and favourites use their exact stored coordinates. The × on a point label dismisses that label.</div>
+        <div class="info-caveat">Thermal boundary only — precipitation, snowfall and accumulation are not implied.</div>
+      </div>
+    </div>
   </div>
 {/if}
 
@@ -104,17 +97,6 @@
   let lastPickerKey = '';
   let searchPinned = false;
 
-  let panelElement: HTMLElement | null = null;
-  let panelX = 0;
-  let panelY = 0;
-  let panelDragging = false;
-  let dragPointerId: number | null = null;
-  let dragStartClientX = 0;
-  let dragStartClientY = 0;
-  let dragStartPanelX = 0;
-  let dragStartPanelY = 0;
-  let dragStartRect: DOMRect | null = null;
-
   const MODEL = 'ecmwf' as const;
   const MAX_CONCURRENT = 8;
   const FORECAST_DAYS = 6;
@@ -126,7 +108,6 @@
   const PICKER_PROBE_DELAY_MS = 320;
   const PICKER_SYNC_MS = 700;
   const TENDENCY_HOURS = 3;
-  const PANEL_EDGE_MARGIN = 6;
   const profileCache = new Map<string, CachedPoint>();
 
   const COLOUR_STOPS: ColourStop[] = [
@@ -146,54 +127,6 @@
     if (level >= COLOUR_STOPS[COLOUR_STOPS.length - 1].value) return COLOUR_STOPS[COLOUR_STOPS.length - 1].color;
     for (let i = 0; i < COLOUR_STOPS.length - 1; i++) { const a = COLOUR_STOPS[i], b = COLOUR_STOPS[i + 1]; if (level >= a.value && level <= b.value) { const f = (level - a.value) / (b.value - a.value), ca = hexToRgb(a.color), cb = hexToRgb(b.color); return rgbToHex(ca[0] + (cb[0] - ca[0]) * f, ca[1] + (cb[1] - ca[1]) * f, ca[2] + (cb[2] - ca[2]) * f); } }
     return '#ffffff';
-  }
-
-  function startPanelDrag(event: PointerEvent) {
-    const target = event.target as HTMLElement | null;
-    if (!panelElement || target?.closest('button, input, label, a')) return;
-    panelDragging = true;
-    dragPointerId = event.pointerId;
-    dragStartClientX = event.clientX;
-    dragStartClientY = event.clientY;
-    dragStartPanelX = panelX;
-    dragStartPanelY = panelY;
-    dragStartRect = panelElement.getBoundingClientRect();
-    try { (event.currentTarget as HTMLElement)?.setPointerCapture(event.pointerId); } catch {}
-    event.preventDefault();
-  }
-
-  function movePanelDrag(event: PointerEvent) {
-    if (!panelDragging || dragPointerId !== event.pointerId || !dragStartRect) return;
-    const rawDx = event.clientX - dragStartClientX;
-    const rawDy = event.clientY - dragStartClientY;
-    const maxLeft = PANEL_EDGE_MARGIN - dragStartRect.left;
-    const maxRight = window.innerWidth - PANEL_EDGE_MARGIN - dragStartRect.right;
-    const maxUp = PANEL_EDGE_MARGIN - dragStartRect.top;
-    const maxDown = window.innerHeight - PANEL_EDGE_MARGIN - dragStartRect.bottom;
-    const dx = Math.min(Math.max(rawDx, maxLeft), maxRight);
-    const dy = Math.min(Math.max(rawDy, maxUp), maxDown);
-    panelX = dragStartPanelX + dx;
-    panelY = dragStartPanelY + dy;
-    event.preventDefault();
-  }
-
-  function endPanelDrag(event: PointerEvent) {
-    if (dragPointerId !== event.pointerId) return;
-    panelDragging = false;
-    dragPointerId = null;
-    dragStartRect = null;
-    try { (event.currentTarget as HTMLElement)?.releasePointerCapture(event.pointerId); } catch {}
-  }
-
-  function keepPanelOnScreen() {
-    if (!panelElement) return;
-    const rect = panelElement.getBoundingClientRect();
-    let dx = 0, dy = 0;
-    if (rect.left < PANEL_EDGE_MARGIN) dx = PANEL_EDGE_MARGIN - rect.left;
-    else if (rect.right > window.innerWidth - PANEL_EDGE_MARGIN) dx = window.innerWidth - PANEL_EDGE_MARGIN - rect.right;
-    if (rect.top < PANEL_EDGE_MARGIN) dy = PANEL_EDGE_MARGIN - rect.top;
-    else if (rect.bottom > window.innerHeight - PANEL_EDGE_MARGIN) dy = window.innerHeight - PANEL_EDGE_MARGIN - rect.bottom;
-    if (dx || dy) { panelX += dx; panelY += dy; }
   }
 
   function getStoreTimestamp(): number { try { const t = store.get('timestamp'); if (typeof t === 'number' && Number.isFinite(t)) return t; } catch {} return Date.now(); }
@@ -329,7 +262,6 @@
   onMount(() => {
     map.on('moveend', handleMapNavigation); map.on('zoomend', handleMapNavigation);
     singleclick.on(config.name, handleSingleClick);
-    window.addEventListener('resize', keepPanelOnScreen);
     try { timestampListener = store.on('timestamp', () => { if (enabled && contoursEnabled() && cache.length && !viewportLoading) renderFromCache(); if (enabled && labelsEnabled()) updatePersistentClickLabel(); }); } catch (e) { console.warn('Snowline timeline listener unavailable', e); }
     if (!isMobile) { try { pickerLocationListener = store.on('pickerLocation', (value: any) => schedulePickerProbe(value)); } catch (e) { console.warn('Snowline picker-location listener unavailable', e); } pickerSyncTimer = setInterval(() => syncPickerFromStore(), PICKER_SYNC_MS); }
     if (contoursEnabled()) refreshViewport();
@@ -340,7 +272,6 @@
     if (moveTimer) clearTimeout(moveTimer); if (pickerTimer) clearTimeout(pickerTimer); if (pickerSyncTimer) clearInterval(pickerSyncTimer);
     map.off('moveend', handleMapNavigation); map.off('zoomend', handleMapNavigation);
     singleclick.off(config.name, handleSingleClick);
-    window.removeEventListener('resize', keepPanelOnScreen);
     if (timestampListener !== null) try { store.off(timestampListener); } catch {}
     if (pickerLocationListener !== null) try { store.off(pickerLocationListener); } catch {}
     clearContours(); clearClickLayer(); profileCache.clear(); clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null;
@@ -348,23 +279,16 @@
 </script>
 
 <style lang="less">
-  .snowline-panel { width: 224px; padding: 8px 9px; border-radius: 8px; background: rgba(45,45,45,0.95); color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.24); will-change: transform; }
-  .top-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: grab; touch-action: none; user-select: none; }
-  .top-row.dragging { cursor: grabbing; }
+  .snowline-panel { width: 224px; padding: 8px 9px; border-radius: 8px; background: rgba(45,45,45,0.95); color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.24); }
+  .top-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .top-controls { display: flex; align-items: center; gap: 6px; }
   .title { font-size: 16px; line-height: 1.05; font-weight: 800; }
-  .switch { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; white-space: nowrap; cursor: default; }
+  .switch { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; white-space: nowrap; }
   .switch input { margin: 0; width: 15px; height: 15px; }
   .hide-button, .info-button { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.75); font-size: 15px; line-height: 18px; font-weight: 800; cursor: pointer; }
   .info-button { font-family: Georgia, serif; font-size: 14px; font-style: italic; }
   .hide-button:hover, .info-button:hover, .info-button.active { background: rgba(80,190,255,0.15); border-color: rgba(80,190,255,0.48); color: white; }
   .show-panel { padding: 6px 9px; border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; background: rgba(45,45,45,0.95); color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.24); font-size: 11px; line-height: 1; font-weight: 800; cursor: pointer; }
-  .info-card { margin-top: 7px; max-height: min(55vh, 310px); overflow-y: auto; overscroll-behavior: contain; padding: 7px 8px; border: 1px solid rgba(80,190,255,0.34); border-radius: 7px; background: rgba(10,14,18,0.78); font-size: 8.9px; line-height: 1.25; color: rgba(255,255,255,0.82); }
-  .info-card > div + div { margin-top: 4px; }
-  .info-head { position: sticky; top: -7px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -7px -8px 5px; padding: 7px 8px 5px; background: rgba(10,14,18,0.98); color: white; font-size: 10px; }
-  .info-head button { width: 19px; height: 19px; padding: 0; border: 0; border-radius: 5px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); font-size: 15px; line-height: 17px; cursor: pointer; }
-  .info-head button:hover { background: rgba(255,255,255,0.16); color: white; }
-  .info-caveat { padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.10); color: rgba(255,228,92,0.86); }
   .mode-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 7px; opacity: 1; }
   .mode-row.disabled { opacity: 0.45; }
   .mode-row button { min-width: 0; padding: 5px 3px; border: 1px solid rgba(255,255,255,0.16); border-radius: 6px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.72); font-size: 8.7px; line-height: 1.1; font-weight: 700; cursor: pointer; }
@@ -373,7 +297,15 @@
   .status-pill { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; padding: 4px 7px; border-radius: 6px; background: rgba(10,14,18,0.72); color: rgba(255,255,255,0.92); font-size: 10px; line-height: 1; font-weight: 700; }
   .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #70d7ff; box-shadow: 0 0 0 2px rgba(112,215,255,0.18); animation: snowline-pulse 1s ease-in-out infinite; }
   @keyframes snowline-pulse { 0%,100% { opacity: 0.45; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
-  @media (max-width: 520px) { .snowline-panel { width: 200px; padding: 7px 8px; } .mode-row button { font-size: 8.1px; } .info-card { max-height: 48vh; font-size: 8.5px; } }
+  .info-overlay { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 12px; background: rgba(0,0,0,0.30); }
+  .info-window { width: min(330px, calc(100vw - 24px)); max-height: min(72vh, 520px); overflow: hidden; border: 1px solid rgba(80,190,255,0.48); border-radius: 10px; background: rgba(24,28,32,0.98); color: white; box-shadow: 0 8px 30px rgba(0,0,0,0.48); }
+  .info-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 10px 7px; border-bottom: 1px solid rgba(255,255,255,0.10); font-size: 12px; }
+  .info-head button { width: 22px; height: 22px; padding: 0; border: 0; border-radius: 6px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.82); font-size: 17px; line-height: 19px; cursor: pointer; }
+  .info-head button:hover { background: rgba(255,255,255,0.16); color: white; }
+  .info-body { max-height: calc(min(72vh, 520px) - 40px); overflow-y: auto; overscroll-behavior: contain; padding: 9px 10px 10px; font-size: 10px; line-height: 1.32; color: rgba(255,255,255,0.84); }
+  .info-body > div + div { margin-top: 7px; }
+  .info-caveat { padding-top: 7px; border-top: 1px solid rgba(255,255,255,0.10); color: rgba(255,228,92,0.90); }
+  @media (max-width: 520px) { .snowline-panel { width: 200px; padding: 7px 8px; } .mode-row button { font-size: 8.1px; } .info-overlay { align-items: flex-start; padding-top: 54px; } .info-window { width: min(320px, calc(100vw - 20px)); max-height: 68vh; } .info-body { max-height: calc(68vh - 40px); font-size: 9.5px; } }
   :global(.snowline-label), :global(.snowline-click-label) { background: transparent !important; border: 0 !important; }
   :global(.snowline-label span) { display: inline-block; padding: 1px 4px 1px 6px; border-radius: 3px; border-left: 4px solid var(--snowline-color, white); background: rgba(15,17,20,0.86); color: white; font-size: 10px; font-weight: 800; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 0 0 1px rgba(255,255,255,0.12); }
   :global(.snowline-click-label) { pointer-events: auto !important; }
