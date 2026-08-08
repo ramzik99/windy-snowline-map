@@ -1,5 +1,10 @@
 <div class="snowline-panel">
-  <div class="title">❄️ Snowline</div>
+  <div class="panel-copy">
+    <div class="title">Snowline</div>
+    <div class="description">
+      Level that separates snow from rain, estimated from wet-bulb freezing level using ECMWF. Runs up to 144 hours only.
+    </div>
+  </div>
   <label class="switch">
     <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
     <span>{enabled ? 'On' : 'Off'}</span>
@@ -433,23 +438,34 @@
 
 <style lang="less">
   .snowline-panel {
-    width: 168px;
-    padding: 7px 9px;
+    width: 220px;
+    padding: 8px 9px;
     border-radius: 8px;
     background: rgba(45,45,45,0.94);
     color: white;
     box-shadow: 0 3px 12px rgba(0,0,0,0.24);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: 10px;
   }
 
+  .panel-copy {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
   .title {
     font-size: 16px;
-    line-height: 1;
+    line-height: 1.05;
     font-weight: 800;
-    white-space: nowrap;
+    margin-bottom: 4px;
+  }
+
+  .description {
+    font-size: 10px;
+    line-height: 1.28;
+    opacity: 0.72;
   }
 
   .switch {
@@ -459,12 +475,24 @@
     font-size: 11px;
     font-weight: 800;
     white-space: nowrap;
+    padding-top: 1px;
   }
 
   .switch input {
     margin: 0;
     width: 15px;
     height: 15px;
+  }
+
+  @media (max-width: 520px) {
+    .snowline-panel {
+      width: 195px;
+      padding: 7px 8px;
+    }
+
+    .description {
+      font-size: 9.5px;
+    }
   }
 
   :global(.snowline-label) {
