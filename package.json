@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "3.2.6",
-  "description": "ECMWF snow forecast to +144 h with wet-bulb-zero snowline contours, terrain-aware point labels, precipitation and modelled snow depth. Includes a compact Snow forecast graph, search, favourites, My location and Windy detail forecast.",
+  "version": "3.2.7",
+  "description": "ECMWF snow forecast to +144 h with wet-bulb-zero snowline contours, terrain-aware point labels, precipitation and modelled snow depth. Version 3.2.7 adds PNG graph export, a simplified graph header/footer, shorter help text, and clears the search bar after selecting search results, My location or saved places.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
