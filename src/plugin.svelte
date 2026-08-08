@@ -15,7 +15,7 @@
   import { onMount, onDestroy } from 'svelte';
   import { map } from '@windy/map';
   import store from '@windy/store';
-  import { getMeteogramForecastData } from '@windy/fetch';
+  import { getElevation, getMeteogramForecastData } from '@windy/fetch';
 
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
   import { contourPolylines, type GridPoint, type ContourPolyline } from './contours';
@@ -46,6 +46,7 @@
   let clickLayer: any = null;
   let clickedPoint: CachedPoint | null = null;
   let clickedLatLon: [number, number] | null = null;
+  let clickedMapElevationM: number | null = null;
   let loadingElement: HTMLDivElement | null = null;
   let moveTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
@@ -134,6 +135,15 @@
     return null;
   }
 
+  function scalarNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (typeof value === 'string') {
+      const n = Number(value);
+      if (Number.isFinite(n)) return n;
+    }
+    return null;
+  }
+
   function buildForecastTimes(data: Record<string, unknown>, header: Record<string, unknown>): number[] {
     const hours = data['hours'];
     if (hours == null) return [];
@@ -182,20 +192,18 @@
     };
   }
 
-  function scalarNumber(value: unknown): number | null {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') {
-      const n = Number(value);
-      if (Number.isFinite(n)) return n;
+  async function loadMapElevation(lat: number, lon: number): Promise<number | null> {
+    try {
+      const response = await getElevation(lat, lon);
+      const p = response as any;
+      const candidates = [p?.data, p?.data?.data, p?.value];
+      for (const candidate of candidates) {
+        const elevation = scalarNumber(candidate);
+        if (elevation !== null) return elevation;
+      }
+    } catch (e) {
+      console.warn('Snowline map elevation failed', lat, lon, e);
     }
-    return null;
-  }
-
-  function modelTerrainM(point: CachedPoint): number | null {
-    const modelElevation = scalarNumber(point.header.modelElevation);
-    if (modelElevation !== null) return modelElevation;
-    const elevation = scalarNumber(point.header.elevation);
-    if (elevation !== null) return elevation;
     return null;
   }
 
@@ -436,13 +444,12 @@
 
     const snowline = wbz.snowLevelM;
     const rounded = Math.round(snowline / 10) * 10;
-    const terrain = modelTerrainM(clickedPoint);
     let detail = 'ECMWF wet-bulb zero proxy';
 
-    if (terrain !== null && Number.isFinite(terrain)) {
-      const terrainRounded = Math.round(terrain / 10) * 10;
-      const relation = terrain >= snowline ? 'above snowline' : 'below snowline';
-      detail = `Model terrain ${terrainRounded} m · ${relation}`;
+    if (clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM)) {
+      const terrainRounded = Math.round(clickedMapElevationM / 10) * 10;
+      const relation = clickedMapElevationM >= snowline ? 'above snowline' : 'below snowline';
+      detail = `Map elevation ${terrainRounded} m · ${relation}`;
     }
 
     showClickLabel(lat, lon, `Snowline ${rounded} m`, detail, colorForLevel(snowline));
@@ -457,11 +464,16 @@
 
     const myClick = ++clickGeneration;
     clickedPoint = null;
+    clickedMapElevationM = null;
     clickedLatLon = [lat, lon];
-    showClickLabel(lat, lon, 'Snowline …', 'Loading ECMWF profile');
+    showClickLabel(lat, lon, 'Snowline …', 'Loading ECMWF + map elevation');
     setLoadingIndicator(true, 'Reading snowline…');
 
-    const cp = await loadPoint(lat, lon);
+    const [cp, mapElevation] = await Promise.all([
+      loadPoint(lat, lon),
+      loadMapElevation(lat, lon),
+    ]);
+
     if (myClick !== clickGeneration || !enabled) {
       setLoadingIndicator(false);
       return;
@@ -474,6 +486,7 @@
     }
 
     clickedPoint = cp;
+    clickedMapElevationM = mapElevation;
     updatePersistentClickLabel();
     setLoadingIndicator(false);
   }
@@ -695,6 +708,7 @@
     profileCache.clear();
     clickedPoint = null;
     clickedLatLon = null;
+    clickedMapElevationM = null;
   });
 </script>
 
