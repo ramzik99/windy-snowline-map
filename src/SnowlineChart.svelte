@@ -1,10 +1,26 @@
-<div class="chart-shell" role="dialog" aria-modal="false" aria-label="Snowline forecast graph">
+<div
+  class="chart-shell"
+  role="dialog"
+  aria-modal="false"
+  aria-label="Snowline forecast graph"
+  bind:this={chartShell}
+  style={`left:${position.x}px;top:${position.y}px;transform:none;`}
+>
   <div class="chart-head">
     <div>
       <b>Snowline forecast</b>
       <small>{placeName || 'Selected point'} · ECMWF</small>
     </div>
-    <button type="button" aria-label="Close snowline graph" title="Close" on:click={() => dispatch('close')}>×</button>
+    <div class="chart-actions">
+      <button
+        class="drag-button"
+        type="button"
+        aria-label="Drag snowline graph"
+        title="Drag graph"
+        on:pointerdown={startDrag}
+      >↕</button>
+      <button type="button" aria-label="Close snowline graph" title="Close" on:click={() => dispatch('close')}>×</button>
+    </div>
   </div>
 
   {#if chart && chart.points}
@@ -78,6 +94,10 @@
   const dispatch = createEventDispatcher<{ close: void }>();
   let timestamp = Date.now();
   let timestampListener: number | null = null;
+  let chartShell: HTMLDivElement | null = null;
+  let position = { x: 24, y: 68 };
+  let dragPointerId: number | null = null;
+  let dragOffset = { x: 0, y: 0 };
 
   type PrecipBar = { x: number; y: number; width: number; height: number; mm: number };
   type ChartData = {
@@ -120,6 +140,39 @@
   function formatDay(time: number): string {
     const d = new Date(time);
     return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+  }
+
+  function clampPosition(x: number, y: number) {
+    const rect = chartShell?.getBoundingClientRect();
+    const width = rect?.width ?? 390;
+    const height = rect?.height ?? 320;
+    return {
+      x: Math.max(6, Math.min(window.innerWidth - width - 6, x)),
+      y: Math.max(6, Math.min(window.innerHeight - height - 6, y)),
+    };
+  }
+
+  function startDrag(event: PointerEvent) {
+    if (!chartShell) return;
+    dragPointerId = event.pointerId;
+    const rect = chartShell.getBoundingClientRect();
+    dragOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    try { (event.currentTarget as HTMLElement)?.setPointerCapture(event.pointerId); } catch {}
+    window.addEventListener('pointermove', dragMove);
+    window.addEventListener('pointerup', stopDrag, { once: true });
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  function dragMove(event: PointerEvent) {
+    if (dragPointerId !== event.pointerId) return;
+    position = clampPosition(event.clientX - dragOffset.x, event.clientY - dragOffset.y);
+  }
+
+  function stopDrag(event: PointerEvent) {
+    if (dragPointerId !== event.pointerId) return;
+    dragPointerId = null;
+    window.removeEventListener('pointermove', dragMove);
   }
 
   function buildChart(p: any, terrain: number | null, target: number): ChartData | null {
@@ -176,6 +229,8 @@
   }
 
   onMount(() => {
+    const width = Math.min(390, window.innerWidth - 24);
+    position = { x: Math.max(6, (window.innerWidth - width) / 2), y: window.innerWidth <= 520 ? 58 : 68 };
     try {
       const current = store.get('timestamp');
       if (typeof current === 'number' && Number.isFinite(current)) timestamp = current;
@@ -187,13 +242,14 @@
   });
 
   onDestroy(() => {
+    window.removeEventListener('pointermove', dragMove);
     if (timestampListener !== null) try { store.off(timestampListener); } catch {}
   });
 </script>
 
 <style lang="less">
   .chart-shell {
-    position: fixed; z-index: 10020; left: 50%; top: 68px; transform: translateX(-50%);
+    position: fixed; z-index: 10020;
     width: min(390px, calc(100vw - 24px)); padding: 10px 10px 9px;
     border: 1px solid rgba(80,190,255,0.45); border-radius: 11px;
     background: rgba(20,24,29,0.975); color: white;
@@ -201,9 +257,12 @@
   }
   .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
   .chart-head b { display: block; font-size: 13px; line-height: 1.05; }
-  .chart-head small { display: block; margin-top: 3px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.58); font-size: 9px; }
+  .chart-head small { display: block; margin-top: 3px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.58); font-size: 9px; }
+  .chart-actions { display: flex; gap: 5px; }
   .chart-head button { width: 23px; height: 23px; padding: 0; border: 0; border-radius: 6px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.82); font-size: 17px; line-height: 20px; cursor: pointer; }
   .chart-head button:hover { background: rgba(255,255,255,0.17); color: white; }
+  .drag-button { cursor: grab !important; touch-action: none; font-size: 14px !important; }
+  .drag-button:active { cursor: grabbing !important; }
   .snowline-chart-legend { display: flex; flex-wrap: wrap; gap: 9px; margin: 8px 2px 1px; padding: 0; background: transparent !important; color: rgba(255,255,255,0.7); font-size: 8.5px; }
   .snowline-chart-legend span { display: inline-flex; align-items: center; gap: 4px; padding: 0; background: transparent !important; }
   .snowline-chart-key-line { width: 14px; height: 0; border-top: 2px solid; display: inline-block; background: transparent !important; }
@@ -231,7 +290,7 @@
   .hint { margin-top: 6px; color: rgba(255,255,255,0.44); font-size: 7.8px; line-height: 1.25; text-align: center; }
   .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
   @media (max-width: 520px) {
-    .chart-shell { top: 58px; width: calc(100vw - 20px); padding: 9px 8px 8px; }
-    .chart-head small { max-width: 235px; }
+    .chart-shell { width: calc(100vw - 20px); padding: 9px 8px 8px; }
+    .chart-head small { max-width: 210px; }
   }
 </style>
