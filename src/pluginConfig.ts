@@ -2,10 +2,10 @@ import type { ExternalPluginConfig } from '@windy/interfaces';
 
 const config: ExternalPluginConfig = {
   name: 'windy-plugin-snowline-map-100m',
-  version: '4.0.3',
+  version: '5.0.0',
   icon: '❄️',
   title: 'Snow forecast',
-  description: 'Detailed snow forecast to +144 h with wet-bulb-zero snowline contours, terrain comparison, precipitation and modelled snow depth. Version 4.0.3 polishes the graph metadata and consistently labels modelled snow depth across the graph and PNG export.',
+  description: 'ECMWF Snow forecast to +144 h with wet-bulb-zero snowline contours, terrain comparison, precipitation, modelled snow depth and a terrain-aware rain/mix/snow phase timeline. Version 5 loads snow depth independently of the active Windy overlay, uses precipitation and snow-depth bars, and adds an intuitive precipitation-type band.',
   author: 'Ramzi Kandah',
   repository: 'https://github.com/ramzik99/windy-snowline-map',
   desktopUI: 'embedded',
