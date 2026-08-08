@@ -30,12 +30,21 @@
 
   type ColourStop = { value: number; color: string };
   type ViewportPoint = { lat: number; lon: number; r: number; c: number };
+  type LabelCandidate = {
+    point: [number, number];
+    level: number;
+    color: string;
+    length: number;
+    is1000: boolean;
+  };
 
   let enabled = true;
   let loading = false;
   let cache: (CachedPoint | null)[][] = [];
   let contourLayer: any = null;
   let clickLabel: any = null;
+  let clickedPoint: CachedPoint | null = null;
+  let clickedLatLon: [number, number] | null = null;
   let moveTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
   let clickGeneration = 0;
@@ -46,6 +55,13 @@
   const FORECAST_DAYS = 6;
   const MAX_FORECAST_HOURS = 144;
   const CONTOUR_INTERVAL = 100;
+  const PROFILE_CACHE_MAX = 900;
+  const LABEL_MIN_DISTANCE_PX = 92;
+
+  // Reuse complete ECMWF vertical profiles. This especially helps repeated point
+  // probes, returning to a recently viewed area, and map redraws that revisit the
+  // same sampling coordinates. Map preserves insertion order, giving a simple LRU.
+  const profileCache = new Map<string, CachedPoint>();
 
   const COLOUR_STOPS: ColourStop[] = [
     { value: 150,  color: '#c51ac7' },
@@ -188,7 +204,37 @@
     };
   }
 
+  function profileKey(lat: number, lon: number): string {
+    return `${lat.toFixed(5)},${lon.toFixed(5)}`;
+  }
+
+  function rememberProfile(point: CachedPoint) {
+    const key = profileKey(point.lat, point.lon);
+    profileCache.delete(key);
+    profileCache.set(key, point);
+
+    while (profileCache.size > PROFILE_CACHE_MAX) {
+      const oldest = profileCache.keys().next().value;
+      if (oldest === undefined) break;
+      profileCache.delete(oldest);
+    }
+  }
+
+  function cachedProfile(lat: number, lon: number): CachedPoint | null {
+    const key = profileKey(lat, lon);
+    const point = profileCache.get(key);
+    if (!point) return null;
+
+    // Refresh its LRU position.
+    profileCache.delete(key);
+    profileCache.set(key, point);
+    return point;
+  }
+
   async function loadPoint(lat: number, lon: number): Promise<CachedPoint | null> {
+    const existing = cachedProfile(lat, lon);
+    if (existing) return existing;
+
     try {
       const response = await getMeteogramForecastData(
         MODEL,
@@ -197,13 +243,16 @@
       const { forecast, header } = extractPayload(response);
       if (!Object.keys(forecast).length) return null;
 
-      return {
+      const point: CachedPoint = {
         lat,
         lon,
         forecast,
         header,
         times: buildForecastTimes(forecast, header),
       };
+
+      rememberProfile(point);
+      return point;
     } catch (e) {
       console.warn('Snowline point failed', lat, lon, e);
       return null;
@@ -327,6 +376,37 @@
     }).addTo(map);
   }
 
+  function updatePersistentClickLabel() {
+    if (!enabled || !clickedPoint || !clickedLatLon || !clickedPoint.times.length) {
+      if (!enabled) clearClickLabel();
+      return;
+    }
+
+    const [lat, lon] = clickedLatLon;
+    const target = getStoreTimestamp();
+    const firstTime = clickedPoint.times[0];
+    const lastTime = clickedPoint.times[clickedPoint.times.length - 1];
+    const hardEnd = firstTime + MAX_FORECAST_HOURS * 3600_000;
+    const effectiveEnd = Math.min(lastTime, hardEnd);
+
+    if (target < firstTime - 30 * 60_000 || target > effectiveEnd + 30 * 60_000) {
+      showClickLabel(lat, lon, 'Outside +144 h');
+      return;
+    }
+
+    const idx = nearestIndex(clickedPoint.times, target);
+    const profile = buildProfile(clickedPoint.forecast, idx);
+    const wbz = wetBulbZeroHeight(profile);
+
+    if (wbz.snowLevelM === null || !Number.isFinite(wbz.snowLevelM)) {
+      showClickLabel(lat, lon, 'No snowline');
+      return;
+    }
+
+    const rounded = Math.round(wbz.snowLevelM / 10) * 10;
+    showClickLabel(lat, lon, `${rounded} m`, colorForLevel(wbz.snowLevelM));
+  }
+
   async function handleMapClick(e: any) {
     if (!enabled || !e?.latlng) return;
 
@@ -335,6 +415,8 @@
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
 
     const myClick = ++clickGeneration;
+    clickedPoint = null;
+    clickedLatLon = [lat, lon];
     showClickLabel(lat, lon, 'Snowline …');
 
     const cp = await loadPoint(lat, lon);
@@ -345,28 +427,8 @@
       return;
     }
 
-    const target = getStoreTimestamp();
-    const firstTime = cp.times[0];
-    const lastTime = cp.times[cp.times.length - 1];
-    const hardEnd = firstTime + MAX_FORECAST_HOURS * 3600_000;
-    const effectiveEnd = Math.min(lastTime, hardEnd);
-
-    if (target < firstTime - 30 * 60_000 || target > effectiveEnd + 30 * 60_000) {
-      showClickLabel(lat, lon, 'Outside +144 h');
-      return;
-    }
-
-    const idx = nearestIndex(cp.times, target);
-    const profile = buildProfile(cp.forecast, idx);
-    const wbz = wetBulbZeroHeight(profile);
-
-    if (wbz.snowLevelM === null || !Number.isFinite(wbz.snowLevelM)) {
-      showClickLabel(lat, lon, 'No snowline');
-      return;
-    }
-
-    const rounded = Math.round(wbz.snowLevelM / 10) * 10;
-    showClickLabel(lat, lon, `${rounded} m`, colorForLevel(wbz.snowLevelM));
+    clickedPoint = cp;
+    updatePersistentClickLabel();
   }
 
   function lineLength(line: ContourPolyline): number {
@@ -417,6 +479,45 @@
     }
 
     return line[line.length - 1];
+  }
+
+  function drawDeclutteredLabels(candidates: LabelCandidate[]) {
+    if (!contourLayer || !candidates.length) return;
+
+    const mapWidth = Number(map.getSize?.().x ?? 800);
+    const maxLabels = mapWidth < 520 ? 5 : mapWidth < 900 ? 7 : 10;
+    const minDistance = mapWidth < 520 ? 82 : LABEL_MIN_DISTANCE_PX;
+
+    const ordered = [...candidates].sort((a, b) => {
+      if (a.is1000 !== b.is1000) return a.is1000 ? -1 : 1;
+      return b.length - a.length;
+    });
+
+    const occupied: { x: number; y: number }[] = [];
+    let placed = 0;
+
+    for (const candidate of ordered) {
+      if (placed >= maxLabels) break;
+
+      const px = map.latLngToContainerPoint(candidate.point);
+      const tooClose = occupied.some(other =>
+        Math.hypot(px.x - other.x, px.y - other.y) < minDistance
+      );
+      if (tooClose) continue;
+
+      L.marker(candidate.point, {
+        interactive: false,
+        icon: L.divIcon({
+          className: 'snowline-label',
+          html: `<span style="--snowline-color:${candidate.color}">${candidate.level} m</span>`,
+          iconSize: [62, 20],
+          iconAnchor: [31, 10],
+        }),
+      }).addTo(contourLayer);
+
+      occupied.push({ x: px.x, y: px.y });
+      placed += 1;
+    }
   }
 
   function renderFromCache() {
@@ -475,6 +576,7 @@
 
     const min = Math.floor(Math.min(...values) / CONTOUR_INTERVAL) * CONTOUR_INTERVAL;
     const max = Math.ceil(Math.max(...values) / CONTOUR_INTERVAL) * CONTOUR_INTERVAL;
+    const labelCandidates: LabelCandidate[] = [];
 
     for (let level = min; level <= max; level += CONTOUR_INTERVAL) {
       const lines = contourPolylines(field, level);
@@ -510,21 +612,22 @@
 
       if (is500 && lines.length) {
         const longest = [...lines].sort((a, b) => lineLength(b) - lineLength(a))[0];
+        const length = lineLength(longest);
         const labelPoint = midpointAlongLine(longest);
 
-        if (labelPoint && lineLength(longest) > 0.08) {
-          L.marker(labelPoint, {
-            interactive: false,
-            icon: L.divIcon({
-              className: 'snowline-label',
-              html: `<span style="--snowline-color:${contourColor}">${level} m</span>`,
-              iconSize: [62, 20],
-              iconAnchor: [31, 10],
-            }),
-          }).addTo(contourLayer);
+        if (labelPoint && length > 0.08) {
+          labelCandidates.push({
+            point: labelPoint,
+            level,
+            color: contourColor,
+            length,
+            is1000,
+          });
         }
       }
     }
+
+    drawDeclutteredLabels(labelCandidates);
   }
 
   function scheduleViewportRefresh() {
@@ -536,6 +639,7 @@
   function toggleEnabled() {
     if (enabled) {
       refreshViewport();
+      updatePersistentClickLabel();
     } else {
       generation += 1;
       clickGeneration += 1;
@@ -553,7 +657,7 @@
     try {
       timestampListener = store.on('timestamp', () => {
         if (enabled && cache.length && !loading) renderFromCache();
-        clearClickLabel();
+        if (enabled) updatePersistentClickLabel();
       });
     } catch (e) {
       console.warn('Snowline timeline listener unavailable', e);
@@ -576,6 +680,8 @@
 
     clearContours();
     clearClickLabel();
+    clickedPoint = null;
+    clickedLatLon = null;
   });
 </script>
 
