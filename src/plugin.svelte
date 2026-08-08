@@ -46,7 +46,7 @@
         <div>The arrow on a point label shows the approximate snowline tendency over the next 3 hours.</div>
         <div>Contours are reconstructed from ECMWF vertical profiles sampled across the visible map. Sampling density and contour spacing increase with zoom, and the contours update with the Windy forecast timestep.</div>
         <div>Desktop follows Windy's picker. Mobile uses Windy's single-click location event so a map tap supplies the selected coordinates directly.</div>
-        <div>Search results and favourites use their exact stored coordinates. The <b>↗</b> button on a point label copies the place name, coordinates, forecast time, lead time, snowline, elevation and tendency. The × button dismisses the label.</div>
+        <div>Search results and favourites use their exact stored coordinates. The <b>share-node</b> button on a point label copies the place name, coordinates, <b>valid time</b>, <b>lead time</b>, snowline, elevation and tendency. The × button dismisses the label.</div>
         <div class="info-caveat">Thermal boundary only — precipitation, snowfall and accumulation are not implied.</div>
       </div>
     </div>
@@ -241,7 +241,7 @@
     const elevation = clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM) ? `${Math.round(clickedMapElevationM / 10) * 10} m AMSL` : 'Unavailable';
     const snowlineText = snowline !== null ? `${Math.round(snowline / 10) * 10} m AMSL` : 'Unavailable';
     const leadHours = point.runTime !== null ? Math.round((validTime - point.runTime) / 3600_000) : null;
-    const leadText = leadHours === null ? 'Unavailable' : `${leadHours >= 0 ? '+' : ''}${leadHours} h (ECMWF)`;
+    const leadText = leadHours === null ? 'Unavailable' : `${leadHours >= 0 ? '+' : ''}${leadHours} h`;
     button.textContent = '…';
     button.title = 'Preparing copy';
     try {
@@ -249,11 +249,11 @@
       if (clickedPoint !== point || !clickedLatLon || clickedLatLon[0] !== lat || clickedLatLon[1] !== lon) return;
       if (!clickedPlaceName) clickedPlaceName = placeName;
       const text = [
-        'Snowline',
+        'Snowline · ECMWF',
         `Place: ${placeName}`,
         `Coordinates: ${formatCoordinate(lat, lon)}`,
-        `Forecast valid: ${formatUtc(validTime)}`,
-        `Lead time: ${leadText}`,
+        `Valid time: ${formatUtc(validTime)}`,
+        `Lead time: ${leadText}${point.runTime !== null ? ` from run ${formatUtc(point.runTime)}` : ''}`,
         `Snowline: ${snowlineText}`,
         `Elevation: ${elevation}`,
         `Tendency: ${tendency}`,
@@ -262,12 +262,12 @@
       await copyText(text);
       button.textContent = '✓';
       button.title = 'Copied';
-      setTimeout(() => { if (button.isConnected) { button.textContent = '↗'; button.title = 'Copy Snowline details'; } }, 1400);
+      setTimeout(() => { if (button.isConnected) { button.textContent = 'share'; button.title = 'Copy Snowline details'; } }, 1400);
     } catch (e) {
       console.warn('Snowline share copy failed', e);
       button.textContent = '!';
       button.title = 'Copy failed';
-      setTimeout(() => { if (button.isConnected) { button.textContent = '↗'; button.title = 'Copy Snowline details'; } }, 1600);
+      setTimeout(() => { if (button.isConnected) { button.textContent = 'share'; button.title = 'Copy Snowline details'; } }, 1600);
     }
   }
 
@@ -278,8 +278,8 @@
     const accent = statusColor(status);
     L.circleMarker([lat, lon], { radius: status === 'neutral' ? 4 : 5, weight: 2, color: '#ffffff', fillColor: accent, fillOpacity: 1, interactive: false }).addTo(clickLayer);
     const detail = detailText ? `<small>${detailText}</small>` : '';
-    const shareButton = clickedPoint && clickedLatLon ? '<button class="snowline-label-share" type="button" aria-label="Copy Snowline details" title="Copy Snowline details">↗</button>' : '';
-    const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${shareButton}<button class="snowline-label-close" type="button" aria-label="Close Snowline label" title="Close">×</button><b>${mainText}</b>${detail}</span>`, iconSize: [174, 54], iconAnchor: [87, 62] }) }).addTo(clickLayer);
+    const shareButton = clickedPoint && clickedLatLon ? '<button class="snowline-label-share" type="button" aria-label="Copy Snowline details" title="Copy Snowline details">share</button>' : '';
+    const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${shareButton}<button class="snowline-label-close" type="button" aria-label="Close Snowline label" title="Close">×</button><b>${mainText}</b>${detail}</span>`, iconSize: [205, 56], iconAnchor: [103, 64] }) }).addTo(clickLayer);
     marker.on('click', (event: any) => {
       const original = event?.originalEvent;
       const target = original?.target as HTMLElement | undefined;
@@ -405,11 +405,14 @@
   :global(.snowline-label), :global(.snowline-click-label) { background: transparent !important; border: 0 !important; }
   :global(.snowline-label span) { display: inline-block; padding: 1px 4px 1px 6px; border-radius: 3px; border-left: 4px solid var(--snowline-color, white); background: rgba(15,17,20,0.86); color: white; font-size: 10px; font-weight: 800; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 0 0 1px rgba(255,255,255,0.12); }
   :global(.snowline-click-label) { pointer-events: auto !important; }
-  :global(.snowline-click-label span) { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 126px; padding: 5px 40px 4px 8px; border-radius: 8px; border: 2px solid var(--probe-accent, rgba(255,255,255,0.4)); border-bottom: 4px solid var(--snowline-color, white); background: rgba(12,14,17,0.96); color: white; text-align: center; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 3px 10px rgba(0,0,0,0.38); }
-  :global(.snowline-label-close), :global(.snowline-label-share) { position: absolute; top: 2px; width: 17px; height: 17px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.82); font-size: 14px; line-height: 15px; font-weight: 800; text-shadow: none; cursor: pointer; pointer-events: auto; }
-  :global(.snowline-label-close) { right: 3px; }
-  :global(.snowline-label-share) { right: 23px; font-size: 12px; line-height: 16px; }
-  :global(.snowline-label-close:hover), :global(.snowline-label-share:hover) { background: rgba(255,255,255,0.22); color: white; }
+  :global(.snowline-click-label span) { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 156px; padding: 6px 42px 5px 10px; border-radius: 8px; border: 2px solid var(--probe-accent, rgba(255,255,255,0.4)); border-bottom: 4px solid var(--snowline-color, white); background: rgba(12,14,17,0.96); color: white; text-align: center; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 3px 10px rgba(0,0,0,0.38); }
+  :global(.snowline-label-close), :global(.snowline-label-share) { position: absolute; top: 3px; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.82); font-size: 14px; line-height: 16px; font-weight: 800; text-shadow: none; cursor: pointer; pointer-events: auto; }
+  :global(.snowline-label-close) { right: 4px; }
+  :global(.snowline-label-share) { right: 26px; font-size: 0; line-height: 0; background-repeat: no-repeat; background-position: center; background-size: 14px 14px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3Ccircle cx='6' cy='12' r='3'/%3E%3Ccircle cx='18' cy='19' r='3'/%3E%3Cpath d='M8.6 10.5l6.8-4M8.6 13.5l6.8 4'/%3E%3C/svg%3E"); }
+  :global(.snowline-label-share[title='Copied']) { background-image: none; font-size: 12px; line-height: 16px; color: white; }
+  :global(.snowline-label-share[title='Preparing copy']) { background-image: none; font-size: 12px; line-height: 16px; color: white; }
+  :global(.snowline-label-share[title='Copy failed']) { background-image: none; font-size: 12px; line-height: 16px; color: white; }
+  :global(.snowline-label-close:hover), :global(.snowline-label-share:hover) { background-color: rgba(255,255,255,0.22); color: white; }
   :global(.snowline-click-label b) { color: var(--probe-accent, white); font-size: 13px; line-height: 1.05; font-weight: 900; letter-spacing: 0.25px; }
   :global(.snowline-click-label small) { font-size: 9px; line-height: 1.1; font-weight: 700; opacity: 0.9; }
   :global(.snowline-probe-above span) { background: rgba(8,27,38,0.97); }
