@@ -18,7 +18,7 @@
   import { getMeteogramForecastData } from '@windy/fetch';
 
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
-  import { contourSegments, type GridPoint } from './contours';
+  import { contourPolylines, type GridPoint, type ContourPolyline } from './contours';
 
   type CachedPoint = {
     lat: number;
@@ -29,6 +29,7 @@
   };
 
   type ColourStop = { value: number; color: string };
+  type ViewportPoint = { lat: number; lon: number; r: number; c: number };
 
   let enabled = true;
   let loading = false;
@@ -39,10 +40,9 @@
   let timestampListener: number | null = null;
 
   const MODEL = 'ecmwf' as const;
-  const ROWS = 11;
-  const COLS = 17;
   const MAX_CONCURRENT = 8;
   const FORECAST_DAYS = 6;
+  const MAX_FORECAST_HOURS = 144;
   const CONTOUR_INTERVAL = 100;
 
   const COLOUR_STOPS: ColourStop[] = [
@@ -139,12 +139,21 @@
     }
     if (!raw.length) return [];
 
-    if (raw[0] > 1e12) return raw;
-    if (raw[0] > 1e9) return raw.map(v => v * 1000);
+    let times: number[];
+    if (raw[0] > 1e12) {
+      times = raw;
+    } else if (raw[0] > 1e9) {
+      times = raw.map(v => v * 1000);
+    } else {
+      const ref = parseRefTime(header.refTime);
+      if (ref === null) return [];
+      times = raw.map(h => ref + h * 3600_000);
+    }
 
-    const ref = parseRefTime(header.refTime);
-    if (ref === null) return [];
-    return raw.map(h => ref + h * 3600_000);
+    if (!times.length) return [];
+    const first = times[0];
+    const hardEnd = first + MAX_FORECAST_HOURS * 3600_000;
+    return times.filter(t => t <= hardEnd + 60_000);
   }
 
   function nearestIndex(times: number[], target: number): number {
@@ -221,18 +230,33 @@
     return out;
   }
 
-  function buildViewportPoints(): { lat: number; lon: number; r: number; c: number }[] {
+  function gridShapeForZoom(): { rows: number; cols: number } {
+    const zoom = Number(map.getZoom?.() ?? 6);
+
+    // Save requests when viewing a continent, retain the proven 17×11 regional
+    // grid for normal use, and add detail only when the user zooms locally.
+    if (zoom <= 4) return { rows: 9, cols: 13 };   // 117 profiles
+    if (zoom <= 7) return { rows: 11, cols: 17 }; // 187 profiles
+    return { rows: 15, cols: 21 };                // 315 profiles
+  }
+
+  function buildViewportPoints(): {
+    points: ViewportPoint[];
+    rows: number;
+    cols: number;
+  } {
+    const { rows, cols } = gridShapeForZoom();
     const b = map.getBounds();
     const south = Math.max(-75, b.getSouth());
     const north = Math.min(75, b.getNorth());
     const west = b.getWest();
     const east = b.getEast();
-    const latStep = (north - south) / (ROWS - 1);
-    const lonStep = (east - west) / (COLS - 1);
+    const latStep = (north - south) / (rows - 1);
+    const lonStep = (east - west) / (cols - 1);
 
-    const points = [];
-    for (let r = 0; r < ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
+    const points: ViewportPoint[] = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
         points.push({
           lat: south + r * latStep,
           lon: west + c * lonStep,
@@ -241,7 +265,8 @@
         });
       }
     }
-    return points;
+
+    return { points, rows, cols };
   }
 
   async function refreshViewport() {
@@ -249,18 +274,21 @@
 
     const myGeneration = ++generation;
     loading = true;
-    const points = buildViewportPoints();
+    const { points, rows, cols } = buildViewportPoints();
 
     const results = await mapLimit(points, MAX_CONCURRENT, async p => {
       const result = await loadPoint(p.lat, p.lon);
       return { ...p, result };
     });
 
-    if (myGeneration !== generation) return;
+    if (myGeneration !== generation) {
+      loading = false;
+      return;
+    }
 
     const nextCache: (CachedPoint | null)[][] = Array.from(
-      { length: ROWS },
-      () => Array(COLS).fill(null)
+      { length: rows },
+      () => Array(cols).fill(null)
     );
 
     for (const item of results) {
@@ -279,14 +307,54 @@
     }
   }
 
-  function segmentScore(segment: any): number {
-    if (!segment || segment.length < 2) return -1;
-    const a = segment[0];
-    const b = segment[1];
-    const dy = Number(b[0]) - Number(a[0]);
-    const dx = (Number(b[1]) - Number(a[1])) *
-      Math.cos(((Number(a[0]) + Number(b[0])) / 2) * Math.PI / 180);
-    return dx * dx + dy * dy;
+  function lineLength(line: ContourPolyline): number {
+    let total = 0;
+    for (let i = 1; i < line.length; i++) {
+      const a = line[i - 1];
+      const b = line[i];
+      const meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180;
+      const dy = b[0] - a[0];
+      const dx = (b[1] - a[1]) * Math.cos(meanLat);
+      total += Math.hypot(dx, dy);
+    }
+    return total;
+  }
+
+  function midpointAlongLine(line: ContourPolyline): [number, number] | null {
+    if (line.length < 2) return null;
+
+    const lengths: number[] = [];
+    let total = 0;
+    for (let i = 1; i < line.length; i++) {
+      const a = line[i - 1];
+      const b = line[i];
+      const meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180;
+      const dy = b[0] - a[0];
+      const dx = (b[1] - a[1]) * Math.cos(meanLat);
+      const d = Math.hypot(dx, dy);
+      lengths.push(d);
+      total += d;
+    }
+
+    if (total <= 0) return line[Math.floor(line.length / 2)];
+
+    const target = total / 2;
+    let travelled = 0;
+    for (let i = 0; i < lengths.length; i++) {
+      const d = lengths[i];
+      if (travelled + d >= target) {
+        const f = d > 0 ? (target - travelled) / d : 0;
+        const a = line[i];
+        const b = line[i + 1];
+        return [
+          a[0] + f * (b[0] - a[0]),
+          a[1] + f * (b[1] - a[1]),
+        ];
+      }
+      travelled += d;
+    }
+
+    return line[line.length - 1];
   }
 
   function renderFromCache() {
@@ -306,8 +374,11 @@
     }
 
     const firstTime = firstPoint.times[0];
-    const lastTime = firstPoint.times[firstPoint.times.length - 1];
-    if (target < firstTime - 30 * 60_000 || target > lastTime + 30 * 60_000) {
+    const hardEnd = firstTime + MAX_FORECAST_HOURS * 3600_000;
+    const lastAvailable = firstPoint.times[firstPoint.times.length - 1];
+    const effectiveEnd = Math.min(hardEnd, lastAvailable);
+
+    if (target < firstTime - 30 * 60_000 || target > effectiveEnd + 30 * 60_000) {
       clearContours();
       return;
     }
@@ -344,41 +415,43 @@
     const max = Math.ceil(Math.max(...values) / CONTOUR_INTERVAL) * CONTOUR_INTERVAL;
 
     for (let level = min; level <= max; level += CONTOUR_INTERVAL) {
-      const segments = contourSegments(field, level);
+      const lines = contourPolylines(field, level);
       const is1000 = level % 1000 === 0;
       const is500 = level % 500 === 0;
       const contourColor = colorForLevel(level);
 
-      for (const segment of segments) {
+      for (const line of lines) {
+        if (line.length < 2) continue;
+
         if (is500) {
-          L.polyline(segment, {
+          L.polyline(line, {
             color: '#11151b',
             weight: is1000 ? 4.3 : 3.0,
             opacity: is1000 ? 0.58 : 0.42,
             interactive: false,
             lineCap: 'round',
             lineJoin: 'round',
-            smoothFactor: 1.0,
+            smoothFactor: 0.8,
           }).addTo(contourLayer);
         }
 
-        L.polyline(segment, {
+        L.polyline(line, {
           color: contourColor,
           weight: is1000 ? 2.9 : is500 ? 1.9 : 0.82,
           opacity: is1000 ? 1.0 : is500 ? 0.96 : 0.62,
           interactive: false,
           lineCap: 'round',
           lineJoin: 'round',
-          smoothFactor: 1.0,
+          smoothFactor: is500 ? 0.7 : 0.9,
         }).addTo(contourLayer);
       }
 
-      if (is500 && segments.length) {
-        const s = [...segments].sort((a, b) => segmentScore(b) - segmentScore(a))[0];
-        if (s && s.length >= 2) {
-          const lat = (s[0][0] + s[1][0]) / 2;
-          const lon = (s[0][1] + s[1][1]) / 2;
-          L.marker([lat, lon], {
+      if (is500 && lines.length) {
+        const longest = [...lines].sort((a, b) => lineLength(b) - lineLength(a))[0];
+        const labelPoint = midpointAlongLine(longest);
+
+        if (labelPoint && lineLength(longest) > 0.08) {
+          L.marker(labelPoint, {
             interactive: false,
             icon: L.divIcon({
               className: 'snowline-label',
@@ -403,6 +476,7 @@
       refreshViewport();
     } else {
       generation += 1;
+      loading = false;
       clearContours();
     }
   }
