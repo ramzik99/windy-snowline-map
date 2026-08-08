@@ -1,8 +1,19 @@
 {#if panelHidden}
   <button class="show-panel" type="button" aria-label="Show Snowline panel" on:click={() => panelHidden = false}>❄ Snowline</button>
 {:else}
-  <div class="snowline-panel">
-    <div class="top-row">
+  <div
+    class="snowline-panel"
+    bind:this={panelElement}
+    style={`transform: translate3d(${panelX}px, ${panelY}px, 0);`}
+  >
+    <div
+      class="top-row"
+      class:dragging={panelDragging}
+      on:pointerdown={startPanelDrag}
+      on:pointermove={movePanelDrag}
+      on:pointerup={endPanelDrag}
+      on:pointercancel={endPanelDrag}
+    >
       <div class="title">Snowline</div>
       <div class="top-controls">
         <button class="info-button" class:active={infoOpen} type="button" aria-label="How Snowline works" title="How it works" on:click={() => infoOpen = !infoOpen}>i</button>
@@ -14,20 +25,20 @@
       </div>
     </div>
 
-    <div class="description">
-      Approximate ECMWF rain–snow boundary from wet-bulb zero height. Runs up to 144 hours only.
-    </div>
-
     {#if infoOpen}
       <div class="info-card">
         <div class="info-head">
           <b>How it works</b>
           <button type="button" aria-label="Close information" title="Close" on:click={() => infoOpen = false}>×</button>
         </div>
+        <div><b>Snowline</b> is an approximate ECMWF rain–snow thermal boundary derived from wet-bulb-zero height. Runs up to 144 hours only.</div>
         <div>ECMWF temperature, dew point and geopotential height are used to calculate wet-bulb temperature through the vertical profile.</div>
         <div>The lowest upward crossing of 0°C wet-bulb temperature is interpolated to estimate the wet-bulb-zero snowline.</div>
-        <div>Point labels compare that snowline with Windy map elevation. Within ±100 m is shown as <b>NEAR SNOWLINE</b>.</div>
-        <div>Contours are sampled across the visible map and update with the Windy forecast timestep.</div>
+        <div>Point labels compare that snowline with Windy map elevation. More than 100 m above is <b>ABOVE SNOWLINE</b>, more than 100 m below is <b>BELOW SNOWLINE</b>, and within ±100 m is <b>NEAR SNOWLINE</b>.</div>
+        <div>The arrow on a point label shows the approximate snowline tendency over the next 3 hours.</div>
+        <div>Contours are reconstructed from ECMWF vertical profiles sampled across the visible map. Sampling density and contour spacing increase with zoom, and the contours update with the Windy forecast timestep.</div>
+        <div>Desktop follows Windy's picker. Mobile uses Windy's single-click location event so a map tap supplies the selected coordinates directly.</div>
+        <div>Search results and favourites use their exact stored coordinates. The × on a point label dismisses that label.</div>
         <div class="info-caveat">Thermal boundary only — precipitation, snowfall and accumulation are not implied.</div>
       </div>
     {/if}
@@ -39,8 +50,6 @@
       <button class:active={displayMode === 'contour'} on:click={() => setDisplayMode('contour')} disabled={!enabled}>Contour only</button>
       <button class:active={displayMode === 'both'} on:click={() => setDisplayMode('both')} disabled={!enabled}>Label + contour</button>
     </div>
-
-    <div class="micro-note">Near snowline = within ±100 m · thermal boundary, precipitation not implied</div>
 
     {#if enabled && (viewportLoading || probeLoading)}
       <div class="status-pill">
@@ -95,6 +104,17 @@
   let lastPickerKey = '';
   let searchPinned = false;
 
+  let panelElement: HTMLElement | null = null;
+  let panelX = 0;
+  let panelY = 0;
+  let panelDragging = false;
+  let dragPointerId: number | null = null;
+  let dragStartClientX = 0;
+  let dragStartClientY = 0;
+  let dragStartPanelX = 0;
+  let dragStartPanelY = 0;
+  let dragStartRect: DOMRect | null = null;
+
   const MODEL = 'ecmwf' as const;
   const MAX_CONCURRENT = 8;
   const FORECAST_DAYS = 6;
@@ -106,6 +126,7 @@
   const PICKER_PROBE_DELAY_MS = 320;
   const PICKER_SYNC_MS = 700;
   const TENDENCY_HOURS = 3;
+  const PANEL_EDGE_MARGIN = 6;
   const profileCache = new Map<string, CachedPoint>();
 
   const COLOUR_STOPS: ColourStop[] = [
@@ -125,6 +146,54 @@
     if (level >= COLOUR_STOPS[COLOUR_STOPS.length - 1].value) return COLOUR_STOPS[COLOUR_STOPS.length - 1].color;
     for (let i = 0; i < COLOUR_STOPS.length - 1; i++) { const a = COLOUR_STOPS[i], b = COLOUR_STOPS[i + 1]; if (level >= a.value && level <= b.value) { const f = (level - a.value) / (b.value - a.value), ca = hexToRgb(a.color), cb = hexToRgb(b.color); return rgbToHex(ca[0] + (cb[0] - ca[0]) * f, ca[1] + (cb[1] - ca[1]) * f, ca[2] + (cb[2] - ca[2]) * f); } }
     return '#ffffff';
+  }
+
+  function startPanelDrag(event: PointerEvent) {
+    const target = event.target as HTMLElement | null;
+    if (!panelElement || target?.closest('button, input, label, a')) return;
+    panelDragging = true;
+    dragPointerId = event.pointerId;
+    dragStartClientX = event.clientX;
+    dragStartClientY = event.clientY;
+    dragStartPanelX = panelX;
+    dragStartPanelY = panelY;
+    dragStartRect = panelElement.getBoundingClientRect();
+    try { (event.currentTarget as HTMLElement)?.setPointerCapture(event.pointerId); } catch {}
+    event.preventDefault();
+  }
+
+  function movePanelDrag(event: PointerEvent) {
+    if (!panelDragging || dragPointerId !== event.pointerId || !dragStartRect) return;
+    const rawDx = event.clientX - dragStartClientX;
+    const rawDy = event.clientY - dragStartClientY;
+    const maxLeft = PANEL_EDGE_MARGIN - dragStartRect.left;
+    const maxRight = window.innerWidth - PANEL_EDGE_MARGIN - dragStartRect.right;
+    const maxUp = PANEL_EDGE_MARGIN - dragStartRect.top;
+    const maxDown = window.innerHeight - PANEL_EDGE_MARGIN - dragStartRect.bottom;
+    const dx = Math.min(Math.max(rawDx, maxLeft), maxRight);
+    const dy = Math.min(Math.max(rawDy, maxUp), maxDown);
+    panelX = dragStartPanelX + dx;
+    panelY = dragStartPanelY + dy;
+    event.preventDefault();
+  }
+
+  function endPanelDrag(event: PointerEvent) {
+    if (dragPointerId !== event.pointerId) return;
+    panelDragging = false;
+    dragPointerId = null;
+    dragStartRect = null;
+    try { (event.currentTarget as HTMLElement)?.releasePointerCapture(event.pointerId); } catch {}
+  }
+
+  function keepPanelOnScreen() {
+    if (!panelElement) return;
+    const rect = panelElement.getBoundingClientRect();
+    let dx = 0, dy = 0;
+    if (rect.left < PANEL_EDGE_MARGIN) dx = PANEL_EDGE_MARGIN - rect.left;
+    else if (rect.right > window.innerWidth - PANEL_EDGE_MARGIN) dx = window.innerWidth - PANEL_EDGE_MARGIN - rect.right;
+    if (rect.top < PANEL_EDGE_MARGIN) dy = PANEL_EDGE_MARGIN - rect.top;
+    else if (rect.bottom > window.innerHeight - PANEL_EDGE_MARGIN) dy = window.innerHeight - PANEL_EDGE_MARGIN - rect.bottom;
+    if (dx || dy) { panelX += dx; panelY += dy; }
   }
 
   function getStoreTimestamp(): number { try { const t = store.get('timestamp'); if (typeof t === 'number' && Number.isFinite(t)) return t; } catch {} return Date.now(); }
@@ -175,20 +244,14 @@
       renderFromCache();
     } finally {
       if (myGeneration === generation) viewportLoading = false;
-      if (refreshQueued && enabled && contoursEnabled()) {
-        refreshQueued = false;
-        setTimeout(() => refreshViewport(), 0);
-      }
+      if (refreshQueued && enabled && contoursEnabled()) { refreshQueued = false; setTimeout(() => refreshViewport(), 0); }
     }
   }
 
   function clearContours() { if (contourLayer) { try { map.removeLayer(contourLayer); } catch {} contourLayer = null; } }
   function clearClickLayer() { if (clickLayer) { try { map.removeLayer(clickLayer); } catch {} clickLayer = null; } }
   function clearPointState() { clickGeneration += 1; probeLoading = false; clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null; clearClickLayer(); }
-  function dismissPointLabel() {
-    if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
-    clearPointState();
-  }
+  function dismissPointLabel() { if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearPointState(); }
   function statusColor(status: ProbeStatus): string { if (status === 'above') return '#46d9ff'; if (status === 'below') return '#ff9d3d'; if (status === 'near') return '#ffe45c'; return '#ffffff'; }
   function showClickLabel(lat: number, lon: number, mainText: string, detailText = '', snowlineColor = '#ffffff', status: ProbeStatus = 'neutral') {
     if (!labelsEnabled()) return;
@@ -197,24 +260,8 @@
     const accent = statusColor(status);
     L.circleMarker([lat, lon], { radius: status === 'neutral' ? 4 : 5, weight: 2, color: '#ffffff', fillColor: accent, fillOpacity: 1, interactive: false }).addTo(clickLayer);
     const detail = detailText ? `<small>${detailText}</small>` : '';
-    const marker = L.marker([lat, lon], {
-      interactive: true,
-      bubblingMouseEvents: false,
-      zIndexOffset: 2000,
-      icon: L.divIcon({
-        className: `snowline-click-label snowline-probe-${status}`,
-        html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}"><button class="snowline-label-close" type="button" aria-label="Close Snowline label" title="Close">×</button><b>${mainText}</b>${detail}</span>`,
-        iconSize: [174, 54],
-        iconAnchor: [87, 62],
-      }),
-    }).addTo(clickLayer);
-    marker.on('click', (event: any) => {
-      const original = event?.originalEvent;
-      const target = original?.target as HTMLElement | undefined;
-      if (!target?.closest?.('.snowline-label-close')) return;
-      try { L.DomEvent.stop(original); } catch {}
-      dismissPointLabel();
-    });
+    const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}"><button class="snowline-label-close" type="button" aria-label="Close Snowline label" title="Close">×</button><b>${mainText}</b>${detail}</span>`, iconSize: [174, 54], iconAnchor: [87, 62] }) }).addTo(clickLayer);
+    marker.on('click', (event: any) => { const original = event?.originalEvent; const target = original?.target as HTMLElement | undefined; if (!target?.closest?.('.snowline-label-close')) return; try { L.DomEvent.stop(original); } catch {} dismissPointLabel(); });
   }
 
   function snowlineAt(point: CachedPoint, idx: number): number | null { const wbz = wetBulbZeroHeight(buildProfile(point.forecast, idx)); return wbz.snowLevelM !== null && Number.isFinite(wbz.snowLevelM) ? wbz.snowLevelM : null; }
@@ -232,24 +279,8 @@
 
   async function probeLocation(lat: number, lon: number) { if (!enabled || !labelsEnabled() || !Number.isFinite(lat) || !Number.isFinite(lon)) return; const myClick = ++clickGeneration; clickedPoint = null; clickedMapElevationM = null; clickedLatLon = [lat, lon]; probeLoading = true; showClickLabel(lat, lon, 'Snowline …', 'Reading point'); try { const [cp, mapElevation] = await Promise.all([loadPoint(lat, lon), loadMapElevation(lat, lon)]); if (myClick !== clickGeneration || !enabled || !labelsEnabled()) return; if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; } clickedPoint = cp; clickedMapElevationM = mapElevation; updatePersistentClickLabel(); } finally { if (myClick === clickGeneration) probeLoading = false; } }
 
-  function latLonFromSingleClick(value: any): [number, number] | null {
-    if (!value) return null;
-    const lat = Number(value.lat ?? value.latitude ?? value.latlng?.lat);
-    const lon = Number(value.lon ?? value.lng ?? value.longitude ?? value.latlng?.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-    return [lat, lon];
-  }
-
-  function handleSingleClick(value: any) {
-    if (!enabled || !labelsEnabled()) return;
-    const position = latLonFromSingleClick(value);
-    if (!position) return;
-    const [lat, lon] = position;
-    searchPinned = true;
-    lastPickerKey = '';
-    if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
-    probeLocation(lat, lon);
-  }
+  function latLonFromSingleClick(value: any): [number, number] | null { if (!value) return null; const lat = Number(value.lat ?? value.latitude ?? value.latlng?.lat); const lon = Number(value.lon ?? value.lng ?? value.longitude ?? value.latlng?.lng); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null; return [lat, lon]; }
+  function handleSingleClick(value: any) { if (!enabled || !labelsEnabled()) return; const position = latLonFromSingleClick(value); if (!position) return; const [lat, lon] = position; searchPinned = true; lastPickerKey = ''; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } probeLocation(lat, lon); }
 
   function handlePlaceSelect(event: CustomEvent<PlaceSelection>) {
     if (!enabled || !event?.detail) return;
@@ -261,24 +292,13 @@
     setTimeout(() => probeLocation(lat, lon), 240);
   }
 
-  function handleSearchClear() {
-    searchPinned = false;
-    lastPickerKey = '';
-    clearPointState();
-    if (!isMobile) setTimeout(() => syncPickerFromStore(true), 0);
-  }
+  function handleSearchClear() { searchPinned = false; lastPickerKey = ''; clearPointState(); if (!isMobile) setTimeout(() => syncPickerFromStore(true), 0); }
 
   function pickerLatLon(value: any): [number, number] | null { if (!value) return null; const lat = Number(value.lat ?? value.latitude), lon = Number(value.lon ?? value.lng ?? value.longitude); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null; return [lat, lon]; }
   function schedulePickerProbe(value: any, force = false) {
     if (isMobile || !enabled || !labelsEnabled()) return;
     const position = pickerLatLon(value);
-    if (!position) {
-      if (searchPinned) return;
-      lastPickerKey = '';
-      if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
-      clearPointState();
-      return;
-    }
+    if (!position) { if (searchPinned) return; lastPickerKey = ''; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearPointState(); return; }
     searchPinned = false;
     const [lat, lon] = position, key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
     if (!force && key === lastPickerKey) return;
@@ -309,11 +329,9 @@
   onMount(() => {
     map.on('moveend', handleMapNavigation); map.on('zoomend', handleMapNavigation);
     singleclick.on(config.name, handleSingleClick);
+    window.addEventListener('resize', keepPanelOnScreen);
     try { timestampListener = store.on('timestamp', () => { if (enabled && contoursEnabled() && cache.length && !viewportLoading) renderFromCache(); if (enabled && labelsEnabled()) updatePersistentClickLabel(); }); } catch (e) { console.warn('Snowline timeline listener unavailable', e); }
-    if (!isMobile) {
-      try { pickerLocationListener = store.on('pickerLocation', (value: any) => schedulePickerProbe(value)); } catch (e) { console.warn('Snowline picker-location listener unavailable', e); }
-      pickerSyncTimer = setInterval(() => syncPickerFromStore(), PICKER_SYNC_MS);
-    }
+    if (!isMobile) { try { pickerLocationListener = store.on('pickerLocation', (value: any) => schedulePickerProbe(value)); } catch (e) { console.warn('Snowline picker-location listener unavailable', e); } pickerSyncTimer = setInterval(() => syncPickerFromStore(), PICKER_SYNC_MS); }
     if (contoursEnabled()) refreshViewport();
     if (!isMobile && labelsEnabled()) syncPickerFromStore(true);
   });
@@ -322,6 +340,7 @@
     if (moveTimer) clearTimeout(moveTimer); if (pickerTimer) clearTimeout(pickerTimer); if (pickerSyncTimer) clearInterval(pickerSyncTimer);
     map.off('moveend', handleMapNavigation); map.off('zoomend', handleMapNavigation);
     singleclick.off(config.name, handleSingleClick);
+    window.removeEventListener('resize', keepPanelOnScreen);
     if (timestampListener !== null) try { store.off(timestampListener); } catch {}
     if (pickerLocationListener !== null) try { store.off(pickerLocationListener); } catch {}
     clearContours(); clearClickLayer(); profileCache.clear(); clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null;
@@ -329,20 +348,20 @@
 </script>
 
 <style lang="less">
-  .snowline-panel { width: 224px; padding: 8px 9px; border-radius: 8px; background: rgba(45,45,45,0.95); color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.24); }
-  .top-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .snowline-panel { width: 224px; padding: 8px 9px; border-radius: 8px; background: rgba(45,45,45,0.95); color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.24); will-change: transform; }
+  .top-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; cursor: grab; touch-action: none; user-select: none; }
+  .top-row.dragging { cursor: grabbing; }
   .top-controls { display: flex; align-items: center; gap: 6px; }
   .title { font-size: 16px; line-height: 1.05; font-weight: 800; }
-  .description { margin-top: 4px; font-size: 10px; line-height: 1.25; opacity: 0.74; }
-  .switch { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; white-space: nowrap; }
+  .switch { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; white-space: nowrap; cursor: default; }
   .switch input { margin: 0; width: 15px; height: 15px; }
   .hide-button, .info-button { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.75); font-size: 15px; line-height: 18px; font-weight: 800; cursor: pointer; }
   .info-button { font-family: Georgia, serif; font-size: 14px; font-style: italic; }
   .hide-button:hover, .info-button:hover, .info-button.active { background: rgba(80,190,255,0.15); border-color: rgba(80,190,255,0.48); color: white; }
   .show-panel { padding: 6px 9px; border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; background: rgba(45,45,45,0.95); color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.24); font-size: 11px; line-height: 1; font-weight: 800; cursor: pointer; }
-  .info-card { margin-top: 7px; padding: 7px 8px; border: 1px solid rgba(80,190,255,0.34); border-radius: 7px; background: rgba(10,14,18,0.78); font-size: 8.9px; line-height: 1.25; color: rgba(255,255,255,0.82); }
+  .info-card { margin-top: 7px; max-height: min(55vh, 310px); overflow-y: auto; overscroll-behavior: contain; padding: 7px 8px; border: 1px solid rgba(80,190,255,0.34); border-radius: 7px; background: rgba(10,14,18,0.78); font-size: 8.9px; line-height: 1.25; color: rgba(255,255,255,0.82); }
   .info-card > div + div { margin-top: 4px; }
-  .info-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: white; font-size: 10px; }
+  .info-head { position: sticky; top: -7px; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -7px -8px 5px; padding: 7px 8px 5px; background: rgba(10,14,18,0.98); color: white; font-size: 10px; }
   .info-head button { width: 19px; height: 19px; padding: 0; border: 0; border-radius: 5px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); font-size: 15px; line-height: 17px; cursor: pointer; }
   .info-head button:hover { background: rgba(255,255,255,0.16); color: white; }
   .info-caveat { padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.10); color: rgba(255,228,92,0.86); }
@@ -351,11 +370,10 @@
   .mode-row button { min-width: 0; padding: 5px 3px; border: 1px solid rgba(255,255,255,0.16); border-radius: 6px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.72); font-size: 8.7px; line-height: 1.1; font-weight: 700; cursor: pointer; }
   .mode-row button.active { background: rgba(29,161,242,0.22); border-color: rgba(80,190,255,0.72); color: white; }
   .mode-row button:disabled { cursor: default; }
-  .micro-note { margin-top: 5px; font-size: 8.7px; line-height: 1.2; opacity: 0.58; }
   .status-pill { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; padding: 4px 7px; border-radius: 6px; background: rgba(10,14,18,0.72); color: rgba(255,255,255,0.92); font-size: 10px; line-height: 1; font-weight: 700; }
   .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #70d7ff; box-shadow: 0 0 0 2px rgba(112,215,255,0.18); animation: snowline-pulse 1s ease-in-out infinite; }
   @keyframes snowline-pulse { 0%,100% { opacity: 0.45; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
-  @media (max-width: 520px) { .snowline-panel { width: 200px; padding: 7px 8px; } .description { font-size: 9.5px; } .mode-row button { font-size: 8.1px; } .micro-note { font-size: 8.2px; } .info-card { font-size: 8.5px; } }
+  @media (max-width: 520px) { .snowline-panel { width: 200px; padding: 7px 8px; } .mode-row button { font-size: 8.1px; } .info-card { max-height: 48vh; font-size: 8.5px; } }
   :global(.snowline-label), :global(.snowline-click-label) { background: transparent !important; border: 0 !important; }
   :global(.snowline-label span) { display: inline-block; padding: 1px 4px 1px 6px; border-radius: 3px; border-left: 4px solid var(--snowline-color, white); background: rgba(15,17,20,0.86); color: white; font-size: 10px; font-weight: 800; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 0 0 1px rgba(255,255,255,0.12); }
   :global(.snowline-click-label) { pointer-events: auto !important; }
