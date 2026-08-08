@@ -122,6 +122,7 @@
       <span>Min <b>{chart.minSnowline} m</b></span>
       <span>Selected <b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span>Δ terrain <b class:positive={chart.currentTerrainDifference !== null && chart.currentTerrainDifference > 0} class:negative={chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0}>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
+      <span>Precip <b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= 0.05}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
       <span>Max <b>{chart.maxSnowline} m</b></span>
     </div>
 
@@ -181,6 +182,7 @@
     maxSnowline: number;
     currentSnowline: number | null;
     currentTerrainDifference: number | null;
+    currentPrecip: number | null;
     precipBars: PrecipBar[];
     hasPrecip: boolean;
     summaryLine: string;
@@ -343,6 +345,7 @@
     const crossingX = crossingTime !== null ? x(crossingTime) : null;
 
     const precipValues = p.times.map((_: number, index: number) => precipMmAt(p.forecast, index));
+    const currentPrecip = precipMmAt(p.forecast, currentIndex);
     const validPrecip = precipValues.filter((v: number | null): v is number => v !== null && Number.isFinite(v));
     const precipMax = validPrecip.length ? Math.max(0.1, ...validPrecip) : 0;
     const spacing = (right - left) / Math.max(1, p.times.length - 1);
@@ -381,6 +384,7 @@
       maxSnowline: Math.round(Math.max(...snowValues) / 10) * 10,
       currentSnowline: currentValue !== null ? Math.round(currentValue / 10) * 10 : null,
       currentTerrainDifference,
+      currentPrecip,
       precipBars,
       hasPrecip: validPrecip.some(v => v >= 0.05),
       summaryLine: summaryParts.join(' · '),
@@ -462,11 +466,12 @@
   .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; }
   .plot-tooltip b { font-size: 8.7px; color: white; }
   .plot-tooltip span { margin-top: 1px; font-size: 8px; color: rgba(255,255,255,0.72); }
-  .chart-foot { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-top: -2px; }
-  .chart-foot span { padding: 5px 3px; border-radius: 6px; background: rgba(255,255,255,0.045); color: rgba(255,255,255,0.62); text-align: center; font-size: 8.2px; }
-  .chart-foot b { color: white; font-size: 9px; }
+  .chart-foot { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: -2px; }
+  .chart-foot span { padding: 5px 2px; border-radius: 6px; background: rgba(255,255,255,0.045); color: rgba(255,255,255,0.62); text-align: center; font-size: 7.7px; min-width: 0; }
+  .chart-foot b { display: block; color: white; font-size: 8.4px; white-space: nowrap; }
   .chart-foot b.positive { color: #70d7ff; }
   .chart-foot b.negative { color: #ffb15b; }
+  .chart-foot b.wet { color: #70d7ff; }
   .forecast-summary { margin-top: 5px; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,0.035); color: rgba(255,255,255,0.58); font-size: 7.8px; line-height: 1.25; text-align: center; }
   .hint { margin-top: 5px; color: rgba(255,255,255,0.38); font-size: 7.5px; line-height: 1.2; text-align: center; }
   .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
@@ -474,7 +479,8 @@
     .chart-shell { width: calc(100vw - 20px); padding: 9px 8px 8px; }
     .chart-head small { max-width: 180px; }
     .plot-tooltip { min-width: 104px; }
-    .chart-foot span { font-size: 7.6px; }
-    .chart-foot b { font-size: 8.4px; }
+    .chart-foot { gap: 3px; }
+    .chart-foot span { font-size: 7.1px; }
+    .chart-foot b { font-size: 7.8px; }
   }
 </style>
