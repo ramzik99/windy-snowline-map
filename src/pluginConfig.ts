@@ -2,10 +2,10 @@ import type { ExternalPluginConfig } from '@windy/interfaces';
 
 const config: ExternalPluginConfig = {
   name: 'windy-plugin-snowline-map-100m',
-  version: '3.2.5',
+  version: '3.2.6',
   icon: '❄️',
-  title: 'Snowline',
-  description: 'ECMWF wet-bulb-zero snowline proxy to +144 h with adaptive contours, terrain-aware point labels, precipitation cues, and a draggable Snowline time graph. Version 3.2.5 adds modelled ECMWF snow depth to the graph when Windy exposes a snow-depth point field, including selected-time depth and tooltip values. Also includes interactive graph readouts, terrain crossing, a real-time Now line, reset-to-Now, Windy native detail forecast, search, favourites, My location, share/copy, help and caching.',
+  title: 'Snow forecast',
+  description: 'ECMWF snow forecast to +144 h with wet-bulb-zero snowline contours, terrain-aware point labels, precipitation and modelled snow depth. Includes a compact Snow forecast graph, search, favourites, My location and Windy detail forecast.',
   author: 'Ramzi Kandah',
   repository: 'https://github.com/ramzik99/windy-snowline-map',
   desktopUI: 'embedded',
