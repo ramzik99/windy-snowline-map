@@ -8,10 +8,10 @@
   </div>
 
   {#if chart && chart.points}
-    <div class="legend">
-      <span><i class="line snowline"></i> Snowline</span>
-      {#if chart.terrainY !== null}<span><i class="line terrain"></i> Terrain {Math.round(terrainM ?? 0)} m</span>{/if}
-      <span><i class="dot"></i> Selected time</span>
+    <div class="snowline-chart-legend">
+      <span><i class="snowline-chart-key-line snowline-key"></i> Snowline</span>
+      {#if chart.terrainY !== null}<span><i class="snowline-chart-key-line terrain-key"></i> Terrain {Math.round(terrainM ?? 0)} m</span>{/if}
+      <span><i class="snowline-chart-key-dot"></i> Selected time</span>
     </div>
 
     <svg viewBox="0 0 360 190" role="img" aria-label="Snowline height through forecast time">
@@ -173,12 +173,12 @@
   .chart-head small { display: block; margin-top: 3px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.58); font-size: 9px; }
   .chart-head button { width: 23px; height: 23px; padding: 0; border: 0; border-radius: 6px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.82); font-size: 17px; line-height: 20px; cursor: pointer; }
   .chart-head button:hover { background: rgba(255,255,255,0.17); color: white; }
-  .legend { display: flex; flex-wrap: wrap; gap: 9px; margin: 8px 2px 1px; color: rgba(255,255,255,0.7); font-size: 8.5px; }
-  .legend span { display: inline-flex; align-items: center; gap: 4px; }
-  .line { width: 14px; height: 0; border-top: 2px solid; display: inline-block; }
-  .line.snowline { border-color: #70d7ff; }
-  .line.terrain { border-color: #ffb15b; border-top-style: dashed; }
-  .dot { width: 6px; height: 6px; border-radius: 50%; background: white; display: inline-block; }
+  .snowline-chart-legend { display: flex; flex-wrap: wrap; gap: 9px; margin: 8px 2px 1px; padding: 0; background: transparent !important; color: rgba(255,255,255,0.7); font-size: 8.5px; }
+  .snowline-chart-legend span { display: inline-flex; align-items: center; gap: 4px; padding: 0; background: transparent !important; }
+  .snowline-chart-key-line { width: 14px; height: 0; border-top: 2px solid; display: inline-block; background: transparent !important; }
+  .snowline-chart-key-line.snowline-key { border-color: #70d7ff; }
+  .snowline-chart-key-line.terrain-key { border-color: #ffb15b; border-top-style: dashed; }
+  .snowline-chart-key-dot { width: 6px; height: 6px; border-radius: 50%; background: white; display: inline-block; }
   svg { display: block; width: 100%; height: auto; margin-top: 1px; overflow: visible; }
   .plot-bg { fill: rgba(255,255,255,0.025); stroke: rgba(255,255,255,0.07); stroke-width: 1; }
   .snow-zone { fill: rgba(70,217,255,0.07); }
