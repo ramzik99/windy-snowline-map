@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "3.2.5",
-  "description": "ECMWF wet-bulb-zero Snowline proxy to +144 h with adaptive contours, terrain-aware point labels, precipitation cues, and a draggable Snowline time graph. Version 3.2.5 adds modelled ECMWF snow depth to the graph when Windy exposes a snow-depth point field, including selected-time depth and tooltip values. Also includes interactive graph readouts, terrain crossing, a real-time Now line, reset-to-Now, Windy native detail forecast, search, favourites, My location, share/copy, help and caching.",
+  "version": "3.2.6",
+  "description": "ECMWF snow forecast to +144 h with wet-bulb-zero snowline contours, terrain-aware point labels, precipitation and modelled snow depth. Includes a compact Snow forecast graph, search, favourites, My location and Windy detail forecast.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
@@ -15,7 +15,8 @@
     "snow",
     "wet-bulb",
     "snow-line",
-    "snowline"
+    "snowline",
+    "snow forecast"
   ],
   "license": "MIT",
   "dependencies": {
