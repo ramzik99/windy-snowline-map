@@ -11,13 +11,14 @@
     Approximate rain–snow boundary from ECMWF wet-bulb zero height. Runs to +144 h.
   </div>
 
-  <PlaceSearch on:select={handlePlaceSelect} />
-
   <div class="mode-row" class:disabled={!enabled}>
     <button class:active={displayMode === 'label'} on:click={() => setDisplayMode('label')} disabled={!enabled}>
       Label only
     </button>
-    <button class:active={displayMode === 'contours'} on:click={() => setDisplayMode('contours')} disabled={!enabled}>
+    <button class:active={displayMode === 'contour'} on:click={() => setDisplayMode('contour')} disabled={!enabled}>
+      Contour only
+    </button>
+    <button class:active={displayMode === 'both'} on:click={() => setDisplayMode('both')} disabled={!enabled}>
       Label + contour
     </button>
   </div>
@@ -36,7 +37,6 @@
   import store from '@windy/store';
   import { getElevation, getMeteogramForecastData } from '@windy/fetch';
 
-  import PlaceSearch from './PlaceSearch.svelte';
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
   import { contourPolylines, type GridPoint, type ContourPolyline } from './contours';
 
@@ -52,11 +52,10 @@
   type ViewportPoint = { lat: number; lon: number; r: number; c: number };
   type LabelCandidate = { point: [number, number]; level: number; color: string; length: number; is1000: boolean };
   type ProbeStatus = 'above' | 'below' | 'near' | 'neutral';
-  type DisplayMode = 'label' | 'contours';
-  type PlaceSelection = { lat: number; lon: number; primary: string; secondary: string };
+  type DisplayMode = 'label' | 'contour' | 'both';
 
   let enabled = true;
-  let displayMode: DisplayMode = 'contours';
+  let displayMode: DisplayMode = 'both';
   let viewportLoading = false;
   let probeLoading = false;
   let cache: (CachedPoint | null)[][] = [];
@@ -96,6 +95,9 @@
     { value: 3250, color: '#f34412' }, { value: 4000, color: '#c41618' },
     { value: 5500, color: '#850008' }, { value: 6000, color: '#3e0906' },
   ];
+
+  function contoursEnabled(): boolean { return displayMode === 'contour' || displayMode === 'both'; }
+  function labelsEnabled(): boolean { return displayMode === 'label' || displayMode === 'both'; }
 
   function hexToRgb(hex: string): [number, number, number] {
     const h = hex.replace('#', '');
@@ -208,12 +210,12 @@
   }
 
   async function refreshViewport() {
-    if (!enabled || displayMode !== 'contours' || viewportLoading) return;
+    if (!enabled || !contoursEnabled() || viewportLoading) return;
     const myGeneration = ++generation; viewportLoading = true;
     const { points, rows, cols } = buildViewportPoints();
     try {
       const results = await mapLimit(points, MAX_CONCURRENT, async p => ({ ...p, result: await loadPoint(p.lat, p.lon) }));
-      if (myGeneration !== generation || !enabled || displayMode !== 'contours') return;
+      if (myGeneration !== generation || !enabled || !contoursEnabled()) return;
       const valid = results.filter(item => item.result && item.result.times.length).length;
       if (valid < Math.max(4, Math.floor(points.length * MIN_VALID_FRACTION))) { console.warn('Snowline refresh kept previous contours: too few valid profiles', valid, points.length); return; }
       const nextCache: (CachedPoint | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null));
@@ -227,13 +229,15 @@
     if (status === 'above') return '#46d9ff'; if (status === 'below') return '#ff9d3d'; if (status === 'near') return '#ffe45c'; return '#ffffff';
   }
   function showClickLabel(lat: number, lon: number, mainText: string, detailText = '', snowlineColor = '#ffffff', status: ProbeStatus = 'neutral') {
+    if (!labelsEnabled()) return;
     clearClickLayer(); clickLayer = L.layerGroup().addTo(map); const accent = statusColor(status);
     L.circleMarker([lat, lon], { radius: status === 'neutral' ? 4 : 5, weight: 2, color: '#ffffff', fillColor: accent, fillOpacity: 1, interactive: false }).addTo(clickLayer);
     const detail = detailText ? `<small>${detailText}</small>` : '';
     L.marker([lat, lon], { interactive: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}"><b>${mainText}</b>${detail}</span>`, iconSize: [172, 48], iconAnchor: [86, 56] }) }).addTo(clickLayer);
   }
   function updatePersistentClickLabel() {
-    if (!enabled || !clickedPoint || !clickedLatLon || !clickedPoint.times.length) { if (!enabled) clearClickLayer(); return; }
+    if (!enabled || !labelsEnabled()) { clearClickLayer(); return; }
+    if (!clickedPoint || !clickedLatLon || !clickedPoint.times.length) return;
     const [lat, lon] = clickedLatLon, target = getStoreTimestamp(), firstTime = clickedPoint.times[0], lastTime = clickedPoint.times[clickedPoint.times.length - 1];
     const effectiveEnd = Math.min(lastTime, firstTime + MAX_FORECAST_HOURS * 3600_000);
     if (target < firstTime - 30 * 60_000 || target > effectiveEnd + 30 * 60_000) { showClickLabel(lat, lon, 'Outside +144 h'); return; }
@@ -252,7 +256,7 @@
   }
 
   async function probeLocation(lat: number, lon: number) {
-    if (!enabled || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    if (!enabled || !labelsEnabled() || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
     const myClick = ++clickGeneration;
     clickedPoint = null;
     clickedMapElevationM = null;
@@ -261,7 +265,7 @@
     showClickLabel(lat, lon, 'Snowline …', 'Reading point');
     try {
       const [cp, mapElevation] = await Promise.all([loadPoint(lat, lon), loadMapElevation(lat, lon)]);
-      if (myClick !== clickGeneration || !enabled) return;
+      if (myClick !== clickGeneration || !enabled || !labelsEnabled()) return;
       if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; }
       clickedPoint = cp;
       clickedMapElevationM = mapElevation;
@@ -272,21 +276,8 @@
   }
 
   function handleMapClick(e: any) {
-    if (!enabled || !e?.latlng) return;
+    if (!enabled || !labelsEnabled() || !e?.latlng) return;
     probeLocation(Number(e.latlng.lat), Number(e.latlng.lng));
-  }
-
-  function handlePlaceSelect(event: CustomEvent<PlaceSelection>) {
-    if (!enabled || !event?.detail) return;
-    const { lat, lon } = event.detail;
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-
-    const zoom = Math.max(Number(map.getZoom?.() ?? 7), 9);
-    map.setView([lat, lon], zoom, { animate: true });
-
-    // Probe directly rather than simulating a map click, so a searched place
-    // always receives the same persistent elevation/snowline label.
-    setTimeout(() => probeLocation(lat, lon), 280);
   }
 
   function pickerLatLon(value: any): [number, number] | null {
@@ -297,13 +288,13 @@
     return [lat, lon];
   }
 
-  function schedulePickerProbe(value: any) {
-    if (!enabled) return;
+  function schedulePickerProbe(value: any, force = false) {
+    if (!enabled || !labelsEnabled()) return;
     const position = pickerLatLon(value);
     if (!position) return;
     const [lat, lon] = position;
     const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
-    if (key === lastPickerKey) return;
+    if (!force && key === lastPickerKey) return;
     lastPickerKey = key;
     if (pickerTimer) clearTimeout(pickerTimer);
     pickerTimer = setTimeout(() => probeLocation(lat, lon), PICKER_PROBE_DELAY_MS);
@@ -332,7 +323,7 @@
     }
   }
   function renderFromCache() {
-    if (!enabled || displayMode !== 'contours' || !cache.length) return;
+    if (!enabled || !contoursEnabled() || !cache.length) return;
     const target = getStoreTimestamp(), firstPoint = cache.flat().find((cp): cp is CachedPoint => cp !== null && cp.times.length > 0); if (!firstPoint) return;
     const firstTime = firstPoint.times[0], effectiveEnd = Math.min(firstPoint.times[firstPoint.times.length - 1], firstTime + MAX_FORECAST_HOURS * 3600_000);
     if (target < firstTime - 30 * 60_000 || target > effectiveEnd + 30 * 60_000) return;
@@ -356,17 +347,29 @@
     drawDeclutteredLabels(labelCandidates, nextLayer); nextLayer.addTo(map); const oldLayer = contourLayer; contourLayer = nextLayer; if (oldLayer) try { map.removeLayer(oldLayer); } catch {}
   }
 
-  function scheduleViewportRefresh() { if (!enabled || displayMode !== 'contours') return; if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 650); }
+  function scheduleViewportRefresh() { if (!enabled || !contoursEnabled()) return; if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 650); }
   function setDisplayMode(mode: DisplayMode) {
-    if (!enabled || displayMode === mode) return; displayMode = mode;
-    if (mode === 'label') { generation += 1; viewportLoading = false; clearContours(); }
-    else refreshViewport();
+    if (!enabled || displayMode === mode) return;
+    displayMode = mode;
+    generation += 1;
+    viewportLoading = false;
+    if (!contoursEnabled()) clearContours(); else refreshViewport();
+    if (!labelsEnabled()) {
+      clickGeneration += 1;
+      probeLoading = false;
+      if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
+      clearClickLayer();
+    } else {
+      try { schedulePickerProbe(store.get('pickerLocation'), true); } catch {}
+    }
   }
   function toggleEnabled() {
     if (enabled) {
-      if (displayMode === 'contours') refreshViewport();
-      updatePersistentClickLabel();
-      try { schedulePickerProbe(store.get('pickerLocation')); } catch {}
+      if (contoursEnabled()) refreshViewport();
+      if (labelsEnabled()) {
+        updatePersistentClickLabel();
+        try { schedulePickerProbe(store.get('pickerLocation'), true); } catch {}
+      }
     }
     else {
       generation += 1; clickGeneration += 1; viewportLoading = false; probeLoading = false;
@@ -377,15 +380,15 @@
 
   onMount(() => {
     map.on('moveend', scheduleViewportRefresh); map.on('zoomend', scheduleViewportRefresh); map.on('click', handleMapClick);
-    try { timestampListener = store.on('timestamp', () => { if (enabled && displayMode === 'contours' && cache.length && !viewportLoading) renderFromCache(); if (enabled) updatePersistentClickLabel(); }); }
+    try { timestampListener = store.on('timestamp', () => { if (enabled && contoursEnabled() && cache.length && !viewportLoading) renderFromCache(); if (enabled && labelsEnabled()) updatePersistentClickLabel(); }); }
     catch (e) { console.warn('Snowline timeline listener unavailable', e); }
     try {
       pickerLocationListener = store.on('pickerLocation', (value: any) => schedulePickerProbe(value));
-      schedulePickerProbe(store.get('pickerLocation'));
+      if (labelsEnabled()) schedulePickerProbe(store.get('pickerLocation'), true);
     } catch (e) {
       console.warn('Snowline picker-location listener unavailable', e);
     }
-    if (displayMode === 'contours') refreshViewport();
+    if (contoursEnabled()) refreshViewport();
   });
   onDestroy(() => {
     generation += 1; clickGeneration += 1;
@@ -405,15 +408,15 @@
   .description { margin-top: 4px; font-size: 10px; line-height: 1.25; opacity: 0.74; }
   .switch { display: flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 800; white-space: nowrap; }
   .switch input { margin: 0; width: 15px; height: 15px; }
-  .mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 7px; opacity: 1; }
+  .mode-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 7px; opacity: 1; }
   .mode-row.disabled { opacity: 0.45; }
-  .mode-row button { min-width: 0; padding: 5px; border: 1px solid rgba(255,255,255,0.16); border-radius: 6px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.72); font-size: 9.5px; line-height: 1.1; font-weight: 700; cursor: pointer; }
+  .mode-row button { min-width: 0; padding: 5px 3px; border: 1px solid rgba(255,255,255,0.16); border-radius: 6px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.72); font-size: 8.7px; line-height: 1.1; font-weight: 700; cursor: pointer; }
   .mode-row button.active { background: rgba(29,161,242,0.22); border-color: rgba(80,190,255,0.72); color: white; }
   .mode-row button:disabled { cursor: default; }
   .status-pill { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; padding: 4px 7px; border-radius: 6px; background: rgba(10,14,18,0.72); color: rgba(255,255,255,0.92); font-size: 10px; line-height: 1; font-weight: 700; }
   .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #70d7ff; box-shadow: 0 0 0 2px rgba(112,215,255,0.18); animation: snowline-pulse 1s ease-in-out infinite; }
   @keyframes snowline-pulse { 0%,100% { opacity: 0.45; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
-  @media (max-width: 520px) { .snowline-panel { width: 200px; padding: 7px 8px; } .description { font-size: 9.5px; } .mode-row button { font-size: 9px; } }
+  @media (max-width: 520px) { .snowline-panel { width: 200px; padding: 7px 8px; } .description { font-size: 9.5px; } .mode-row button { font-size: 8.2px; } }
 
   :global(.snowline-label), :global(.snowline-click-label) { background: transparent !important; border: 0 !important; }
   :global(.snowline-label span) { display: inline-block; padding: 1px 4px 1px 6px; border-radius: 3px; border-left: 4px solid var(--snowline-color, white); background: rgba(15,17,20,0.86); color: white; font-size: 10px; font-weight: 800; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 0 0 1px rgba(255,255,255,0.12); }
