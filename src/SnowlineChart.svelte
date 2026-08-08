@@ -12,9 +12,10 @@
       <span><i class="snowline-chart-key-line snowline-key"></i> Snowline</span>
       {#if chart.terrainY !== null}<span><i class="snowline-chart-key-line terrain-key"></i> Terrain {Math.round(terrainM ?? 0)} m</span>{/if}
       <span><i class="snowline-chart-key-dot"></i> Selected time</span>
+      {#if chart.hasPrecip}<span><i class="snowline-chart-key-bar"></i> Precip mm/3h</span>{/if}
     </div>
 
-    <svg viewBox="0 0 360 190" role="img" aria-label="Snowline height through forecast time">
+    <svg viewBox="0 0 360 205" role="img" aria-label="Snowline height and precipitation through forecast time">
       <rect x="38" y="14" width="310" height="138" rx="7" class="plot-bg" />
 
       {#if chart.terrainY !== null}
@@ -33,13 +34,21 @@
       <polyline points={chart.points} class="snowline-line" />
 
       {#if chart.currentX !== null && chart.currentY !== null}
-        <line x1={chart.currentX} x2={chart.currentX} y1="14" y2="152" class="cursor" />
+        <line x1={chart.currentX} x2={chart.currentX} y1="14" y2="177" class="cursor" />
         <circle cx={chart.currentX} cy={chart.currentY} r="4.4" class="current-dot" />
       {/if}
 
-      <text x="38" y="171" text-anchor="start" class="axis">{chart.startLabel}</text>
-      <text x="193" y="171" text-anchor="middle" class="axis">+72 h</text>
-      <text x="348" y="171" text-anchor="end" class="axis">+144 h</text>
+      {#if chart.hasPrecip}
+        <text x="34" y="169" text-anchor="end" class="axis precip-axis">P</text>
+        <line x1="38" x2="348" y1="177" y2="177" class="precip-base" />
+        {#each chart.precipBars as bar}
+          <rect x={bar.x} y={bar.y} width={bar.width} height={bar.height} rx="1" class:wet={bar.mm >= 1} class="precip-bar" />
+        {/each}
+      {/if}
+
+      <text x="38" y="197" text-anchor="start" class="axis">{chart.startLabel}</text>
+      <text x="193" y="197" text-anchor="middle" class="axis">+72 h</text>
+      <text x="348" y="197" text-anchor="end" class="axis">+144 h</text>
     </svg>
 
     <div class="chart-foot">
@@ -47,7 +56,10 @@
       <span>Now <b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span>Max <b>{chart.maxSnowline} m</b></span>
     </div>
-    <div class="hint">Blue shading marks heights below local terrain — where the thermal snowline is low enough for this point to sit above it.</div>
+    {#if chart.currentPrecip !== null && chart.currentPrecip >= 0.05}
+      <div class="precip-now">💧 {formatPrecipMm(chart.currentPrecip)} mm/3h at selected time</div>
+    {/if}
+    <div class="hint">Blue shading marks heights below local terrain. Precipitation bars show ECMWF 3-hour water-equivalent accumulation.</div>
   {:else}
     <div class="empty">No snowline series is available for this point.</div>
   {/if}
@@ -57,6 +69,7 @@
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import store from '@windy/store';
   import { buildProfile, wetBulbZeroHeight } from './snowLevel';
+  import { precipMmAt, formatPrecipMm } from './precip';
 
   export let point: any;
   export let terrainM: number | null = null;
@@ -66,6 +79,7 @@
   let timestamp = Date.now();
   let timestampListener: number | null = null;
 
+  type PrecipBar = { x: number; y: number; width: number; height: number; mm: number };
   type ChartData = {
     points: string;
     terrainY: number | null;
@@ -78,6 +92,9 @@
     minSnowline: number;
     maxSnowline: number;
     currentSnowline: number | null;
+    currentPrecip: number | null;
+    precipBars: PrecipBar[];
+    hasPrecip: boolean;
   };
 
   $: chart = buildChart(point, terrainM, timestamp);
@@ -129,6 +146,17 @@
     const currentY = currentValue !== null ? y(currentValue) : null;
     const terrainY = terrain !== null && Number.isFinite(terrain) ? Math.max(top, Math.min(bottom, y(terrain))) : null;
 
+    const precipValues = p.times.map((_: number, index: number) => precipMmAt(p.forecast, index));
+    const validPrecip = precipValues.filter((v: number | null): v is number => v !== null && Number.isFinite(v));
+    const precipMax = validPrecip.length ? Math.max(0.1, ...validPrecip) : 0;
+    const spacing = (right - left) / Math.max(1, p.times.length - 1);
+    const barWidth = Math.max(1.2, Math.min(5, spacing * 0.72));
+    const precipBars: PrecipBar[] = precipValues.map((mm: number | null, index: number) => {
+      const value = mm ?? 0;
+      const height = precipMax > 0 ? Math.min(17, (value / precipMax) * 17) : 0;
+      return { x: x(p.times[index]) - barWidth / 2, y: 177 - height, width: barWidth, height, mm: value };
+    }).filter(bar => bar.height > 0.15);
+
     return {
       points,
       terrainY,
@@ -141,6 +169,9 @@
       minSnowline: Math.round(Math.min(...snowValues) / 10) * 10,
       maxSnowline: Math.round(Math.max(...snowValues) / 10) * 10,
       currentSnowline: currentValue !== null ? Math.round(currentValue / 10) * 10 : null,
+      currentPrecip: precipMmAt(p.forecast, currentIndex),
+      precipBars,
+      hasPrecip: validPrecip.some(v => v >= 0.05),
     };
   }
 
@@ -179,18 +210,24 @@
   .snowline-chart-key-line.snowline-key { border-color: #70d7ff; }
   .snowline-chart-key-line.terrain-key { border-color: #ffb15b; border-top-style: dashed; }
   .snowline-chart-key-dot { width: 6px; height: 6px; border-radius: 50%; background: white; display: inline-block; }
+  .snowline-chart-key-bar { width: 12px; height: 7px; border-radius: 2px 2px 0 0; background: rgba(70,217,255,0.72); display: inline-block; }
   svg { display: block; width: 100%; height: auto; margin-top: 1px; overflow: visible; }
   .plot-bg { fill: rgba(255,255,255,0.025); stroke: rgba(255,255,255,0.07); stroke-width: 1; }
   .snow-zone { fill: rgba(70,217,255,0.07); }
   .grid { stroke: rgba(255,255,255,0.08); stroke-width: 1; }
   .axis { fill: rgba(255,255,255,0.52); font-size: 8px; font-family: sans-serif; }
+  .precip-axis { fill: rgba(112,215,255,0.78); font-weight: 700; }
   .terrain-line { stroke: #ffb15b; stroke-width: 1.4; stroke-dasharray: 5 4; opacity: 0.88; }
   .snowline-line { fill: none; stroke: #70d7ff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
   .cursor { stroke: rgba(255,255,255,0.48); stroke-width: 1; stroke-dasharray: 2 3; }
   .current-dot { fill: #ffffff; stroke: #70d7ff; stroke-width: 2.2; }
+  .precip-base { stroke: rgba(112,215,255,0.18); stroke-width: 1; }
+  .precip-bar { fill: rgba(70,217,255,0.48); }
+  .precip-bar.wet { fill: rgba(70,217,255,0.82); }
   .chart-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: -2px; }
   .chart-foot span { padding: 5px 4px; border-radius: 6px; background: rgba(255,255,255,0.045); color: rgba(255,255,255,0.62); text-align: center; font-size: 8.7px; }
   .chart-foot b { color: white; font-size: 9.5px; }
+  .precip-now { margin-top: 5px; padding: 4px 7px; border-radius: 6px; background: rgba(70,217,255,0.08); color: rgba(170,235,255,0.92); text-align: center; font-size: 8.3px; font-weight: 700; }
   .hint { margin-top: 6px; color: rgba(255,255,255,0.44); font-size: 7.8px; line-height: 1.25; text-align: center; }
   .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
   @media (max-width: 520px) {
