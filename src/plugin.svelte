@@ -66,12 +66,13 @@
   let clickedLatLon: [number, number] | null = null;
   let clickedMapElevationM: number | null = null;
   let moveTimer: ReturnType<typeof setTimeout> | null = null;
-  let centerTimer: ReturnType<typeof setTimeout> | null = null;
+  let pickerTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
   let clickGeneration = 0;
   let timestampListener: number | null = null;
+  let pickerLocationListener: number | null = null;
   let activeRunTime: number | null = null;
-  let lastCenterKey = '';
+  let lastPickerKey = '';
 
   const MODEL = 'ecmwf' as const;
   const MAX_CONCURRENT = 8;
@@ -82,7 +83,7 @@
   const LABEL_MIN_DISTANCE_PX = 92;
   const MIN_VALID_FRACTION = 0.35;
   const NEAR_SNOWLINE_METRES = 100;
-  const CENTER_PROBE_DELAY_MS = 420;
+  const PICKER_PROBE_DELAY_MS = 320;
   const profileCache = new Map<string, CachedPoint>();
 
   const COLOUR_STOPS: ColourStop[] = [
@@ -283,20 +284,29 @@
     const zoom = Math.max(Number(map.getZoom?.() ?? 7), 9);
     map.setView([lat, lon], zoom, { animate: true });
 
+    // Probe directly rather than simulating a map click, so a searched place
+    // always receives the same persistent elevation/snowline label.
     setTimeout(() => probeLocation(lat, lon), 280);
   }
 
-  function scheduleCenterProbe(force = false) {
+  function pickerLatLon(value: any): [number, number] | null {
+    if (!value) return null;
+    const lat = Number(value.lat ?? value.latitude);
+    const lon = Number(value.lon ?? value.lng ?? value.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return [lat, lon];
+  }
+
+  function schedulePickerProbe(value: any) {
     if (!enabled) return;
-    const center = map.getCenter?.();
-    if (!center) return;
-    const lat = Number(center.lat), lon = Number(center.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const position = pickerLatLon(value);
+    if (!position) return;
+    const [lat, lon] = position;
     const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
-    if (!force && key === lastCenterKey) return;
-    lastCenterKey = key;
-    if (centerTimer) clearTimeout(centerTimer);
-    centerTimer = setTimeout(() => probeLocation(lat, lon), CENTER_PROBE_DELAY_MS);
+    if (key === lastPickerKey) return;
+    lastPickerKey = key;
+    if (pickerTimer) clearTimeout(pickerTimer);
+    pickerTimer = setTimeout(() => probeLocation(lat, lon), PICKER_PROBE_DELAY_MS);
   }
 
   function lineLength(line: ContourPolyline): number {
@@ -346,28 +356,21 @@
     drawDeclutteredLabels(labelCandidates, nextLayer); nextLayer.addTo(map); const oldLayer = contourLayer; contourLayer = nextLayer; if (oldLayer) try { map.removeLayer(oldLayer); } catch {}
   }
 
-  function scheduleViewportRefresh() {
-    if (!enabled) return;
-    if (displayMode === 'contours') {
-      if (moveTimer) clearTimeout(moveTimer);
-      moveTimer = setTimeout(() => refreshViewport(), 650);
-    }
-    scheduleCenterProbe();
-  }
+  function scheduleViewportRefresh() { if (!enabled || displayMode !== 'contours') return; if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 650); }
   function setDisplayMode(mode: DisplayMode) {
     if (!enabled || displayMode === mode) return; displayMode = mode;
     if (mode === 'label') { generation += 1; viewportLoading = false; clearContours(); }
     else refreshViewport();
-    scheduleCenterProbe(true);
   }
   function toggleEnabled() {
     if (enabled) {
       if (displayMode === 'contours') refreshViewport();
-      scheduleCenterProbe(true);
+      updatePersistentClickLabel();
+      try { schedulePickerProbe(store.get('pickerLocation')); } catch {}
     }
     else {
       generation += 1; clickGeneration += 1; viewportLoading = false; probeLoading = false;
-      if (centerTimer) { clearTimeout(centerTimer); centerTimer = null; }
+      if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
       clearContours(); clearClickLayer();
     }
   }
@@ -376,15 +379,21 @@
     map.on('moveend', scheduleViewportRefresh); map.on('zoomend', scheduleViewportRefresh); map.on('click', handleMapClick);
     try { timestampListener = store.on('timestamp', () => { if (enabled && displayMode === 'contours' && cache.length && !viewportLoading) renderFromCache(); if (enabled) updatePersistentClickLabel(); }); }
     catch (e) { console.warn('Snowline timeline listener unavailable', e); }
+    try {
+      pickerLocationListener = store.on('pickerLocation', (value: any) => schedulePickerProbe(value));
+      schedulePickerProbe(store.get('pickerLocation'));
+    } catch (e) {
+      console.warn('Snowline picker-location listener unavailable', e);
+    }
     if (displayMode === 'contours') refreshViewport();
-    scheduleCenterProbe(true);
   });
   onDestroy(() => {
     generation += 1; clickGeneration += 1;
     if (moveTimer) clearTimeout(moveTimer);
-    if (centerTimer) clearTimeout(centerTimer);
+    if (pickerTimer) clearTimeout(pickerTimer);
     map.off('moveend', scheduleViewportRefresh); map.off('zoomend', scheduleViewportRefresh); map.off('click', handleMapClick);
     if (timestampListener !== null) try { store.off(timestampListener); } catch {}
+    if (pickerLocationListener !== null) try { store.off(pickerLocationListener); } catch {}
     clearContours(); clearClickLayer(); profileCache.clear(); clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null;
   });
 </script>
