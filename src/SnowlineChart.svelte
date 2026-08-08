@@ -27,7 +27,7 @@
       <span><i class="snowline-chart-key-line now-key"></i> Now</span>
       {#if crossing?.crossingTime}<span><i class="snowline-chart-key-cross"></i> Crossing</span>{/if}
       {#if chart.hasPrecip}<span><i class="snowline-chart-key-bar"></i> Precipitation</span>{/if}
-      {#if chart.hasSnowDepth}<span><i class="snowline-chart-key-depth"></i> Snow depth</span>{/if}
+      {#if chart.hasSnowDepth}<span><i class="snowline-chart-key-depth"></i> Modelled snow depth</span>{/if}
     </div>
 
     <div class="plot-wrap">
@@ -40,7 +40,6 @@
         on:pointerdown={handlePlotPointer}
         on:pointerleave={clearTooltip}
       >
-        <!-- Altitude -->
         <rect x="42" y="20" width="306" height="120" rx="8" class="plot-bg" />
         {#if chart.terrainY !== null}
           <rect x="42" y={chart.terrainY} width="306" height={Math.max(0, 140 - chart.terrainY)} class="snow-zone" />
@@ -55,7 +54,6 @@
         <text x="48" y="33" class="panel-label">SNOWLINE ALTITUDE · m</text>
         <polyline points={chart.points} class="snowline-line" />
 
-        <!-- Precipitation -->
         <rect x="42" y="154" width="306" height="34" rx="7" class="lower-bg" />
         <text x="48" y="165" class="panel-label precip-label">PRECIPITATION · mm/3h</text>
         {#if chart.hasPrecip}
@@ -68,7 +66,6 @@
           <text x="195" y="177" text-anchor="middle" class="empty-band">No precipitation data</text>
         {/if}
 
-        <!-- Snow depth -->
         <rect x="42" y="198" width="306" height="34" rx="7" class="lower-bg" />
         <text x="48" y="209" class="panel-label depth-label">MODELLED SNOW DEPTH · cm</text>
         {#if chart.hasSnowDepthSeries}
@@ -82,7 +79,6 @@
           <text x="195" y="221" text-anchor="middle" class="empty-band">Snow-depth time series unavailable</text>
         {/if}
 
-        <!-- Time markers -->
         {#if chart.nowX !== null}
           <line x1={chart.nowX} x2={chart.nowX} y1="38" y2="232" class="now-line" />
           <rect x={Math.max(43, Math.min(322, chart.nowX - 13))} y="39" width="26" height="12" rx="3" class="now-tag-bg" />
@@ -116,7 +112,7 @@
           {#if terrainM !== null}<span>Terrain {Math.round(terrainM / 10) * 10} m</span>{/if}
           {#if tooltip.terrainDifference !== null}<span>Terrain − snowline {tooltip.terrainDifference >= 0 ? '+' : ''}{tooltip.terrainDifference} m</span>{/if}
           <span>Precipitation {tooltip.precip !== null ? `${formatPrecipMm(tooltip.precip)} mm/3h` : '—'}</span>
-          <span>Snow depth {tooltip.snowDepth !== null ? `${formatSnowDepthCm(tooltip.snowDepth)} cm` : '—'}</span>
+          <span>Modelled snow depth {tooltip.snowDepth !== null ? `${formatSnowDepthCm(tooltip.snowDepth)} cm` : '—'}</span>
           {#if tooltip.tendency}<span>Snowline tendency {tooltip.tendency}</span>{/if}
         </div>
       {/if}
@@ -126,7 +122,7 @@
       <span><small>Snowline</small><b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span><small>Terrain Δ</small><b class:positive={chart.currentTerrainDifference !== null && chart.currentTerrainDifference > 0} class:negative={chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0}>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
       <span><small>Precip</small><b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= 0.05}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
-      <span><small>Snow depth</small><b class="depth-value">{chart.currentSnowDepth !== null ? `${formatSnowDepthCm(chart.currentSnowDepth)} cm` : '—'}</b></span>
+      <span><small>Modelled snow depth</small><b class="depth-value">{chart.currentSnowDepth !== null ? `${formatSnowDepthCm(chart.currentSnowDepth)} cm` : '—'}</b></span>
     </div>
 
     {#if crossing?.summary}<div class="forecast-note">{crossing.summary}</div>{/if}
@@ -181,7 +177,7 @@
   function tendencyAt(p: any, index: number): string { const now = snowlineAt(p, index); if (now === null || !p?.times?.length) return ''; const target = p.times[index] + 3 * 3600_000; if (target > p.times[p.times.length - 1] + 30 * 60_000) return ''; const next = nearestIndex(p.times, target); if (next === index) return ''; const future = snowlineAt(p, next); if (future === null) return ''; const delta = Math.round((future - now) / 10) * 10; if (Math.abs(delta) < 20) return 'steady'; return `${delta > 0 ? '↑' : '↓'}${Math.abs(delta)} m/3h`; }
   function formatDay(time: number): string { return new Date(time).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }); }
   function formatTooltipTime(time: number): string { const d = new Date(time); const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }); const hh = String(d.getUTCHours()).padStart(2, '0'); return `${day} ${hh} UTC`; }
-  function formatRun(time: number | null | undefined): string { if (!Number.isFinite(Number(time))) return 'ECMWF'; const d = new Date(Number(time)); const day = d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }); const hh = String(d.getUTCHours()).padStart(2, '0'); return `ECMWF ${day} ${hh}Z`; }
+  function formatRun(time: number | null | undefined): string { if (!Number.isFinite(Number(time))) return 'ECMWF'; const d = new Date(Number(time)); const hh = String(d.getUTCHours()).padStart(2, '0'); return `ECMWF ${hh}Z`; }
 
   async function refreshMapDepth() {
     const generation = ++mapDepthGeneration;
@@ -227,7 +223,7 @@
       ctx.drawImage(image, 0, 166, 1080, 762);
       ctx.fillStyle = '#d3dbe4'; ctx.font = '700 18px Arial, sans-serif';
       const depthText = chart.currentSnowDepth !== null ? `${formatSnowDepthCm(chart.currentSnowDepth)} cm` : '—';
-      ctx.fillText(`Selected: Snowline ${chart.currentSnowline ?? '—'} m   ·   Terrain Δ ${chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}   ·   Precip ${chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}   ·   Snow depth ${depthText}`, 44, 958);
+      ctx.fillText(`Selected: Snowline ${chart.currentSnowline ?? '—'} m   ·   Terrain Δ ${chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}   ·   Precip ${chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}   ·   Modelled snow depth ${depthText}`, 44, 958);
       if (crossing?.summary) { ctx.fillStyle = '#e6cf5c'; ctx.font = '16px Arial, sans-serif'; ctx.fillText(crossing.summary, 44, 982); }
       ctx.fillStyle = '#76828e'; ctx.font = '14px Arial, sans-serif'; ctx.fillText('Snowline is a thermal boundary; local snowfall and accumulation may differ.', 44, 1002);
       URL.revokeObjectURL(url);
@@ -268,7 +264,7 @@
     const snowDepthValues = p.times.map((_: number, index: number) => snowDepthCmAt(p.forecast, index)); const validSnowDepth = snowDepthValues.filter((v: number | null): v is number => v !== null && Number.isFinite(v)); const snowDepthMax = validSnowDepth.length ? Math.max(1, ...validSnowDepth) : 0; const directCurrentDepth = snowDepthValues[currentIndex] ?? null; const currentSnowDepth = directCurrentDepth !== null ? directCurrentDepth : fallbackDepth;
     const snowDepthPoints = snowDepthValues.map((cm: number | null, index: number) => cm === null ? null : `${x(p.times[index]).toFixed(1)},${(232 - Math.min(22, (cm / snowDepthMax) * 22)).toFixed(1)}`).filter((v: string | null): v is string => v !== null).join(' ');
 
-    const validLabel = `${formatTooltipTime(currentTime)}  ·  ${formatRun(p.runTime)}`;
+    const validLabel = `Valid ${formatTooltipTime(currentTime)}  ·  ${formatRun(p.runTime)}`;
     return { points, terrainY, currentX, currentY, nowX, crossingX, minLabel: `${Math.round(min)} m`, midLabel: `${Math.round((min + max) / 2)} m`, maxLabel: `${Math.round(max)} m`, startLabel: formatDay(t0), currentSnowline: currentValue !== null ? Math.round(currentValue / 10) * 10 : null, currentTerrainDifference, currentPrecip, currentSnowDepth, precipBars, hasPrecip: validPrecip.some(v => v >= 0.05), snowDepthPoints, hasSnowDepth: validSnowDepth.length > 0 || currentSnowDepth !== null, hasSnowDepthSeries: validSnowDepth.length > 1, precipMaxLabel: precipMax > 0 ? formatPrecipMm(precipMax) : '—', snowDepthMaxLabel: snowDepthMax > 0 ? formatSnowDepthCm(snowDepthMax) : '—', minScale: min, maxScale: max, validLabel, currentIndex };
   }
 
