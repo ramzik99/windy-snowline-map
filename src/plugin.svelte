@@ -11,16 +11,13 @@
     Approximate ECMWF rain–snow boundary from wet-bulb zero height. Runs up to 144 hours only.
   </div>
 
+  <PlaceSearch on:select={handlePlaceSelect} />
+
   <div class="mode-row" class:disabled={!enabled}>
     <button class:active={displayMode === 'label'} on:click={() => setDisplayMode('label')} disabled={!enabled}>Label only</button>
     <button class:active={displayMode === 'contour'} on:click={() => setDisplayMode('contour')} disabled={!enabled}>Contour only</button>
     <button class:active={displayMode === 'both'} on:click={() => setDisplayMode('both')} disabled={!enabled}>Label + contour</button>
   </div>
-
-  <label class="follow-row" class:disabled={!enabled || !labelsEnabled()}>
-    <input type="checkbox" bind:checked={followPicker} on:change={toggleFollowPicker} disabled={!enabled || !labelsEnabled()} />
-    <span>Follow Windy picker</span>
-  </label>
 
   <div class="micro-note">Near snowline = within ±100 m · thermal boundary, precipitation not implied</div>
 
@@ -37,6 +34,7 @@
   import { map } from '@windy/map';
   import store from '@windy/store';
   import { getElevation, getMeteogramForecastData } from '@windy/fetch';
+  import PlaceSearch from './PlaceSearch.svelte';
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
   import { contourPolylines, type GridPoint, type ContourPolyline } from './contours';
 
@@ -46,10 +44,10 @@
   type LabelCandidate = { point: [number, number]; level: number; color: string; length: number; isMajor: boolean };
   type ProbeStatus = 'above' | 'below' | 'near' | 'neutral';
   type DisplayMode = 'label' | 'contour' | 'both';
+  type PlaceSelection = { lat: number; lon: number; primary: string; secondary: string; favourite?: boolean };
 
   let enabled = true;
   let displayMode: DisplayMode = 'both';
-  let followPicker = true;
   let viewportLoading = false;
   let probeLoading = false;
   let cache: (CachedPoint | null)[][] = [];
@@ -67,6 +65,7 @@
   let pickerLocationListener: number | null = null;
   let activeRunTime: number | null = null;
   let lastPickerKey = '';
+  let suppressPickerClearUntil = 0;
 
   const MODEL = 'ecmwf' as const;
   const MAX_CONCURRENT = 8;
@@ -148,9 +147,38 @@
 
   async function probeLocation(lat: number, lon: number) { if (!enabled || !labelsEnabled() || !Number.isFinite(lat) || !Number.isFinite(lon)) return; const myClick = ++clickGeneration; clickedPoint = null; clickedMapElevationM = null; clickedLatLon = [lat, lon]; probeLoading = true; showClickLabel(lat, lon, 'Snowline …', 'Reading point'); try { const [cp, mapElevation] = await Promise.all([loadPoint(lat, lon), loadMapElevation(lat, lon)]); if (myClick !== clickGeneration || !enabled || !labelsEnabled()) return; if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; } clickedPoint = cp; clickedMapElevationM = mapElevation; updatePersistentClickLabel(); } finally { if (myClick === clickGeneration) probeLoading = false; } }
   function handleMapClick(e: any) { if (!enabled || !labelsEnabled() || !e?.latlng) return; probeLocation(Number(e.latlng.lat), Number(e.latlng.lng)); }
+
+  function handlePlaceSelect(event: CustomEvent<PlaceSelection>) {
+    if (!enabled || !event?.detail) return;
+    const { lat, lon } = event.detail;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const zoom = Math.max(Number(map.getZoom?.() ?? 7), 9);
+    suppressPickerClearUntil = Date.now() + 2500;
+    map.setView([lat, lon], Math.min(zoom, 10), { animate: true });
+    setTimeout(() => {
+      try { map.fire('click', { latlng: { lat, lng: lon } }); }
+      catch { probeLocation(lat, lon); }
+    }, 240);
+  }
+
   function pickerLatLon(value: any): [number, number] | null { if (!value) return null; const lat = Number(value.lat ?? value.latitude), lon = Number(value.lon ?? value.lng ?? value.longitude); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null; return [lat, lon]; }
-  function schedulePickerProbe(value: any, force = false) { if (!enabled || !labelsEnabled() || !followPicker) return; const position = pickerLatLon(value); if (!position) { lastPickerKey = ''; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearPointState(); return; } const [lat, lon] = position, key = `${lat.toFixed(5)},${lon.toFixed(5)}`; if (!force && key === lastPickerKey) return; lastPickerKey = key; if (pickerTimer) clearTimeout(pickerTimer); pickerTimer = setTimeout(() => probeLocation(lat, lon), PICKER_PROBE_DELAY_MS); }
-  function syncPickerFromStore(force = false) { if (!enabled || !labelsEnabled() || !followPicker) return; try { schedulePickerProbe(store.get('pickerLocation'), force); } catch {} }
+  function schedulePickerProbe(value: any, force = false) {
+    if (!enabled || !labelsEnabled()) return;
+    const position = pickerLatLon(value);
+    if (!position) {
+      if (Date.now() < suppressPickerClearUntil) return;
+      lastPickerKey = '';
+      if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
+      clearPointState();
+      return;
+    }
+    const [lat, lon] = position, key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+    if (!force && key === lastPickerKey) return;
+    lastPickerKey = key;
+    if (pickerTimer) clearTimeout(pickerTimer);
+    pickerTimer = setTimeout(() => probeLocation(lat, lon), PICKER_PROBE_DELAY_MS);
+  }
+  function syncPickerFromStore(force = false) { if (!enabled || !labelsEnabled()) return; try { schedulePickerProbe(store.get('pickerLocation'), force); } catch {} }
 
   function lineLength(line: ContourPolyline): number { let total = 0; for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i], meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180; total += Math.hypot((b[1] - a[1]) * Math.cos(meanLat), b[0] - a[0]); } return total; }
   function midpointAlongLine(line: ContourPolyline): [number, number] | null { if (line.length < 2) return null; const lengths: number[] = []; let total = 0; for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i], meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180, d = Math.hypot((b[1] - a[1]) * Math.cos(meanLat), b[0] - a[0]); lengths.push(d); total += d; } if (total <= 0) return line[Math.floor(line.length / 2)]; const target = total / 2; let travelled = 0; for (let i = 0; i < lengths.length; i++) { const d = lengths[i]; if (travelled + d >= target) { const f = d > 0 ? (target - travelled) / d : 0, a = line[i], b = line[i + 1]; return [a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])]; } travelled += d; } return line[line.length - 1]; }
@@ -166,10 +194,9 @@
     drawDeclutteredLabels(labelCandidates, nextLayer); nextLayer.addTo(map); const oldLayer = contourLayer; contourLayer = nextLayer; if (oldLayer) try { map.removeLayer(oldLayer); } catch {}
   }
 
-  function handleMapNavigation() { if (!enabled) return; if (contoursEnabled()) { if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 650); } if (labelsEnabled() && followPicker) setTimeout(() => syncPickerFromStore(), 180); }
-  function setDisplayMode(mode: DisplayMode) { if (!enabled || displayMode === mode) return; displayMode = mode; generation += 1; viewportLoading = false; if (!contoursEnabled()) clearContours(); else refreshViewport(); if (!labelsEnabled()) clearPointState(); else if (followPicker) syncPickerFromStore(true); }
-  function toggleFollowPicker() { if (!enabled || !labelsEnabled()) return; if (followPicker) syncPickerFromStore(true); }
-  function toggleEnabled() { if (enabled) { if (contoursEnabled()) refreshViewport(); if (labelsEnabled() && followPicker) syncPickerFromStore(true); } else { generation += 1; viewportLoading = false; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearContours(); clearPointState(); } }
+  function handleMapNavigation() { if (!enabled) return; if (contoursEnabled()) { if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 650); } if (labelsEnabled()) setTimeout(() => syncPickerFromStore(), 180); }
+  function setDisplayMode(mode: DisplayMode) { if (!enabled || displayMode === mode) return; displayMode = mode; generation += 1; viewportLoading = false; if (!contoursEnabled()) clearContours(); else refreshViewport(); if (!labelsEnabled()) clearPointState(); else syncPickerFromStore(true); }
+  function toggleEnabled() { if (enabled) { if (contoursEnabled()) refreshViewport(); if (labelsEnabled()) syncPickerFromStore(true); } else { generation += 1; viewportLoading = false; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearContours(); clearPointState(); } }
 
   onMount(() => {
     map.on('moveend', handleMapNavigation); map.on('zoomend', handleMapNavigation); map.on('click', handleMapClick);
@@ -177,7 +204,7 @@
     try { pickerLocationListener = store.on('pickerLocation', (value: any) => schedulePickerProbe(value)); } catch (e) { console.warn('Snowline picker-location listener unavailable', e); }
     pickerSyncTimer = setInterval(() => syncPickerFromStore(), PICKER_SYNC_MS);
     if (contoursEnabled()) refreshViewport();
-    if (labelsEnabled() && followPicker) syncPickerFromStore(true);
+    if (labelsEnabled()) syncPickerFromStore(true);
   });
   onDestroy(() => {
     generation += 1; clickGeneration += 1;
@@ -194,14 +221,13 @@
   .top-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .title { font-size: 16px; line-height: 1.05; font-weight: 800; }
   .description { margin-top: 4px; font-size: 10px; line-height: 1.25; opacity: 0.74; }
-  .switch, .follow-row { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; white-space: nowrap; }
-  .switch input, .follow-row input { margin: 0; width: 15px; height: 15px; }
+  .switch { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; white-space: nowrap; }
+  .switch input { margin: 0; width: 15px; height: 15px; }
   .mode-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 7px; opacity: 1; }
-  .mode-row.disabled, .follow-row.disabled { opacity: 0.45; }
+  .mode-row.disabled { opacity: 0.45; }
   .mode-row button { min-width: 0; padding: 5px 3px; border: 1px solid rgba(255,255,255,0.16); border-radius: 6px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.72); font-size: 8.7px; line-height: 1.1; font-weight: 700; cursor: pointer; }
   .mode-row button.active { background: rgba(29,161,242,0.22); border-color: rgba(80,190,255,0.72); color: white; }
   .mode-row button:disabled { cursor: default; }
-  .follow-row { margin-top: 6px; }
   .micro-note { margin-top: 5px; font-size: 8.7px; line-height: 1.2; opacity: 0.58; }
   .status-pill { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; padding: 4px 7px; border-radius: 6px; background: rgba(10,14,18,0.72); color: rgba(255,255,255,0.92); font-size: 10px; line-height: 1; font-weight: 700; }
   .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #70d7ff; box-shadow: 0 0 0 2px rgba(112,215,255,0.18); animation: snowline-pulse 1s ease-in-out infinite; }
