@@ -12,79 +12,55 @@ function scalar(value: unknown): number | null {
   return null;
 }
 
-function toCentimetres(raw: number | null): number | null {
-  if (raw === null || raw < 0 || !Number.isFinite(raw)) return null;
-  return raw * 100;
-}
-
 /**
- * Reads ECMWF snowcover for an explicit timestamp without requiring the user
- * to activate Windy's Snow depth overlay. The interpolator accepts render
- * parameters, so Snow forecast requests snowcover directly while leaving the
- * user's current overlay untouched.
+ * Windy's public interpolator follows the renderer currently loaded by Windy.
+ * It cannot reliably fetch an unrelated overlay in the background. Therefore
+ * this helper is only a secondary fallback when snowcover already happens to
+ * be rendered. The preferred v5.0.1 source is the ECMWF point forecast payload.
+ *
+ * The snowcover renderer returns the displayed depth scale, so the value is
+ * already treated as centimetres here (no x100 conversion).
  */
-export async function snowDepthCmAtTime(lat: number, lon: number, timestamp: number): Promise<number | null> {
+export async function snowDepthCmAtTime(lat: number, lon: number, _timestamp: number): Promise<number | null> {
   try {
+    if (store.get('overlay') !== 'snowcover') return null;
     const interpolator = await getLatLonInterpolator();
     if (!interpolator) return null;
-    const params = {
-      overlay: 'snowcover',
-      product: 'ecmwf',
-      level: 'surface',
-      timestamp,
-    } as any;
-    const raw = await interpolator({ lat, lon } as any, undefined, params);
-    return toCentimetres(scalar(raw));
+    const raw = await interpolator({ lat, lon } as any);
+    const value = scalar(raw);
+    return value !== null && value >= 0 ? value : null;
   } catch (e) {
     console.warn('Snow forecast snow-depth interpolation failed', e);
     return null;
   }
 }
 
-/**
- * Loads a lightweight snow-depth series. Sampling every 3 h matches the graph's
- * precipitation cadence and avoids a large number of tile requests. The current
- * selected time can still be requested separately for an exact footer value.
- */
 export async function loadSnowDepthSeriesCm(
   lat: number,
   lon: number,
   times: number[],
 ): Promise<(number | null)[]> {
   const out: (number | null)[] = Array(times.length).fill(null);
-  if (!times.length) return out;
+  if (!times.length || store.get('overlay') !== 'snowcover') return out;
 
-  const sampleIndices: number[] = [];
-  let lastSample = -Infinity;
-  for (let i = 0; i < times.length; i++) {
-    if (times[i] - lastSample >= 3 * 3600_000 - 60_000 || i === times.length - 1) {
-      sampleIndices.push(i);
-      lastSample = times[i];
-    }
-  }
+  // The active renderer can only represent the currently selected Windy time,
+  // so expose that one value rather than inventing a 144-hour time series.
+  let selected = Date.now();
+  try {
+    const t = store.get('timestamp');
+    if (typeof t === 'number' && Number.isFinite(t)) selected = t;
+  } catch {}
 
-  let cursor = 0;
-  const workers = Array.from({ length: Math.min(6, sampleIndices.length) }, async () => {
-    while (cursor < sampleIndices.length) {
-      const i = sampleIndices[cursor++];
-      out[i] = await snowDepthCmAtTime(lat, lon, times[i]);
-    }
+  let best = 0;
+  let distance = Infinity;
+  times.forEach((time, index) => {
+    const d = Math.abs(time - selected);
+    if (d < distance) { distance = d; best = index; }
   });
-  await Promise.all(workers);
-
-  // Fill intervening forecast steps with the nearest preceding 3-hour value.
-  let last: number | null = null;
-  for (let i = 0; i < out.length; i++) {
-    if (out[i] !== null) last = out[i];
-    else if (last !== null) out[i] = last;
-  }
-  for (let i = out.length - 2; i >= 0; i--) {
-    if (out[i] === null && out[i + 1] !== null) out[i] = out[i + 1];
-  }
+  out[best] = await snowDepthCmAtTime(lat, lon, times[best]);
   return out;
 }
 
-/** Backward-compatible selected-time helper. */
 export async function currentMapSnowDepthCm(lat: number, lon: number): Promise<number | null> {
   let timestamp = Date.now();
   try {
