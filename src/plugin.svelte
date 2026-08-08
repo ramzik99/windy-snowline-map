@@ -2,7 +2,7 @@
   <div class="header">
     <div>
       <div class="title">❄️ Snowline Map</div>
-      <div class="subtitle">WBZ isolines · 100 m interval · 1-hourly</div>
+      <div class="subtitle">WBZ isolines · 100 m interval · 1-hourly · up to 15 days</div>
     </div>
     <label class="switch">
       <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
@@ -48,7 +48,7 @@
   </div>
 
   <div class="note">
-    Prototype: 21×15 sampling grid. Timeline changes redraw from cached profiles;
+    Fast mode: 17×11 sampling grid. Timeline changes redraw from cached profiles;
     map movement fetches a new viewport grid.
   </div>
 </div>
@@ -88,9 +88,11 @@
   let generation = 0;
   let timestampListener: number | null = null;
 
-  const ROWS = 15;
-  const COLS = 21;
-  const MAX_CONCURRENT = 6;
+  // Fast-mode balance: fewer requests than 21×15, still much smoother than the old 13×9 grid.
+  const ROWS = 11;
+  const COLS = 17;
+  const MAX_CONCURRENT = 8;
+  const FORECAST_DAYS = 15;
 
   function getStoreTimestamp(): number {
     try {
@@ -180,7 +182,7 @@
     try {
       const response = await getMeteogramForecastData(
         model,
-        { lat, lon, step: 1 }
+        { lat, lon, step: 1, days: FORECAST_DAYS }
       );
 
       const { forecast, header } = extractPayload(response);
@@ -225,7 +227,6 @@
   function buildViewportPoints(): { lat: number; lon: number; r: number; c: number }[] {
     const b = map.getBounds();
 
-    // Avoid pathological polar sampling.
     const south = Math.max(-75, b.getSouth());
     const north = Math.min(75, b.getNorth());
     const west = b.getWest();
@@ -362,7 +363,6 @@
         segmentCount += 1;
       }
 
-      // Add one lightweight label per contour level if possible.
       if (segments.length) {
         const s = segments[Math.floor(segments.length / 2)];
         const lat = (s[0][0] + s[1][0]) / 2;
@@ -380,7 +380,7 @@
       }
     }
 
-    status = `${segmentCount} contour segments · ${COLS}×${ROWS} grid · 1-hourly`;
+    status = `${segmentCount} contour segments · ${COLS}×${ROWS} grid · 1-hourly · up to 15 days`;
   }
 
   function scheduleViewportRefresh() {
@@ -389,7 +389,7 @@
 
     moveTimer = setTimeout(() => {
       refreshViewport();
-    }, 700);
+    }, 500);
   }
 
   function modelChanged() {
@@ -540,8 +540,8 @@
   .legend {
     display: flex;
     align-items: center;
-    gap: 7px;
-    margin-bottom: 7px;
+    gap: 8px;
+    margin-bottom: 8px;
     font-size: 11px;
   }
 
@@ -551,6 +551,10 @@
     border-top: 2px solid white;
   }
 
+  .note {
+    margin-top: 6px;
+  }
+
   :global(.snowline-label) {
     background: transparent !important;
     border: 0 !important;
@@ -558,12 +562,14 @@
 
   :global(.snowline-label span) {
     display: inline-block;
+    white-space: nowrap;
     padding: 1px 4px;
     border-radius: 3px;
-    background: rgba(40,40,40,0.72);
-    color: white;
-    font-size: 9px;
+    background: rgba(45,45,45,0.78);
+    color: #fff;
+    font-size: 10px;
     font-weight: 800;
-    white-space: nowrap;
+    line-height: 14px;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.65);
   }
 </style>
