@@ -11,7 +11,7 @@
     Approximate rain–snow boundary from ECMWF wet-bulb zero height. Runs to +144 h.
   </div>
 
-  <PlaceSearch />
+  <PlaceSearch on:select={handlePlaceSelect} />
 
   <div class="mode-row" class:disabled={!enabled}>
     <button class:active={displayMode === 'label'} on:click={() => setDisplayMode('label')} disabled={!enabled}>
@@ -53,6 +53,7 @@
   type LabelCandidate = { point: [number, number]; level: number; color: string; length: number; is1000: boolean };
   type ProbeStatus = 'above' | 'below' | 'near' | 'neutral';
   type DisplayMode = 'label' | 'contours';
+  type PlaceSelection = { lat: number; lon: number; primary: string; secondary: string };
 
   let enabled = true;
   let displayMode: DisplayMode = 'contours';
@@ -245,17 +246,43 @@
     }
     showClickLabel(lat, lon, `Snowline ${rounded} m`, '', colorForLevel(snowline));
   }
-  async function handleMapClick(e: any) {
-    if (!enabled || !e?.latlng) return;
-    const lat = Number(e.latlng.lat), lon = Number(e.latlng.lng); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const myClick = ++clickGeneration; clickedPoint = null; clickedMapElevationM = null; clickedLatLon = [lat, lon]; probeLoading = true;
+
+  async function probeLocation(lat: number, lon: number) {
+    if (!enabled || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
+    const myClick = ++clickGeneration;
+    clickedPoint = null;
+    clickedMapElevationM = null;
+    clickedLatLon = [lat, lon];
+    probeLoading = true;
     showClickLabel(lat, lon, 'Snowline …', 'Reading point');
     try {
       const [cp, mapElevation] = await Promise.all([loadPoint(lat, lon), loadMapElevation(lat, lon)]);
       if (myClick !== clickGeneration || !enabled) return;
       if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; }
-      clickedPoint = cp; clickedMapElevationM = mapElevation; updatePersistentClickLabel();
-    } finally { if (myClick === clickGeneration) probeLoading = false; }
+      clickedPoint = cp;
+      clickedMapElevationM = mapElevation;
+      updatePersistentClickLabel();
+    } finally {
+      if (myClick === clickGeneration) probeLoading = false;
+    }
+  }
+
+  function handleMapClick(e: any) {
+    if (!enabled || !e?.latlng) return;
+    probeLocation(Number(e.latlng.lat), Number(e.latlng.lng));
+  }
+
+  function handlePlaceSelect(event: CustomEvent<PlaceSelection>) {
+    if (!enabled || !event?.detail) return;
+    const { lat, lon } = event.detail;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+    const zoom = Math.max(Number(map.getZoom?.() ?? 7), 9);
+    map.setView([lat, lon], zoom, { animate: true });
+
+    // Probe directly rather than simulating a map click, so a searched place
+    // always receives the same persistent elevation/snowline label.
+    setTimeout(() => probeLocation(lat, lon), 280);
   }
 
   function lineLength(line: ContourPolyline): number {
