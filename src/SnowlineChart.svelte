@@ -33,56 +33,96 @@
       {#if chart.hasPrecip}<span><i class="snowline-chart-key-bar"></i> Precip mm/3h</span>{/if}
     </div>
 
-    <svg viewBox="0 0 360 205" role="img" aria-label="Snowline height and precipitation through forecast time">
-      <rect x="38" y="14" width="310" height="138" rx="7" class="plot-bg" />
+    <div class="plot-wrap">
+      <svg
+        bind:this={svgEl}
+        viewBox="0 0 360 205"
+        role="img"
+        aria-label="Snowline height and precipitation through forecast time"
+        on:pointermove={handlePlotPointer}
+        on:pointerdown={handlePlotPointer}
+        on:pointerleave={clearTooltip}
+      >
+        <rect x="38" y="14" width="310" height="138" rx="7" class="plot-bg" />
 
-      {#if chart.terrainY !== null}
-        <rect x="38" y={chart.terrainY} width="310" height={Math.max(0, 152 - chart.terrainY)} class="snow-zone" />
-        <line x1="38" x2="348" y1={chart.terrainY} y2={chart.terrainY} class="terrain-line" />
+        {#if chart.terrainY !== null}
+          <rect x="38" y={chart.terrainY} width="310" height={Math.max(0, 152 - chart.terrainY)} class="snow-zone" />
+          <line x1="38" x2="348" y1={chart.terrainY} y2={chart.terrainY} class="terrain-line" />
+        {/if}
+
+        <line x1="38" x2="348" y1="14" y2="14" class="grid" />
+        <line x1="38" x2="348" y1="83" y2="83" class="grid" />
+        <line x1="38" x2="348" y1="152" y2="152" class="grid" />
+
+        <text x="34" y="18" text-anchor="end" class="axis">{chart.maxLabel}</text>
+        <text x="34" y="87" text-anchor="end" class="axis">{chart.midLabel}</text>
+        <text x="34" y="156" text-anchor="end" class="axis">{chart.minLabel}</text>
+
+        <polyline points={chart.points} class="snowline-line" />
+
+        {#if chart.currentX !== null && chart.currentY !== null}
+          <line x1={chart.currentX} x2={chart.currentX} y1="14" y2="177" class="cursor" />
+          <circle cx={chart.currentX} cy={chart.currentY} r="4.4" class="current-dot" />
+        {/if}
+
+        {#if chart.crossingX !== null && chart.terrainY !== null && crossing?.crossingTime}
+          <line
+            x1={chart.crossingX}
+            x2={chart.crossingX}
+            y1="14"
+            y2="152"
+            class="crossing-line crossing-action"
+            on:click|stopPropagation={() => jumpToCrossing(crossing.crossingTime)}
+          />
+          <circle
+            cx={chart.crossingX}
+            cy={chart.terrainY}
+            r="5"
+            class="crossing-dot crossing-action"
+            on:click|stopPropagation={() => jumpToCrossing(crossing.crossingTime)}
+          />
+        {/if}
+
+        {#if tooltip}
+          <line x1={tooltip.x} x2={tooltip.x} y1="14" y2="177" class="inspect-line" />
+          {#if tooltip.snowlineY !== null}<circle cx={tooltip.x} cy={tooltip.snowlineY} r="3.8" class="inspect-dot" />{/if}
+        {/if}
+
+        {#if chart.hasPrecip}
+          <text x="34" y="169" text-anchor="end" class="axis precip-axis">P</text>
+          <line x1="38" x2="348" y1="177" y2="177" class="precip-base" />
+          {#each chart.precipBars as bar}
+            <rect x={bar.x} y={bar.y} width={bar.width} height={bar.height} rx="1" class:wet={bar.mm >= 1} class="precip-bar" />
+          {/each}
+        {/if}
+
+        <text x="38" y="197" text-anchor="start" class="axis">{chart.startLabel}</text>
+        <text x="193" y="197" text-anchor="middle" class="axis">+72 h</text>
+        <text x="348" y="197" text-anchor="end" class="axis">+144 h</text>
+      </svg>
+
+      {#if tooltip}
+        <div class="plot-tooltip" style={`left:${tooltip.cssX}px;top:${tooltip.cssY}px;`}>
+          <b>{tooltip.timeLabel}</b>
+          <span>SL {tooltip.snowline !== null ? `${tooltip.snowline} m` : '—'}</span>
+          {#if tooltip.terrainDifference !== null}<span>{tooltip.terrainDifference >= 0 ? '+' : ''}{tooltip.terrainDifference} m vs terrain</span>{/if}
+          {#if tooltip.precip !== null}<span>💧 {formatPrecipMm(tooltip.precip)} mm/3h</span>{/if}
+        </div>
       {/if}
-
-      <line x1="38" x2="348" y1="14" y2="14" class="grid" />
-      <line x1="38" x2="348" y1="83" y2="83" class="grid" />
-      <line x1="38" x2="348" y1="152" y2="152" class="grid" />
-
-      <text x="34" y="18" text-anchor="end" class="axis">{chart.maxLabel}</text>
-      <text x="34" y="87" text-anchor="end" class="axis">{chart.midLabel}</text>
-      <text x="34" y="156" text-anchor="end" class="axis">{chart.minLabel}</text>
-
-      <polyline points={chart.points} class="snowline-line" />
-
-      {#if chart.currentX !== null && chart.currentY !== null}
-        <line x1={chart.currentX} x2={chart.currentX} y1="14" y2="177" class="cursor" />
-        <circle cx={chart.currentX} cy={chart.currentY} r="4.4" class="current-dot" />
-      {/if}
-
-      {#if chart.crossingX !== null && chart.terrainY !== null}
-        <line x1={chart.crossingX} x2={chart.crossingX} y1="14" y2="152" class="crossing-line" />
-        <circle cx={chart.crossingX} cy={chart.terrainY} r="4.2" class="crossing-dot" />
-      {/if}
-
-      {#if chart.hasPrecip}
-        <text x="34" y="169" text-anchor="end" class="axis precip-axis">P</text>
-        <line x1="38" x2="348" y1="177" y2="177" class="precip-base" />
-        {#each chart.precipBars as bar}
-          <rect x={bar.x} y={bar.y} width={bar.width} height={bar.height} rx="1" class:wet={bar.mm >= 1} class="precip-bar" />
-        {/each}
-      {/if}
-
-      <text x="38" y="197" text-anchor="start" class="axis">{chart.startLabel}</text>
-      <text x="193" y="197" text-anchor="middle" class="axis">+72 h</text>
-      <text x="348" y="197" text-anchor="end" class="axis">+144 h</text>
-    </svg>
+    </div>
 
     <div class="chart-foot">
       <span>Min <b>{chart.minSnowline} m</b></span>
       <span>Now <b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span>Max <b>{chart.maxSnowline} m</b></span>
     </div>
+
+    <div class="forecast-summary">{chart.summaryLine}</div>
+
     {#if chart.currentPrecip !== null && chart.currentPrecip >= 0.05}
       <div class="precip-now">💧 {formatPrecipMm(chart.currentPrecip)} mm/3h at selected time</div>
     {/if}
-    <div class="hint">Blue shading marks heights below local terrain. Precipitation bars show ECMWF 3-hour water-equivalent accumulation.</div>
+    <div class="hint">Move or tap the graph for exact values. Tap Crossing terrain to jump Windy's timeline there.</div>
   {:else}
     <div class="empty">No snowline series is available for this point.</div>
   {/if}
@@ -103,11 +143,23 @@
   let timestamp = Date.now();
   let timestampListener: number | null = null;
   let chartShell: HTMLDivElement | null = null;
+  let svgEl: SVGSVGElement | null = null;
   let position = { x: 24, y: 68 };
   let dragPointerId: number | null = null;
   let dragOffset = { x: 0, y: 0 };
+  let tooltip: TooltipData | null = null;
 
   type PrecipBar = { x: number; y: number; width: number; height: number; mm: number };
+  type TooltipData = {
+    x: number;
+    cssX: number;
+    cssY: number;
+    snowlineY: number | null;
+    snowline: number | null;
+    terrainDifference: number | null;
+    precip: number | null;
+    timeLabel: string;
+  };
   type ChartData = {
     points: string;
     terrainY: number | null;
@@ -124,6 +176,12 @@
     currentPrecip: number | null;
     precipBars: PrecipBar[];
     hasPrecip: boolean;
+    minSnowlineTime: number;
+    peakPrecip: number | null;
+    peakPrecipTime: number | null;
+    summaryLine: string;
+    minScale: number;
+    maxScale: number;
   };
 
   $: crossing = terrainCrossingState(point, terrainM, timestamp);
@@ -150,6 +208,20 @@
   function formatDay(time: number): string {
     const d = new Date(time);
     return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+  }
+
+  function formatShortUtc(time: number): string {
+    const d = new Date(time);
+    const day = d.toLocaleDateString(undefined, { weekday: 'short' });
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    return `${day} ${hh} UTC`;
+  }
+
+  function formatTooltipTime(time: number): string {
+    const d = new Date(time);
+    const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    return `${day} · ${hh} UTC`;
   }
 
   function clampPosition(x: number, y: number) {
@@ -183,6 +255,58 @@
     if (dragPointerId !== event.pointerId) return;
     dragPointerId = null;
     window.removeEventListener('pointermove', dragMove);
+  }
+
+  function jumpToCrossing(time: number) {
+    if (!Number.isFinite(time)) return;
+    try {
+      (store as any).set('timestamp', time);
+      timestamp = time;
+      tooltip = null;
+    } catch (e) {
+      console.warn('Snowline could not jump Windy timeline to terrain crossing', e);
+    }
+  }
+
+  function clearTooltip() {
+    tooltip = null;
+  }
+
+  function handlePlotPointer(event: PointerEvent) {
+    if (!svgEl || !chart || !point?.times?.length) return;
+    const rect = svgEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    const vx = ((event.clientX - rect.left) / rect.width) * 360;
+    if (vx < 38 || vx > 348) { tooltip = null; return; }
+
+    const t0 = point.times[0];
+    const t1 = point.times[point.times.length - 1];
+    const target = t0 + ((vx - 38) / 310) * Math.max(1, t1 - t0);
+    const idx = nearestIndex(point.times, target);
+    const time = point.times[idx];
+    const snowlineRaw = snowlineAt(point, idx);
+    const snowline = snowlineRaw !== null ? Math.round(snowlineRaw / 10) * 10 : null;
+    const x = 38 + ((time - t0) / Math.max(1, t1 - t0)) * 310;
+    const snowlineY = snowlineRaw !== null
+      ? 152 - ((snowlineRaw - chart.minScale) / Math.max(1, chart.maxScale - chart.minScale)) * (152 - 14)
+      : null;
+    const precip = precipMmAt(point.forecast, idx);
+    const terrainDifference = snowlineRaw !== null && terrainM !== null && Number.isFinite(terrainM)
+      ? Math.round((terrainM - snowlineRaw) / 10) * 10
+      : null;
+
+    const cssX = Math.max(72, Math.min(rect.width - 72, ((x / 360) * rect.width)));
+    const cssY = Math.max(8, Math.min(rect.height - 72, (snowlineY !== null ? (snowlineY / 205) * rect.height - 58 : 24)));
+    tooltip = {
+      x,
+      cssX,
+      cssY,
+      snowlineY,
+      snowline,
+      terrainDifference,
+      precip,
+      timeLabel: formatTooltipTime(time),
+    };
   }
 
   function buildChart(p: any, terrain: number | null, target: number, crossingTime: number | null): ChartData | null {
@@ -221,6 +345,25 @@
       return { x: x(p.times[index]) - barWidth / 2, y: 177 - height, width: barWidth, height, mm: value };
     }).filter(bar => bar.height > 0.15);
 
+    const minEntry = entries.reduce((best: any, item: any) => item.value < best.value ? item : best, entries[0]);
+    let peakPrecip: number | null = null;
+    let peakPrecipTime: number | null = null;
+    precipValues.forEach((value: number | null, index: number) => {
+      if (value === null || !Number.isFinite(value)) return;
+      if (peakPrecip === null || value > peakPrecip) {
+        peakPrecip = value;
+        peakPrecipTime = p.times[index];
+      }
+    });
+
+    const summaryParts = [
+      `Lowest SL ${Math.round(Number(minEntry.value) / 10) * 10} m ${formatShortUtc(minEntry.time)}`,
+    ];
+    if (peakPrecip !== null && peakPrecip >= 0.05 && peakPrecipTime !== null) {
+      summaryParts.push(`Peak precip ${formatPrecipMm(peakPrecip)} mm/3h ${formatShortUtc(peakPrecipTime)}`);
+    }
+    if (crossingTime !== null) summaryParts.push(`Crossing terrain ${formatShortUtc(crossingTime)}`);
+
     return {
       points,
       terrainY,
@@ -237,6 +380,12 @@
       currentPrecip: precipMmAt(p.forecast, currentIndex),
       precipBars,
       hasPrecip: validPrecip.some(v => v >= 0.05),
+      minSnowlineTime: minEntry.time,
+      peakPrecip,
+      peakPrecipTime,
+      summaryLine: summaryParts.join(' · '),
+      minScale: min,
+      maxScale: max,
     };
   }
 
@@ -288,7 +437,8 @@
   .snowline-chart-key-dot { width: 6px; height: 6px; border-radius: 50%; background: white; display: inline-block; }
   .snowline-chart-key-cross { width: 7px; height: 7px; border-radius: 50%; border: 2px solid #ffe45c; display: inline-block; }
   .snowline-chart-key-bar { width: 12px; height: 7px; border-radius: 2px 2px 0 0; background: rgba(70,217,255,0.72); display: inline-block; }
-  svg { display: block; width: 100%; height: auto; margin-top: 1px; overflow: visible; }
+  .plot-wrap { position: relative; }
+  svg { display: block; width: 100%; height: auto; margin-top: 1px; overflow: visible; touch-action: none; }
   .plot-bg { fill: rgba(255,255,255,0.025); stroke: rgba(255,255,255,0.07); stroke-width: 1; }
   .snow-zone { fill: rgba(70,217,255,0.07); }
   .grid { stroke: rgba(255,255,255,0.08); stroke-width: 1; }
@@ -298,19 +448,29 @@
   .snowline-line { fill: none; stroke: #70d7ff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
   .cursor { stroke: rgba(255,255,255,0.48); stroke-width: 1; stroke-dasharray: 2 3; }
   .current-dot { fill: #ffffff; stroke: #70d7ff; stroke-width: 2.2; }
-  .crossing-line { stroke: rgba(255,228,92,0.7); stroke-width: 1; stroke-dasharray: 3 3; }
+  .crossing-line { stroke: rgba(255,228,92,0.7); stroke-width: 1.4; stroke-dasharray: 3 3; }
   .crossing-dot { fill: #15191e; stroke: #ffe45c; stroke-width: 2.2; }
+  .crossing-action { cursor: pointer; pointer-events: stroke; }
+  .crossing-dot.crossing-action { pointer-events: all; }
+  .inspect-line { stroke: rgba(255,255,255,0.3); stroke-width: 1; }
+  .inspect-dot { fill: #15191e; stroke: white; stroke-width: 1.6; }
   .precip-base { stroke: rgba(112,215,255,0.18); stroke-width: 1; }
   .precip-bar { fill: rgba(70,217,255,0.48); }
   .precip-bar.wet { fill: rgba(70,217,255,0.82); }
+  .plot-tooltip { position: absolute; z-index: 4; min-width: 118px; transform: translateX(-50%); padding: 5px 7px; border-radius: 6px; background: rgba(8,11,15,0.96); border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 4px 12px rgba(0,0,0,0.35); pointer-events: none; }
+  .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; }
+  .plot-tooltip b { font-size: 8.7px; color: white; }
+  .plot-tooltip span { margin-top: 1px; font-size: 8px; color: rgba(255,255,255,0.72); }
   .chart-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; margin-top: -2px; }
   .chart-foot span { padding: 5px 4px; border-radius: 6px; background: rgba(255,255,255,0.045); color: rgba(255,255,255,0.62); text-align: center; font-size: 8.7px; }
   .chart-foot b { color: white; font-size: 9.5px; }
+  .forecast-summary { margin-top: 5px; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,0.035); color: rgba(255,255,255,0.62); font-size: 7.8px; line-height: 1.25; text-align: center; }
   .precip-now { margin-top: 5px; padding: 4px 7px; border-radius: 6px; background: rgba(70,217,255,0.08); color: rgba(170,235,255,0.92); text-align: center; font-size: 8.3px; font-weight: 700; }
   .hint { margin-top: 6px; color: rgba(255,255,255,0.44); font-size: 7.8px; line-height: 1.25; text-align: center; }
   .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
   @media (max-width: 520px) {
     .chart-shell { width: calc(100vw - 20px); padding: 9px 8px 8px; }
     .chart-head small { max-width: 220px; }
+    .plot-tooltip { min-width: 108px; }
   }
 </style>
