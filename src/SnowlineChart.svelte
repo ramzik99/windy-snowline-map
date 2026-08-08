@@ -7,12 +7,13 @@
   style={`left:${position.x}px;top:${position.y}px;transform:none;`}
 >
   <div class="chart-head">
-    <div>
+    <div class="chart-title">
       <b>Snow forecast</b>
       <small>{placeName || 'Selected point'} · ECMWF</small>
     </div>
     <div class="chart-actions">
-      <button class="now-button" type="button" aria-label="Reset Windy timeline to now" title="Back to now" on:click={resetToNow}>↺ Now</button>
+      <button class="png-button" type="button" aria-label="Download graph as PNG" title="Download PNG" on:click={downloadPng}>PNG</button>
+      <button class="now-button" type="button" aria-label="Reset Windy timeline to now" title="Back to now" on:click={resetToNow}>Now</button>
       <button class="drag-button" type="button" aria-label="Drag snow forecast graph" title="Drag graph" on:pointerdown={startDrag}>↕</button>
       <button type="button" aria-label="Close snow forecast graph" title="Close" on:click={() => dispatch('close')}>×</button>
     </div>
@@ -29,7 +30,6 @@
       <span><i class="snowline-chart-key-line snowline-key"></i> Snowline</span>
       {#if chart.terrainY !== null}<span><i class="snowline-chart-key-line terrain-key"></i> Terrain</span>{/if}
       <span><i class="snowline-chart-key-line now-key"></i> Now</span>
-      <span><i class="snowline-chart-key-dot"></i> Selected</span>
       {#if crossing?.crossingTime}<span><i class="snowline-chart-key-cross"></i> Crossing</span>{/if}
       {#if chart.hasPrecip}<span><i class="snowline-chart-key-bar"></i> Precip</span>{/if}
       {#if chart.hasSnowDepth}<span><i class="snowline-chart-key-depth"></i> Snow depth</span>{/if}
@@ -105,25 +105,21 @@
       {#if tooltip}
         <div class="plot-tooltip" style={`left:${tooltip.cssX}px;top:${tooltip.cssY}px;`}>
           <b>{tooltip.timeLabel}</b>
-          <span>SL {tooltip.snowline !== null ? `${tooltip.snowline} m` : '—'}</span>
+          <span>Snowline {tooltip.snowline !== null ? `${tooltip.snowline} m` : '—'}</span>
           {#if tooltip.terrainDifference !== null}<span>Δ terrain {tooltip.terrainDifference >= 0 ? '+' : ''}{tooltip.terrainDifference} m</span>{/if}
-          {#if tooltip.precip !== null}<span>💧 {formatPrecipMm(tooltip.precip)} mm/3h</span>{/if}
-          {#if tooltip.snowDepth !== null}<span>❄ Depth {formatSnowDepthCm(tooltip.snowDepth)} cm</span>{/if}
+          {#if tooltip.precip !== null}<span>Precip {formatPrecipMm(tooltip.precip)} mm/3h</span>{/if}
+          {#if tooltip.snowDepth !== null}<span>Snow depth {formatSnowDepthCm(tooltip.snowDepth)} cm</span>{/if}
         </div>
       {/if}
     </div>
 
-    <div class="chart-foot" class:six={chart.hasSnowDepth}>
-      <span>Min <b>{chart.minSnowline} m</b></span>
-      <span>Selected <b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
-      <span>Δ terrain <b class:positive={chart.currentTerrainDifference !== null && chart.currentTerrainDifference > 0} class:negative={chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0}>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
+    <div class="chart-foot">
+      <span>Snowline <b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span>Precip <b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= 0.05}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
-      {#if chart.hasSnowDepth}<span>Snow depth <b class="depth-value">{chart.currentSnowDepth !== null ? `${formatSnowDepthCm(chart.currentSnowDepth)} cm` : '—'}</b></span>{/if}
-      <span>Max <b>{chart.maxSnowline} m</b></span>
+      <span>Snow depth <b class="depth-value">{chart.currentSnowDepth !== null ? `${formatSnowDepthCm(chart.currentSnowDepth)} cm` : '—'}</b></span>
     </div>
 
-    <div class="forecast-summary">{chart.summaryLine}</div>
-    <div class="hint">Tap graph for exact values · Snow depth is modelled lying snow · Tap crossing marker to jump timeline</div>
+    <div class="hint">Tap graph for exact values · Tap crossing to jump</div>
   {:else}
     <div class="empty">No snowline series is available for this point.</div>
   {/if}
@@ -176,9 +172,61 @@
   function dragMove(event: PointerEvent) { if (dragPointerId !== event.pointerId) return; position = clampPosition(event.clientX - dragOffset.x, event.clientY - dragOffset.y); }
   function stopDrag(event: PointerEvent) { if (dragPointerId !== event.pointerId) return; dragPointerId = null; window.removeEventListener('pointermove', dragMove); }
   function setTimeline(time: number, warning: string) { if (!Number.isFinite(time)) return; try { (store as any).set('timestamp', time); timestamp = time; tooltip = null; } catch (e) { console.warn(warning, e); } }
-  function jumpToCrossing(time: number) { setTimeline(time, 'Snowline could not jump Windy timeline to terrain crossing'); }
-  function resetToNow() { if (!point || !Array.isArray(point.times) || !point.times.length) return; realNow = Date.now(); const idx = nearestIndex(point.times, realNow); setTimeline(point.times[idx], 'Snowline could not reset Windy timeline to now'); }
+  function jumpToCrossing(time: number) { setTimeline(time, 'Snow forecast could not jump Windy timeline to terrain crossing'); }
+  function resetToNow() { if (!point || !Array.isArray(point.times) || !point.times.length) return; realNow = Date.now(); const idx = nearestIndex(point.times, realNow); setTimeline(point.times[idx], 'Snow forecast could not reset Windy timeline to now'); }
   function clearTooltip() { tooltip = null; }
+
+  function safeFilename(value: string): string {
+    const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+    return cleaned || 'selected-point';
+  }
+
+  async function downloadPng() {
+    if (!svgEl) return;
+    try {
+      const clone = svgEl.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      clone.setAttribute('width', '720');
+      clone.setAttribute('height', '410');
+      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      style.textContent = `
+        .plot-bg{fill:#171b20;stroke:#38404a;stroke-width:1}.snow-zone{fill:#102a35}.grid{stroke:#3a4048;stroke-width:1}.axis{fill:#aeb7c2;font-size:8px;font-family:Arial,sans-serif}.precip-axis{fill:#70d7ff;font-weight:700}.depth-axis{fill:#8fe388;font-weight:700}.terrain-line{stroke:#ffb15b;stroke-width:1.4;stroke-dasharray:5 4}.snowline-line{fill:none;stroke:#70d7ff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}.now-line{stroke:#ff6b57;stroke-width:1.5}.now-tag-bg{fill:#ff6b57}.now-tag{fill:#fff;font-size:7px;font-family:Arial,sans-serif;font-weight:800}.cursor{stroke:#d9e0e8;stroke-width:1;stroke-dasharray:2 3}.current-dot{fill:#fff;stroke:#70d7ff;stroke-width:2.2}.crossing-line{stroke:#ffe45c;stroke-width:1.4;stroke-dasharray:3 3}.crossing-dot{fill:#15191e;stroke:#ffe45c;stroke-width:2.2}.inspect-line,.inspect-dot{display:none}.precip-base{stroke:#2b5968;stroke-width:1}.precip-bar{fill:#397f9a}.precip-bar.wet{fill:#70d7ff}.snow-depth-line{fill:none;stroke:#8fe388;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}`;
+      clone.insertBefore(style, clone.firstChild);
+      const serialized = new XMLSerializer().serializeToString(clone);
+      const blob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const image = new Image();
+      await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('PNG image render failed')); image.src = url; });
+
+      const canvas = document.createElement('canvas');
+      canvas.width = 720;
+      canvas.height = 500;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas unavailable');
+      ctx.fillStyle = '#14181d';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 28px Arial, sans-serif';
+      ctx.fillText('Snow forecast', 28, 34);
+      ctx.fillStyle = '#aeb7c2';
+      ctx.font = '18px Arial, sans-serif';
+      ctx.fillText(`${placeName || 'Selected point'} · ECMWF`, 28, 60);
+      ctx.drawImage(image, 0, 78, 720, 410);
+      URL.revokeObjectURL(url);
+
+      const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG export failed')), 'image/png'));
+      const pngUrl = URL.createObjectURL(png);
+      const link = document.createElement('a');
+      link.href = pngUrl;
+      link.download = `snow-forecast-${safeFilename(placeName || 'selected-point')}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
+    } catch (e) {
+      console.warn('Snow forecast PNG export failed', e);
+    }
+  }
 
   function handlePlotPointer(event: PointerEvent) {
     if (!svgEl || !chart || !point?.times?.length) return;
@@ -221,28 +269,28 @@
 </script>
 
 <style lang="less">
-  .chart-shell { position: fixed; z-index: 10020; width: min(390px, calc(100vw - 24px)); padding: 10px 10px 9px; border: 1px solid rgba(80,190,255,0.45); border-radius: 11px; background: rgba(20,24,29,0.975); color: white; box-shadow: 0 10px 34px rgba(0,0,0,0.48); backdrop-filter: blur(4px); }
-  .chart-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
-  .chart-head b { display: block; font-size: 13px; line-height: 1.05; }
-  .chart-head small { display: block; margin-top: 3px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.58); font-size: 9px; }
-  .chart-actions { display: flex; gap: 5px; }
-  .chart-head button { width: 23px; height: 23px; padding: 0; border: 0; border-radius: 6px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.82); font-size: 17px; line-height: 20px; cursor: pointer; }
+  .chart-shell { position: fixed; z-index: 10020; width: min(390px, calc(100vw - 24px)); padding: 9px 10px 8px; border: 1px solid rgba(80,190,255,0.42); border-radius: 10px; background: rgba(20,24,29,0.975); color: white; box-shadow: 0 10px 34px rgba(0,0,0,0.48); backdrop-filter: blur(4px); }
+  .chart-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .chart-title { min-width: 0; }
+  .chart-head b { display: block; font-size: 12.5px; line-height: 1.05; }
+  .chart-head small { display: block; margin-top: 2px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgba(255,255,255,0.55); font-size: 8.5px; }
+  .chart-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .chart-head button { height: 22px; min-width: 22px; padding: 0 6px; border: 0; border-radius: 5px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.82); font-size: 14px; line-height: 20px; cursor: pointer; }
   .chart-head button:hover { background: rgba(255,255,255,0.17); color: white; }
-  .now-button { width: auto !important; min-width: 46px; padding: 0 7px !important; font-size: 10px !important; line-height: 21px !important; font-weight: 800; white-space: nowrap; }
-  .drag-button { cursor: grab !important; touch-action: none; font-size: 14px !important; }
-  .crossing-summary { margin-top: 7px; padding: 5px 8px; border-radius: 7px; background: rgba(255,255,255,0.05); border-left: 3px solid rgba(255,255,255,0.35); }
+  .png-button, .now-button { width: auto !important; font-size: 8.5px !important; font-weight: 800; }
+  .drag-button { cursor: grab !important; touch-action: none; font-size: 13px !important; }
+  .crossing-summary { margin-top: 6px; padding: 4px 7px; border-radius: 6px; background: rgba(255,255,255,0.05); border-left: 3px solid rgba(255,255,255,0.35); }
   .crossing-summary.down { border-left-color: #70d7ff; background: rgba(70,217,255,0.08); }
   .crossing-summary.up { border-left-color: #ffb15b; background: rgba(255,177,91,0.08); }
-  .crossing-summary b { display: block; font-size: 9.5px; }
-  .snowline-chart-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 7px 2px 1px; color: rgba(255,255,255,0.68); font-size: 8.2px; }
+  .crossing-summary b { display: block; font-size: 9px; }
+  .snowline-chart-legend { display: flex; flex-wrap: wrap; gap: 7px; margin: 6px 2px 0; color: rgba(255,255,255,0.66); font-size: 7.9px; }
   .snowline-chart-legend span { display: inline-flex; align-items: center; gap: 4px; }
-  .snowline-chart-key-line { width: 14px; height: 0; border-top: 2px solid; display: inline-block; }
+  .snowline-chart-key-line { width: 13px; height: 0; border-top: 2px solid; display: inline-block; }
   .snowline-key { border-color: #70d7ff; } .terrain-key { border-color: #ffb15b; border-top-style: dashed; } .now-key { border-color: #ff6b57; }
-  .snowline-chart-key-dot { width: 6px; height: 6px; border-radius: 50%; background: white; display: inline-block; }
   .snowline-chart-key-cross { width: 7px; height: 7px; border-radius: 50%; border: 2px solid #ffe45c; display: inline-block; }
   .snowline-chart-key-bar { width: 12px; height: 7px; border-radius: 2px 2px 0 0; background: rgba(70,217,255,0.72); display: inline-block; }
-  .snowline-chart-key-depth { width: 14px; height: 0; border-top: 2px solid #8fe388; display: inline-block; }
-  .plot-wrap { position: relative; } svg { display: block; width: 100%; height: auto; margin-top: 1px; overflow: visible; touch-action: none; }
+  .snowline-chart-key-depth { width: 13px; height: 0; border-top: 2px solid #8fe388; display: inline-block; }
+  .plot-wrap { position: relative; } svg { display: block; width: 100%; height: auto; margin-top: 0; overflow: visible; touch-action: none; }
   .plot-bg { fill: rgba(255,255,255,0.025); stroke: rgba(255,255,255,0.07); stroke-width: 1; } .snow-zone { fill: rgba(70,217,255,0.07); } .grid { stroke: rgba(255,255,255,0.08); stroke-width: 1; }
   .axis { fill: rgba(255,255,255,0.52); font-size: 8px; font-family: sans-serif; } .precip-axis { fill: rgba(112,215,255,0.78); font-weight: 700; } .depth-axis { fill: #8fe388; font-weight: 700; }
   .terrain-line { stroke: #ffb15b; stroke-width: 1.4; stroke-dasharray: 5 4; opacity: 0.88; } .snowline-line { fill: none; stroke: #70d7ff; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
@@ -254,10 +302,11 @@
   .snow-depth-line { fill: none; stroke: #8fe388; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
   .plot-tooltip { position: absolute; z-index: 4; min-width: 120px; transform: translateX(-50%); padding: 5px 7px; border-radius: 6px; background: rgba(8,11,15,0.96); border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 4px 12px rgba(0,0,0,0.35); pointer-events: none; }
   .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; } .plot-tooltip b { font-size: 8.7px; color: white; } .plot-tooltip span { margin-top: 1px; font-size: 8px; color: rgba(255,255,255,0.72); }
-  .chart-foot { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: -2px; } .chart-foot.six { grid-template-columns: repeat(6, 1fr); }
-  .chart-foot span { padding: 5px 2px; border-radius: 6px; background: rgba(255,255,255,0.045); color: rgba(255,255,255,0.62); text-align: center; font-size: 7.7px; min-width: 0; } .chart-foot b { display: block; color: white; font-size: 8.4px; white-space: nowrap; }
-  .chart-foot b.positive { color: #70d7ff; } .chart-foot b.negative { color: #ffb15b; } .chart-foot b.wet { color: #70d7ff; } .chart-foot b.depth-value { color: #8fe388; }
-  .forecast-summary { margin-top: 5px; padding: 4px 6px; border-radius: 6px; background: rgba(255,255,255,0.035); color: rgba(255,255,255,0.58); font-size: 7.8px; line-height: 1.25; text-align: center; }
-  .hint { margin-top: 5px; color: rgba(255,255,255,0.38); font-size: 7.5px; line-height: 1.2; text-align: center; } .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
-  @media (max-width: 520px) { .chart-shell { width: calc(100vw - 20px); padding: 9px 8px 8px; } .chart-head small { max-width: 180px; } .plot-tooltip { min-width: 108px; } .chart-foot { gap: 3px; } .chart-foot span { font-size: 6.7px; } .chart-foot b { font-size: 7.5px; } }
+  .chart-foot { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: -2px; }
+  .chart-foot span { padding: 5px 3px; border-radius: 6px; background: rgba(255,255,255,0.045); color: rgba(255,255,255,0.60); text-align: center; font-size: 7.5px; min-width: 0; }
+  .chart-foot b { display: block; color: white; font-size: 8.5px; white-space: nowrap; }
+  .chart-foot b.wet { color: #70d7ff; } .chart-foot b.depth-value { color: #8fe388; }
+  .hint { margin-top: 4px; color: rgba(255,255,255,0.36); font-size: 7.2px; line-height: 1.2; text-align: center; }
+  .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
+  @media (max-width: 520px) { .chart-shell { width: calc(100vw - 20px); padding: 8px; } .chart-head small { max-width: 120px; } .plot-tooltip { min-width: 108px; } .chart-head button { padding: 0 5px; } }
 </style>
