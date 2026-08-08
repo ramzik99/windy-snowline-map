@@ -66,10 +66,13 @@
   let clickedLatLon: [number, number] | null = null;
   let clickedMapElevationM: number | null = null;
   let moveTimer: ReturnType<typeof setTimeout> | null = null;
+  let pickerTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
   let clickGeneration = 0;
   let timestampListener: number | null = null;
+  let pickerLocationListener: number | null = null;
   let activeRunTime: number | null = null;
+  let lastPickerKey = '';
 
   const MODEL = 'ecmwf' as const;
   const MAX_CONCURRENT = 8;
@@ -80,6 +83,7 @@
   const LABEL_MIN_DISTANCE_PX = 92;
   const MIN_VALID_FRACTION = 0.35;
   const NEAR_SNOWLINE_METRES = 100;
+  const PICKER_PROBE_DELAY_MS = 320;
   const profileCache = new Map<string, CachedPoint>();
 
   const COLOUR_STOPS: ColourStop[] = [
@@ -285,6 +289,26 @@
     setTimeout(() => probeLocation(lat, lon), 280);
   }
 
+  function pickerLatLon(value: any): [number, number] | null {
+    if (!value) return null;
+    const lat = Number(value.lat ?? value.latitude);
+    const lon = Number(value.lon ?? value.lng ?? value.longitude);
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+    return [lat, lon];
+  }
+
+  function schedulePickerProbe(value: any) {
+    if (!enabled) return;
+    const position = pickerLatLon(value);
+    if (!position) return;
+    const [lat, lon] = position;
+    const key = `${lat.toFixed(5)},${lon.toFixed(5)}`;
+    if (key === lastPickerKey) return;
+    lastPickerKey = key;
+    if (pickerTimer) clearTimeout(pickerTimer);
+    pickerTimer = setTimeout(() => probeLocation(lat, lon), PICKER_PROBE_DELAY_MS);
+  }
+
   function lineLength(line: ContourPolyline): number {
     let total = 0;
     for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i], meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180; total += Math.hypot((b[1] - a[1]) * Math.cos(meanLat), b[0] - a[0]); }
@@ -339,20 +363,37 @@
     else refreshViewport();
   }
   function toggleEnabled() {
-    if (enabled) { if (displayMode === 'contours') refreshViewport(); updatePersistentClickLabel(); }
-    else { generation += 1; clickGeneration += 1; viewportLoading = false; probeLoading = false; clearContours(); clearClickLayer(); }
+    if (enabled) {
+      if (displayMode === 'contours') refreshViewport();
+      updatePersistentClickLabel();
+      try { schedulePickerProbe(store.get('pickerLocation')); } catch {}
+    }
+    else {
+      generation += 1; clickGeneration += 1; viewportLoading = false; probeLoading = false;
+      if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
+      clearContours(); clearClickLayer();
+    }
   }
 
   onMount(() => {
     map.on('moveend', scheduleViewportRefresh); map.on('zoomend', scheduleViewportRefresh); map.on('click', handleMapClick);
     try { timestampListener = store.on('timestamp', () => { if (enabled && displayMode === 'contours' && cache.length && !viewportLoading) renderFromCache(); if (enabled) updatePersistentClickLabel(); }); }
     catch (e) { console.warn('Snowline timeline listener unavailable', e); }
+    try {
+      pickerLocationListener = store.on('pickerLocation', (value: any) => schedulePickerProbe(value));
+      schedulePickerProbe(store.get('pickerLocation'));
+    } catch (e) {
+      console.warn('Snowline picker-location listener unavailable', e);
+    }
     if (displayMode === 'contours') refreshViewport();
   });
   onDestroy(() => {
-    generation += 1; clickGeneration += 1; if (moveTimer) clearTimeout(moveTimer);
+    generation += 1; clickGeneration += 1;
+    if (moveTimer) clearTimeout(moveTimer);
+    if (pickerTimer) clearTimeout(pickerTimer);
     map.off('moveend', scheduleViewportRefresh); map.off('zoomend', scheduleViewportRefresh); map.off('click', handleMapClick);
     if (timestampListener !== null) try { store.off(timestampListener); } catch {}
+    if (pickerLocationListener !== null) try { store.off(pickerLocationListener); } catch {}
     clearContours(); clearClickLayer(); profileCache.clear(); clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null;
   });
 </script>
