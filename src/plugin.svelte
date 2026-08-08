@@ -5,6 +5,7 @@
     <div class="top-row">
       <div class="title">Snowline</div>
       <div class="top-controls">
+        <button class="info-button" class:active={infoOpen} type="button" aria-label="How Snowline works" title="How it works" on:click={() => infoOpen = !infoOpen}>i</button>
         <button class="hide-button" type="button" aria-label="Hide Snowline panel" title="Hide" on:click={() => panelHidden = true}>−</button>
         <label class="switch">
           <input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} />
@@ -16,6 +17,20 @@
     <div class="description">
       Approximate ECMWF rain–snow boundary from wet-bulb zero height. Runs up to 144 hours only.
     </div>
+
+    {#if infoOpen}
+      <div class="info-card">
+        <div class="info-head">
+          <b>How it works</b>
+          <button type="button" aria-label="Close information" title="Close" on:click={() => infoOpen = false}>×</button>
+        </div>
+        <div>ECMWF temperature, dew point and geopotential height are used to calculate wet-bulb temperature through the vertical profile.</div>
+        <div>The lowest upward crossing of 0°C wet-bulb temperature is interpolated to estimate the wet-bulb-zero snowline.</div>
+        <div>Point labels compare that snowline with Windy map elevation. Within ±100 m is shown as <b>NEAR SNOWLINE</b>.</div>
+        <div>Contours are sampled across the visible map and update with the Windy forecast timestep.</div>
+        <div class="info-caveat">Thermal boundary only — precipitation, snowfall and accumulation are not implied.</div>
+      </div>
+    {/if}
 
     <PlaceSearch on:select={handlePlaceSelect} on:clear={handleSearchClear} />
 
@@ -58,6 +73,7 @@
 
   let enabled = true;
   let panelHidden = false;
+  let infoOpen = false;
   let displayMode: DisplayMode = 'both';
   let viewportLoading = false;
   let refreshQueued = false;
@@ -169,8 +185,37 @@
   function clearContours() { if (contourLayer) { try { map.removeLayer(contourLayer); } catch {} contourLayer = null; } }
   function clearClickLayer() { if (clickLayer) { try { map.removeLayer(clickLayer); } catch {} clickLayer = null; } }
   function clearPointState() { clickGeneration += 1; probeLoading = false; clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null; clearClickLayer(); }
+  function dismissPointLabel() {
+    if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; }
+    clearPointState();
+  }
   function statusColor(status: ProbeStatus): string { if (status === 'above') return '#46d9ff'; if (status === 'below') return '#ff9d3d'; if (status === 'near') return '#ffe45c'; return '#ffffff'; }
-  function showClickLabel(lat: number, lon: number, mainText: string, detailText = '', snowlineColor = '#ffffff', status: ProbeStatus = 'neutral') { if (!labelsEnabled()) return; clearClickLayer(); clickLayer = L.layerGroup().addTo(map); const accent = statusColor(status); L.circleMarker([lat, lon], { radius: status === 'neutral' ? 4 : 5, weight: 2, color: '#ffffff', fillColor: accent, fillOpacity: 1, interactive: false }).addTo(clickLayer); const detail = detailText ? `<small>${detailText}</small>` : ''; L.marker([lat, lon], { interactive: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}"><b>${mainText}</b>${detail}</span>`, iconSize: [174, 54], iconAnchor: [87, 62] }) }).addTo(clickLayer); }
+  function showClickLabel(lat: number, lon: number, mainText: string, detailText = '', snowlineColor = '#ffffff', status: ProbeStatus = 'neutral') {
+    if (!labelsEnabled()) return;
+    clearClickLayer();
+    clickLayer = L.layerGroup().addTo(map);
+    const accent = statusColor(status);
+    L.circleMarker([lat, lon], { radius: status === 'neutral' ? 4 : 5, weight: 2, color: '#ffffff', fillColor: accent, fillOpacity: 1, interactive: false }).addTo(clickLayer);
+    const detail = detailText ? `<small>${detailText}</small>` : '';
+    const marker = L.marker([lat, lon], {
+      interactive: true,
+      bubblingMouseEvents: false,
+      zIndexOffset: 2000,
+      icon: L.divIcon({
+        className: `snowline-click-label snowline-probe-${status}`,
+        html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}"><button class="snowline-label-close" type="button" aria-label="Close Snowline label" title="Close">×</button><b>${mainText}</b>${detail}</span>`,
+        iconSize: [174, 54],
+        iconAnchor: [87, 62],
+      }),
+    }).addTo(clickLayer);
+    marker.on('click', (event: any) => {
+      const original = event?.originalEvent;
+      const target = original?.target as HTMLElement | undefined;
+      if (!target?.closest?.('.snowline-label-close')) return;
+      try { L.DomEvent.stop(original); } catch {}
+      dismissPointLabel();
+    });
+  }
 
   function snowlineAt(point: CachedPoint, idx: number): number | null { const wbz = wetBulbZeroHeight(buildProfile(point.forecast, idx)); return wbz.snowLevelM !== null && Number.isFinite(wbz.snowLevelM) ? wbz.snowLevelM : null; }
   function tendencyText(point: CachedPoint, idx: number): string { const now = snowlineAt(point, idx); if (now === null) return ''; const target = point.times[idx] + TENDENCY_HOURS * 3600_000; if (target > point.times[point.times.length - 1] + 30 * 60_000) return ''; const futureIdx = nearestIndex(point.times, target); if (futureIdx === idx) return ''; const future = snowlineAt(point, futureIdx); if (future === null) return ''; const delta = Math.round((future - now) / 10) * 10; if (Math.abs(delta) < 20) return `→ steady`; return `${delta > 0 ? '↑' : '↓'}${Math.abs(delta)} m/${TENDENCY_HOURS}h`; }
@@ -286,14 +331,21 @@
 <style lang="less">
   .snowline-panel { width: 224px; padding: 8px 9px; border-radius: 8px; background: rgba(45,45,45,0.95); color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.24); }
   .top-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .top-controls { display: flex; align-items: center; gap: 7px; }
+  .top-controls { display: flex; align-items: center; gap: 6px; }
   .title { font-size: 16px; line-height: 1.05; font-weight: 800; }
   .description { margin-top: 4px; font-size: 10px; line-height: 1.25; opacity: 0.74; }
   .switch { display: flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 800; white-space: nowrap; }
   .switch input { margin: 0; width: 15px; height: 15px; }
-  .hide-button { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.75); font-size: 15px; line-height: 18px; cursor: pointer; }
-  .hide-button:hover { background: rgba(255,255,255,0.11); color: white; }
+  .hide-button, .info-button { width: 22px; height: 22px; padding: 0; border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; background: rgba(255,255,255,0.05); color: rgba(255,255,255,0.75); font-size: 15px; line-height: 18px; font-weight: 800; cursor: pointer; }
+  .info-button { font-family: Georgia, serif; font-size: 14px; font-style: italic; }
+  .hide-button:hover, .info-button:hover, .info-button.active { background: rgba(80,190,255,0.15); border-color: rgba(80,190,255,0.48); color: white; }
   .show-panel { padding: 6px 9px; border: 1px solid rgba(255,255,255,0.16); border-radius: 8px; background: rgba(45,45,45,0.95); color: white; box-shadow: 0 3px 12px rgba(0,0,0,0.24); font-size: 11px; line-height: 1; font-weight: 800; cursor: pointer; }
+  .info-card { margin-top: 7px; padding: 7px 8px; border: 1px solid rgba(80,190,255,0.34); border-radius: 7px; background: rgba(10,14,18,0.78); font-size: 8.9px; line-height: 1.25; color: rgba(255,255,255,0.82); }
+  .info-card > div + div { margin-top: 4px; }
+  .info-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: white; font-size: 10px; }
+  .info-head button { width: 19px; height: 19px; padding: 0; border: 0; border-radius: 5px; background: rgba(255,255,255,0.08); color: rgba(255,255,255,0.75); font-size: 15px; line-height: 17px; cursor: pointer; }
+  .info-head button:hover { background: rgba(255,255,255,0.16); color: white; }
+  .info-caveat { padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.10); color: rgba(255,228,92,0.86); }
   .mode-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-top: 7px; opacity: 1; }
   .mode-row.disabled { opacity: 0.45; }
   .mode-row button { min-width: 0; padding: 5px 3px; border: 1px solid rgba(255,255,255,0.16); border-radius: 6px; background: rgba(255,255,255,0.06); color: rgba(255,255,255,0.72); font-size: 8.7px; line-height: 1.1; font-weight: 700; cursor: pointer; }
@@ -303,10 +355,13 @@
   .status-pill { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 6px; padding: 4px 7px; border-radius: 6px; background: rgba(10,14,18,0.72); color: rgba(255,255,255,0.92); font-size: 10px; line-height: 1; font-weight: 700; }
   .status-dot { width: 7px; height: 7px; border-radius: 50%; background: #70d7ff; box-shadow: 0 0 0 2px rgba(112,215,255,0.18); animation: snowline-pulse 1s ease-in-out infinite; }
   @keyframes snowline-pulse { 0%,100% { opacity: 0.45; transform: scale(0.85); } 50% { opacity: 1; transform: scale(1); } }
-  @media (max-width: 520px) { .snowline-panel { width: 200px; padding: 7px 8px; } .description { font-size: 9.5px; } .mode-row button { font-size: 8.1px; } .micro-note { font-size: 8.2px; } }
+  @media (max-width: 520px) { .snowline-panel { width: 200px; padding: 7px 8px; } .description { font-size: 9.5px; } .mode-row button { font-size: 8.1px; } .micro-note { font-size: 8.2px; } .info-card { font-size: 8.5px; } }
   :global(.snowline-label), :global(.snowline-click-label) { background: transparent !important; border: 0 !important; }
   :global(.snowline-label span) { display: inline-block; padding: 1px 4px 1px 6px; border-radius: 3px; border-left: 4px solid var(--snowline-color, white); background: rgba(15,17,20,0.86); color: white; font-size: 10px; font-weight: 800; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 0 0 1px rgba(255,255,255,0.12); }
-  :global(.snowline-click-label span) { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 126px; padding: 5px 8px 4px; border-radius: 8px; border: 2px solid var(--probe-accent, rgba(255,255,255,0.4)); border-bottom: 4px solid var(--snowline-color, white); background: rgba(12,14,17,0.96); color: white; text-align: center; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 3px 10px rgba(0,0,0,0.38); }
+  :global(.snowline-click-label) { pointer-events: auto !important; }
+  :global(.snowline-click-label span) { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 126px; padding: 5px 20px 4px 8px; border-radius: 8px; border: 2px solid var(--probe-accent, rgba(255,255,255,0.4)); border-bottom: 4px solid var(--snowline-color, white); background: rgba(12,14,17,0.96); color: white; text-align: center; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 3px 10px rgba(0,0,0,0.38); }
+  :global(.snowline-label-close) { position: absolute; top: 2px; right: 3px; width: 17px; height: 17px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.82); font-size: 14px; line-height: 15px; font-weight: 800; text-shadow: none; cursor: pointer; pointer-events: auto; }
+  :global(.snowline-label-close:hover) { background: rgba(255,255,255,0.22); color: white; }
   :global(.snowline-click-label b) { color: var(--probe-accent, white); font-size: 13px; line-height: 1.05; font-weight: 900; letter-spacing: 0.25px; }
   :global(.snowline-click-label small) { font-size: 9px; line-height: 1.1; font-weight: 700; opacity: 0.9; }
   :global(.snowline-probe-above span) { background: rgba(8,27,38,0.97); }
