@@ -1,39 +1,6 @@
 import { getPointForecastData } from '@windy/fetch';
-import { map } from '@windy/map';
-import { singleclick } from '@windy/singleclick';
-import config from './pluginConfig';
 
 export type SnowForecastModel = 'ecmwf';
-
-/*
- * Windy sends ordinary map clicks/taps to the opened plugin through singleclick.
- * The main Svelte component already owns one point-label path via its captured
- * map click handler, so forward singleclick into that existing path.
- *
- * We deliberately do not read pickerLocation. Therefore Windy's native pointer
- * (for example from right-click/context actions) never prompts the Wintry label.
- */
-singleclick.on(config.name, (value: any) => {
-  const lat = Number(value?.lat ?? value?.latitude ?? value?.latlng?.lat);
-  const lon = Number(value?.lon ?? value?.lng ?? value?.longitude ?? value?.latlng?.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return;
-
-  try {
-    const container = map.getContainer?.() as HTMLElement | undefined;
-    if (!container) return;
-    const pixel = map.latLngToContainerPoint([lat, lon]);
-    const rect = container.getBoundingClientRect();
-    container.dispatchEvent(new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      button: 0,
-      clientX: rect.left + pixel.x,
-      clientY: rect.top + pixel.y,
-    }));
-  } catch (error) {
-    console.warn('Wintry forecast singleclick bridge failed', error);
-  }
-});
 
 function isNumericArrayLike(value: unknown): boolean {
   if (ArrayBuffer.isView(value as any)) return Number((value as any)?.length) > 0;
