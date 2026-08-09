@@ -21,39 +21,67 @@ function formatLead(hours: number): string {
   const rounded = Math.max(0, Math.round(hours));
   if (rounded < 24) return `${rounded} h`;
   const days = Math.floor(rounded / 24);
-  const rem = rounded % 24;
-  return rem ? `${days}d ${rem}h` : `${days}d`;
+  const remainder = rounded % 24;
+  return remainder ? `${days}d ${remainder}h` : `${days}d`;
 }
 
 function formatUtc(time: number): string {
-  const d = new Date(time);
-  const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
-  const hh = String(d.getUTCHours()).padStart(2, '0');
-  return `${day} ${hh} UTC`;
+  const date = new Date(time);
+  const day = date.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' });
+  const hour = String(date.getUTCHours()).padStart(2, '0');
+  const minute = String(date.getUTCMinutes()).padStart(2, '0');
+  return `${day} ${hour}:${minute} UTC`;
+}
+
+function interpolateCrossingTime(
+  beforeTime: number,
+  afterTime: number,
+  beforeSnowline: number,
+  afterSnowline: number,
+  terrainM: number,
+): number {
+  const denominator = afterSnowline - beforeSnowline;
+  if (Math.abs(denominator) < 1e-6) return afterTime;
+  const fraction = Math.max(0, Math.min(1, (terrainM - beforeSnowline) / denominator));
+  return beforeTime + fraction * (afterTime - beforeTime);
 }
 
 export function terrainCrossingState(point: any, terrainM: number | null, targetTime: number): CrossingState | null {
   if (!point || !Array.isArray(point.times) || !point.times.length || terrainM === null || !Number.isFinite(terrainM)) return null;
 
   let startIndex = 0;
-  let best = Infinity;
+  let bestDistance = Infinity;
   point.times.forEach((time: number, index: number) => {
-    const d = Math.abs(time - targetTime);
-    if (d < best) { best = d; startIndex = index; }
+    const distance = Math.abs(time - targetTime);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      startIndex = index;
+    }
   });
 
   const current = snowlineAt(point, startIndex);
   if (current === null) return null;
   const currentBelowTerrain = current <= terrainM;
 
+  let previousIndex = startIndex;
+  let previousValue = current;
+
   for (let i = startIndex + 1; i < point.times.length; i++) {
     const value = snowlineAt(point, i);
     if (value === null) continue;
-    const below = value <= terrainM;
-    if (below !== currentBelowTerrain) {
-      const crossingTime = point.times[i];
+
+    const belowTerrain = value <= terrainM;
+    if (belowTerrain !== currentBelowTerrain) {
+      const crossingTime = interpolateCrossingTime(
+        point.times[previousIndex],
+        point.times[i],
+        previousValue,
+        value,
+        terrainM,
+      );
       const leadHours = (crossingTime - point.times[startIndex]) / 3600_000;
-      if (below) {
+
+      if (belowTerrain) {
         return {
           summary: `Snowline below terrain in ${formatLead(leadHours)}`,
           detail: `Thermal snowline falls below local terrain around ${formatUtc(crossingTime)}; precipitation is still required for snowfall`,
@@ -62,6 +90,7 @@ export function terrainCrossingState(point: any, terrainM: number | null, target
           direction: 'below',
         };
       }
+
       return {
         summary: `Snowline above terrain in ${formatLead(leadHours)}`,
         detail: `Thermal snowline rises above local terrain around ${formatUtc(crossingTime)}`,
@@ -70,6 +99,9 @@ export function terrainCrossingState(point: any, terrainM: number | null, target
         direction: 'above',
       };
     }
+
+    previousIndex = i;
+    previousValue = value;
   }
 
   return currentBelowTerrain
