@@ -1,0 +1,167 @@
+name: Refine sounding zoom
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sounding-zoom-finish.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  refine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply sounding zoom and threshold polish
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # Keep precipitation-type activation visually aligned with the actual 0.1 mm/h threshold.
+          chart = Path('src/SnowlineChart.svelte')
+          s = chart.read_text()
+          s = s.replace('class:wet={bar.mm >= 1}', 'class:wet={bar.mm >= PRECIP_THRESHOLD_MM_H}')
+          chart.write_text(s)
+
+          sounding = Path('src/SoundingChart.svelte')
+          s = sounding.read_text()
+
+          s = s.replace(
+              '<button type="button" title="Zoom out" aria-label="Zoom out" on:click={() => setZoom(zoom - 0.2)}>−</button>\n      <button class="zoom-readout" type="button" title="Reset zoom" aria-label="Reset zoom" on:click={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>\n      <button type="button" title="Zoom in" aria-label="Zoom in" on:click={() => setZoom(zoom + 0.2)}>+</button>',
+              '<button type="button" title="Zoom out" aria-label="Zoom out" on:click={() => zoomAtCentre(zoom / 1.25)}>−</button>\n      <button class="zoom-readout" type="button" title="Fit sounding" aria-label="Fit sounding" on:click={resetZoom}>{Math.round(zoom * 100)}%</button>\n      <button type="button" title="Zoom in" aria-label="Zoom in" on:click={() => zoomAtCentre(zoom * 1.25)}>+</button>'
+          )
+
+          s = s.replace(
+              '<div class="sounding-viewport" on:wheel|preventDefault={handleWheel}>',
+              '<div class="sounding-viewport" bind:this={viewport} tabindex="0" role="group" aria-label="Zoomable forecast sounding" on:wheel|preventDefault={handleWheel} on:pointerdown={startPlotPointer} on:pointermove={movePlotPointer} on:pointerup={endPlotPointer} on:pointercancel={endPlotPointer} on:dblclick={resetZoom} on:keydown={handleViewportKey}>'
+          )
+
+          s = s.replace(
+              '<div class="hint">Wheel or +/- to zoom · click % to reset · selected forecast time</div>',
+              '<div class="hint">Wheel / pinch / +/- to zoom · drag to pan · double-click or tap % to fit</div>'
+          )
+
+          s = s.replace(
+              '  let svgEl: SVGSVGElement | null = null;\n  let position = { x: 24, y: 64 };',
+              '  let svgEl: SVGSVGElement | null = null;\n  let viewport: HTMLDivElement | null = null;\n  let position = { x: 24, y: 64 };'
+          )
+
+          s = s.replace(
+              '  let zoom = 1;\n  let pngBusy = false;',
+              "  let zoom = 1;\n  let pngBusy = false;\n  const MIN_ZOOM = 1;\n  const MAX_ZOOM = 3.5;\n  const plotPointers = new Map<number, { x: number; y: number }>();\n  let panPointerId: number | null = null;\n  let panStart = { x: 0, y: 0, left: 0, top: 0 };\n  let pinchDistance = 0;"
+          )
+
+          old = '''  function setZoom(value: number) { zoom = Math.max(0.8, Math.min(2.4, Math.round(value * 10) / 10)); }
+  function handleWheel(event: WheelEvent) { setZoom(zoom + (event.deltaY < 0 ? 0.1 : -0.1)); }
+'''
+          new = '''  function clampZoom(value: number): number { return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value)); }
+  function zoomAround(value: number, clientX?: number, clientY?: number) {
+    if (!viewport) { zoom = clampZoom(value); return; }
+    const next = clampZoom(value), old = zoom;
+    if (Math.abs(next - old) < 0.002) return;
+    const rect = viewport.getBoundingClientRect();
+    const anchorX = clientX === undefined ? rect.width / 2 : Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const anchorY = clientY === undefined ? rect.height / 2 : Math.max(0, Math.min(rect.height, clientY - rect.top));
+    const contentX = (viewport.scrollLeft + anchorX) / old;
+    const contentY = (viewport.scrollTop + anchorY) / old;
+    zoom = next;
+    requestAnimationFrame(() => {
+      if (!viewport) return;
+      viewport.scrollLeft = Math.max(0, contentX * next - anchorX);
+      viewport.scrollTop = Math.max(0, contentY * next - anchorY);
+    });
+  }
+  function zoomAtCentre(value: number) { zoomAround(value); }
+  function resetZoom() {
+    zoom = 1;
+    requestAnimationFrame(() => { if (viewport) { viewport.scrollLeft = 0; viewport.scrollTop = 0; } });
+  }
+  function handleWheel(event: WheelEvent) {
+    const factor = Math.exp(-event.deltaY * 0.00135);
+    zoomAround(zoom * factor, event.clientX, event.clientY);
+  }
+  function pointerDistance(): number {
+    const pts = [...plotPointers.values()];
+    return pts.length < 2 ? 0 : Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  }
+  function pointerCentre(): { x: number; y: number } | null {
+    const pts = [...plotPointers.values()];
+    if (pts.length < 2) return null;
+    return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+  }
+  function startPlotPointer(event: PointerEvent) {
+    if (!viewport || event.pointerType === 'mouse' && event.button !== 0) return;
+    plotPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    try { viewport.setPointerCapture(event.pointerId); } catch {}
+    if (plotPointers.size === 1) {
+      panPointerId = event.pointerId;
+      panStart = { x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop };
+    } else if (plotPointers.size === 2) {
+      panPointerId = null;
+      pinchDistance = pointerDistance();
+    }
+  }
+  function movePlotPointer(event: PointerEvent) {
+    if (!viewport || !plotPointers.has(event.pointerId)) return;
+    plotPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (plotPointers.size >= 2) {
+      const distance = pointerDistance(), centre = pointerCentre();
+      if (pinchDistance > 0 && distance > 0 && centre) zoomAround(zoom * (distance / pinchDistance), centre.x, centre.y);
+      pinchDistance = distance;
+      event.preventDefault();
+      return;
+    }
+    if (panPointerId === event.pointerId && zoom > 1.001) {
+      viewport.scrollLeft = panStart.left - (event.clientX - panStart.x);
+      viewport.scrollTop = panStart.top - (event.clientY - panStart.y);
+      event.preventDefault();
+    }
+  }
+  function endPlotPointer(event: PointerEvent) {
+    plotPointers.delete(event.pointerId);
+    try { viewport?.releasePointerCapture(event.pointerId); } catch {}
+    if (plotPointers.size < 2) pinchDistance = 0;
+    if (panPointerId === event.pointerId) panPointerId = null;
+    if (plotPointers.size === 1 && viewport) {
+      const [id, p] = [...plotPointers.entries()][0];
+      panPointerId = id;
+      panStart = { x: p.x, y: p.y, left: viewport.scrollLeft, top: viewport.scrollTop };
+    }
+  }
+  function handleViewportKey(event: KeyboardEvent) {
+    if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomAtCentre(zoom * 1.25); }
+    else if (event.key === '-') { event.preventDefault(); zoomAtCentre(zoom / 1.25); }
+    else if (event.key === '0' || event.key === 'Escape') { event.preventDefault(); resetZoom(); }
+  }
+'''
+          if old not in s:
+              raise SystemExit('Old sounding zoom functions not found')
+          s = s.replace(old, new)
+
+          s = s.replace(
+              '.sounding-viewport{max-height:430px;overflow:auto;margin-top:6px;border-radius:9px;overscroll-behavior:contain}.sounding-viewport svg{display:block;min-width:100%;height:auto;margin:0;transform-origin:top left}',
+              '.sounding-viewport{max-height:430px;overflow:auto;margin-top:6px;border-radius:9px;overscroll-behavior:contain;touch-action:none;cursor:grab;scrollbar-width:thin}.sounding-viewport:active{cursor:grabbing}.sounding-viewport:focus-visible{outline:1px solid rgba(105,212,255,.55);outline-offset:2px}.sounding-viewport svg{display:block;min-width:100%;height:auto;margin:0;transform-origin:top left;user-select:none;-webkit-user-select:none}'
+          )
+
+          sounding.write_text(s)
+
+          # Patch release metadata.
+          for file in ['src/pluginConfig.ts', 'package.json']:
+            p = Path(file)
+            t = p.read_text().replace("12.1.0", "12.1.1")
+            p.write_text(t)
+
+          Path('.github/workflows/sounding-zoom-finish.yml').unlink()
+          PY
+      - name: Commit refinement
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Refine sounding zoom and precipitation threshold"
+          git push
