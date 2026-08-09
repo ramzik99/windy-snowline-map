@@ -49,7 +49,7 @@
       </div>
       <div class="info-body">
         <div><b>Snow forecast</b> uses ECMWF temperature, dew point and geopotential height to estimate the wet-bulb-zero snowline. Runs up to 144 hours only.</div>
-        <div>Map contours show the approximate rain–snow thermal boundary. With precipitation, terrain at or above the snowline is shown as snow, terrain up to 100 m below it as mix, and lower terrain as rain.</div>
+        <div>Map contours show the approximate rain–snow thermal boundary. When measurable precipitation is present, the point label shows snow at or above the snowline, mix up to 100 m below it, and rain farther below. Without precipitation it simply shows above, near (±100 m), or below the snowline.</div>
         <div>The point graph shows snowline through time together with precipitation and modelled snow depth when available. Tap the graph for exact values or download it as PNG.</div>
         <div class="info-caveat">This is a thermal forecast aid. Snowline, precipitation and modelled snow depth do not guarantee local snowfall or accumulation.</div>
       </div>
@@ -119,6 +119,8 @@
   const LABEL_MIN_DISTANCE_PX = 92;
   const MIN_VALID_FRACTION = 0.35;
   const MIX_BELOW_SNOWLINE_METRES = 100;
+  const POSITION_NEAR_SNOWLINE_METRES = 100;
+  const LABEL_PRECIP_THRESHOLD_MM_3H = 0.1;
   const PICKER_PROBE_DELAY_MS = 180;
   const PICKER_SYNC_MS = 700;
   const DESKTOP_PICKER_SETTLE_MS = 650;
@@ -239,9 +241,27 @@
     if (target < firstTime - 30 * 60_000 || target > effectiveEnd + 30 * 60_000) { showClickLabel(lat, lon, 'Outside +144 h'); return; }
     const idx = nearestIndex(clickedPoint.times, target), snowline = snowlineAt(clickedPoint, idx); if (snowline === null) { showClickLabel(lat, lon, 'No snowline'); return; }
     const rounded = Math.round(snowline / 10) * 10, tendency = tendencyText(clickedPoint, idx), precip = precipMmAt(clickedPoint.forecast, idx), crossing = terrainCrossingState(clickedPoint, clickedMapElevationM, target);
-    const precipText = precip !== null && precip >= 0.05 ? ` · 💧 ${formatPrecipMm(precip)} mm/3h` : '';
+    const hasPrecip = precip !== null && precip >= LABEL_PRECIP_THRESHOLD_MM_3H;
+    const precipText = hasPrecip ? ` · 💧 ${formatPrecipMm(precip)} mm/3h` : '';
     const outlookText = crossing?.summary ?? '';
-    if (clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM)) { const terrainRounded = Math.round(clickedMapElevationM / 10) * 10, difference = clickedMapElevationM - snowline; let status: ProbeStatus, headline: string; if (difference >= 0) { status = 'above'; headline = '❄ SNOW'; } else if (difference >= -MIX_BELOW_SNOWLINE_METRES) { status = 'near'; headline = '🌨 MIX'; } else { status = 'below'; headline = '🌧 RAIN'; } const detail = `Here ${terrainRounded} m · SL ${rounded} m${tendency ? ` · ${tendency}` : ''}${precipText}`; showClickLabel(lat, lon, headline, detail, colorForLevel(snowline), status, outlookText); return; }
+    if (clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM)) {
+      const terrainRounded = Math.round(clickedMapElevationM / 10) * 10;
+      const difference = clickedMapElevationM - snowline;
+      let status: ProbeStatus;
+      let headline: string;
+      if (hasPrecip) {
+        if (difference >= 0) { status = 'above'; headline = '❄ SNOW'; }
+        else if (difference >= -MIX_BELOW_SNOWLINE_METRES) { status = 'near'; headline = '🌨 MIX'; }
+        else { status = 'below'; headline = '🌧 RAIN'; }
+      } else {
+        if (difference > POSITION_NEAR_SNOWLINE_METRES) { status = 'above'; headline = '↑ ABOVE SNOWLINE'; }
+        else if (difference < -POSITION_NEAR_SNOWLINE_METRES) { status = 'below'; headline = '↓ BELOW SNOWLINE'; }
+        else { status = 'near'; headline = '≈ NEAR SNOWLINE'; }
+      }
+      const detail = `Here ${terrainRounded} m · SL ${rounded} m${tendency ? ` · ${tendency}` : ''}${precipText}`;
+      showClickLabel(lat, lon, headline, detail, colorForLevel(snowline), status, outlookText);
+      return;
+    }
     showClickLabel(lat, lon, `${rounded} m`, `${tendency}${precipText}`, colorForLevel(snowline), 'neutral', outlookText);
   }
 
