@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-data-inspector",
-  "version": "0.1.0",
-  "description": "Standalone Windy ECMWF data inspector for point fields and renderer diagnostics.",
+  "version": "0.2.0",
+  "description": "Standalone ECMWF diagnostic comparing point forecast, meteogram and active renderer data for snow-depth discovery.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
