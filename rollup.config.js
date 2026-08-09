@@ -21,7 +21,11 @@ export default {
       plugins: [rollupCleanup({ comments: 'none', extensions: ['ts'] }), terser()],
     },
   ],
-  onwarn: () => {},
+  onwarn(warning, warn) {
+    // Third-party packages can contain benign cycles; keep every other warning
+    // visible so real plugin/build problems are not silently hidden.
+    if (warning.code !== 'CIRCULAR_DEPENDENCY') warn(warning);
+  },
   external: id => id.startsWith('@windy/'),
   watch: {
     include: ['src/**'],
