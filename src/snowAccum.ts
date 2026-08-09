@@ -10,9 +10,9 @@ export interface NewSnowStep {
  * not total lying snow depth: it starts from zero and uses precipitation,
  * terrain-aware precipitation type and surface wet-bulb temperature.
  *
- * The conversion uses a bounded snow-to-liquid ratio (SLR), then applies
- * simple settling/melt to the running fresh-snow layer. It is meant as a
- * terrain-aware forecast aid when no independent snow-depth state is exposed.
+ * Precipitation is supplied as a 3-hour amount (mm/3h). The conversion below
+ * scales that amount by dt/3 so changing the displayed precipitation unit does
+ * not artificially triple forecast-created snow.
  */
 function snowToLiquidRatio(phase: TerrainPrecipType): number {
   const tw = phase.surfaceWetBulbC;
@@ -38,7 +38,7 @@ function solidFraction(phase: TerrainPrecipType): number {
 }
 
 export function estimateNewSnowStep(
-  precipMmH: number | null,
+  precipMm3h: number | null,
   phase: TerrainPrecipType | null,
   previousCm: number,
   hours = 1,
@@ -47,30 +47,28 @@ export function estimateNewSnowStep(
   let snowpack = Math.max(0, previousCm);
 
   if (!phase) {
-    // Slow background settling when no type can be diagnosed.
     snowpack *= Math.pow(0.997, dt);
     return { hourlyCm: 0, cumulativeCm: snowpack };
   }
 
   const tw = phase.surfaceWetBulbC;
-  // Fresh-snow settling: faster near melting, slower in cold snow.
   const settlePerHour = tw >= -0.5 ? 0.010 : tw >= -3 ? 0.006 : 0.003;
   snowpack *= Math.pow(1 - settlePerHour, dt);
 
-  // Melt the forecast-created fresh snow when terrain wet-bulb rises above 0 C.
   if (tw > 0) {
     const meltCmH = Math.min(1.8, 0.18 + 0.22 * tw);
     snowpack = Math.max(0, snowpack - meltCmH * dt);
   }
 
-  if (precipMmH === null || !Number.isFinite(precipMmH) || precipMmH <= 0) {
+  if (precipMm3h === null || !Number.isFinite(precipMm3h) || precipMm3h <= 0) {
     return { hourlyCm: 0, cumulativeCm: snowpack };
   }
 
   const slr = snowToLiquidRatio(phase);
   const fraction = solidFraction(phase);
-  // 1 mm liquid * SLR gives mm snow; divide by 10 for cm.
-  const addedCm = Math.max(0, precipMmH) * dt * slr * fraction / 10;
+  // Convert the 3-hour liquid amount to the current dt interval before SLR.
+  const liquidMm = Math.max(0, precipMm3h) * (dt / 3);
+  const addedCm = liquidMm * slr * fraction / 10;
   snowpack += addedCm;
   return { hourlyCm: addedCm / dt, cumulativeCm: snowpack };
 }
