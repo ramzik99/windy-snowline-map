@@ -36,7 +36,7 @@
         {#if chart.hasPrecip}
           <text x="37" y="159" text-anchor="end" class="axis precip-axis">{chart.precipMaxLabel}</text>
           <text x="37" y="190" text-anchor="end" class="axis">0</text>
-          {#each chart.precipBars as bar}<rect x={bar.x} y={bar.y} width={bar.width} height={bar.height} rx="1.1" class="precip-bar" class:wet={bar.mm >= 1} />{/each}
+          {#each chart.precipBars as bar}<rect x={bar.x} y={bar.y} width={bar.width} height={bar.height} rx="1.1" class="precip-bar" class:wet={bar.mm >= PRECIP_THRESHOLD_MM_H} />{/each}
         {:else}
           <text x="195" y="175" text-anchor="middle" class="empty-band">Dry</text>
         {/if}
