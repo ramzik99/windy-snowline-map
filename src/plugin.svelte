@@ -218,10 +218,10 @@
   function showClickLabel(lat: number, lon: number, mainText: string, detailText = '', snowlineColor = '#ffffff', status: ProbeStatus = 'neutral', outlookText = '') {
     if (!labelsEnabled()) return; clearClickLayer(); clickLayer = L.layerGroup().addTo(map); const accent = statusColor(status);
     L.circleMarker([lat, lon], { radius: status === 'neutral' ? 4 : 5, weight: 2, color: '#ffffff', fillColor: accent, fillOpacity: 1, interactive: false }).addTo(clickLayer);
-    const detail = detailText ? `<small>${detailText}</small>` : '';
+    const detail = detailText ? `<small class="snowline-label-metrics">${detailText}</small>` : '';
     const outlook = outlookText ? `<em>${outlookText}</em>` : '';
-    const actions = clickedPoint && clickedLatLon ? '<button class="snowline-label-forecast" type="button" aria-label="Show Windy forecast" title="Show Windy forecast">⛅</button><button class="snowline-label-chart" type="button" aria-label="Show Snow forecast graph" title="Snow forecast graph">⌁</button><button class="snowline-label-share" type="button" aria-label="Copy Snowline details" title="Copy Snowline details">share</button>' : '';
-    const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${actions}<button class="snowline-label-close" type="button" aria-label="Close Snowline label" title="Close">×</button><b>${mainText}</b>${detail}${outlook}</span>`, iconSize: [250, outlookText ? 74 : 60], iconAnchor: [125, outlookText ? 82 : 68] }) }).addTo(clickLayer);
+    const actions = clickedPoint && clickedLatLon ? '<button class="snowline-label-forecast" type="button" aria-label="Open Windy forecast" title="Open Windy forecast">W</button><button class="snowline-label-chart" type="button" aria-label="Open Snow forecast graph" title="Open Snow forecast graph">⌁</button><button class="snowline-label-share" type="button" aria-label="Copy Snowline details" title="Copy Snowline details">share</button>' : '';
+    const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${actions}<button class="snowline-label-close" type="button" aria-label="Close Snowline label" title="Close">×</button><b>${mainText}</b>${detail}${outlook}</span>`, iconSize: [300, outlookText ? 80 : 64], iconAnchor: [150, outlookText ? 88 : 72] }) }).addTo(clickLayer);
     marker.on('click', (event: any) => {
       const original = event?.originalEvent; const target = original?.target as HTMLElement | undefined; const forecast = target?.closest?.('.snowline-label-forecast'); const graph = target?.closest?.('.snowline-label-chart'); const share = target?.closest?.('.snowline-label-share') as HTMLButtonElement | null; const close = target?.closest?.('.snowline-label-close');
       if (!forecast && !graph && !share && !close) return; try { L.DomEvent.stop(original); } catch {}
@@ -242,7 +242,7 @@
     const idx = nearestIndex(clickedPoint.times, target), snowline = snowlineAt(clickedPoint, idx); if (snowline === null) { showClickLabel(lat, lon, 'No snowline'); return; }
     const rounded = Math.round(snowline / 10) * 10, tendency = tendencyText(clickedPoint, idx), precip = precipMmAt(clickedPoint.forecast, idx), crossing = terrainCrossingState(clickedPoint, clickedMapElevationM, target);
     const hasPrecip = precip !== null && precip >= LABEL_PRECIP_THRESHOLD_MM_3H;
-    const precipText = hasPrecip ? ` · 💧 ${formatPrecipMm(precip)} mm/3h` : '';
+    const precipText = hasPrecip ? ` · ${formatPrecipMm(precip)} mm/3h` : '';
     const outlookText = crossing?.summary ?? '';
     if (clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM)) {
       const terrainRounded = Math.round(clickedMapElevationM / 10) * 10;
@@ -258,7 +258,7 @@
         else if (difference < -POSITION_NEAR_SNOWLINE_METRES) { status = 'below'; headline = '↓ BELOW SNOWLINE'; }
         else { status = 'near'; headline = '≈ NEAR SNOWLINE'; }
       }
-      const detail = `Here ${terrainRounded} m · SL ${rounded} m${tendency ? ` · ${tendency}` : ''}${precipText}`;
+      const detail = `Terrain ${terrainRounded} m · SL ${rounded} m${tendency ? ` · ${tendency}` : ''}${precipText}`;
       showClickLabel(lat, lon, headline, detail, colorForLevel(snowline), status, outlookText);
       return;
     }
@@ -306,7 +306,7 @@
   function syncPickerFromStore(force = false) { if (isMobile || !enabled || !labelsEnabled()) return; try { schedulePickerProbe(store.get('pickerLocation'), force); } catch {} }
 
   function lineLength(line: ContourPolyline): number { let total = 0; for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i], meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180; total += Math.hypot((b[1] - a[1]) * Math.cos(meanLat), b[0] - a[0]); } return total; }
-  function midpointAlongLine(line: ContourPolyline): [number, number] | null { if (line.length < 2) return null; const lengths: number[] = []; let total = 0; for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i], meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180, d = Math.hypot((b[1] - a[1]) * Math.cos(meanLat), b[0] - a[0]); lengths.push(d); total += d; } if (total <= 0) return line[Math.floor(line.length / 2)]; const target = total / 2; let travelled = 0; for (let i = 0; i < lengths.length; i++) { const d = lengths[i]; if (travelled + d >= target) { const f = d > 0 ? (target - travelled) / d : 0, a = line[i], b = line[i + 1]; return [a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])]; } travelled += d; } return line[line.length - 1]; }
+  function midpointAlongLine(line: ContourPolyline): [number, number] | null { if (line.length < 2) return null; const lengths: number[] = []; let total = 0; for (let i = 1; i < line.length; i++) { const a = line[i - 1], b = line[i + 1 - 1], meanLat = (a[0] + b[0]) * 0.5 * Math.PI / 180, d = Math.hypot((b[1] - a[1]) * Math.cos(meanLat), b[0] - a[0]); lengths.push(d); total += d; } if (total <= 0) return line[Math.floor(line.length / 2)]; const target = total / 2; let travelled = 0; for (let i = 0; i < lengths.length; i++) { const d = lengths[i]; if (travelled + d >= target) { const f = d > 0 ? (target - travelled) / d : 0, a = line[i], b = line[i + 1]; return [a[0] + f * (b[0] - a[0]), a[1] + f * (b[1] - a[1])]; } travelled += d; } return line[line.length - 1]; }
   function drawDeclutteredLabels(candidates: LabelCandidate[], layer: any) { if (!candidates.length) return; const mapWidth = Number(map.getSize?.().x ?? 800), maxLabels = mapWidth < 520 ? 5 : mapWidth < 900 ? 7 : 10, minDistance = mapWidth < 520 ? 82 : LABEL_MIN_DISTANCE_PX; const ordered = [...candidates].sort((a, b) => a.isMajor !== b.isMajor ? (a.isMajor ? -1 : 1) : b.length - a.length), occupied: { x: number; y: number }[] = []; let placed = 0; for (const candidate of ordered) { if (placed >= maxLabels) break; const px = map.latLngToContainerPoint(candidate.point); if (occupied.some(other => Math.hypot(px.x - other.x, px.y - other.y) < minDistance)) continue; L.marker(candidate.point, { interactive: false, icon: L.divIcon({ className: 'snowline-label', html: `<span style="--snowline-color:${candidate.color}">${candidate.level} m</span>`, iconSize: [62, 20], iconAnchor: [31, 10] }) }).addTo(layer); occupied.push({ x: px.x, y: px.y }); placed += 1; } }
 
   function renderFromCache() {
@@ -364,18 +364,28 @@
   :global(.snowline-label), :global(.snowline-click-label) { background: transparent !important; border: 0 !important; }
   :global(.snowline-label span) { display: inline-block; padding: 1px 4px 1px 6px; border-radius: 3px; border-left: 4px solid var(--snowline-color, white); background: rgba(15,17,20,0.86); color: white; font-size: 10px; font-weight: 800; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 0 0 1px rgba(255,255,255,0.12); }
   :global(.snowline-click-label) { pointer-events: auto !important; }
-  :global(.snowline-click-label span) { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 194px; padding: 6px 58px 5px 58px; border-radius: 8px; border: 2px solid var(--probe-accent, rgba(255,255,255,0.4)); border-bottom: 4px solid var(--snowline-color, white); background: rgba(12,14,17,0.96); color: white; text-align: center; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.8); box-shadow: 0 3px 10px rgba(0,0,0,0.38); }
-  :global(.snowline-label-close), :global(.snowline-label-share), :global(.snowline-label-forecast), :global(.snowline-label-chart) { position: absolute; top: 3px; width: 19px; height: 19px; padding: 0; border: 0; border-radius: 50%; background: rgba(255,255,255,0.10); color: rgba(255,255,255,0.82); font-size: 12px; line-height: 17px; font-weight: 800; text-shadow: none; cursor: pointer; pointer-events: auto; }
-  :global(.snowline-label-close) { right: 4px; font-size: 14px; }
-  :global(.snowline-label-share) { right: 27px; font-size: 0; line-height: 0; background-repeat: no-repeat; background-position: center; background-size: 14px 14px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3Ccircle cx='6' cy='12' r='3'/%3E%3Ccircle cx='18' cy='19' r='3'/%3E%3Cpath d='M8.6 10.5l6.8-4M8.6 13.5l6.8 4'/%3E%3C/svg%3E"); }
-  :global(.snowline-label-forecast) { left: 4px; font-size: 13px; line-height: 17px; color: white; }
-  :global(.snowline-label-chart) { left: 27px; font-size: 15px; line-height: 16px; color: #ffe45c; }
-  :global(.snowline-label-share[title='Copied']), :global(.snowline-label-share[title='Preparing copy']), :global(.snowline-label-share[title='Copy failed']) { background-image: none; font-size: 12px; line-height: 17px; color: white; }
-  :global(.snowline-label-close:hover), :global(.snowline-label-share:hover), :global(.snowline-label-forecast:hover), :global(.snowline-label-chart:hover) { background-color: rgba(255,255,255,0.22); color: white; }
-  :global(.snowline-click-label b) { color: var(--probe-accent, white); font-size: 13px; line-height: 1.05; font-weight: 900; letter-spacing: 0.25px; }
-  :global(.snowline-click-label small) { font-size: 9px; line-height: 1.1; font-weight: 700; opacity: 0.9; }
-  :global(.snowline-click-label em) { padding-top: 2px; border-top: 1px solid rgba(255,255,255,0.10); color: rgba(255,228,92,0.92); font-size: 8.5px; line-height: 1.05; font-style: normal; font-weight: 800; }
-  :global(.snowline-probe-above span) { background: rgba(8,27,38,0.97); }
-  :global(.snowline-probe-below span) { background: rgba(39,23,10,0.97); }
-  :global(.snowline-probe-near span) { background: rgba(38,34,10,0.97); }
+  :global(.snowline-click-label span) { position: relative; display: flex; flex-direction: column; align-items: center; justify-content:center; gap: 3px; width: 300px; box-sizing:border-box; padding: 7px 56px 6px; border-radius: 10px; border: 2px solid var(--probe-accent, rgba(255,255,255,0.4)); border-bottom: 4px solid var(--snowline-color, white); background: rgba(10,14,18,0.965); color: white; text-align: center; white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.80); box-shadow: 0 5px 16px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.04); }
+  :global(.snowline-label-close), :global(.snowline-label-share), :global(.snowline-label-forecast), :global(.snowline-label-chart) { position: absolute; top: 5px; width: 23px; height: 23px; padding: 0; border: 1px solid rgba(255,255,255,0.09); border-radius: 7px; background: rgba(255,255,255,0.075); color: rgba(255,255,255,0.88); font-size: 12px; line-height: 21px; font-weight: 800; text-shadow: none; cursor: pointer; pointer-events: auto; }
+  :global(.snowline-label-close) { right: 6px; font-size: 16px; }
+  :global(.snowline-label-share) { right: 34px; font-size: 0; line-height: 0; background-repeat: no-repeat; background-position: center; background-size: 14px 14px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3Ccircle cx='6' cy='12' r='3'/%3E%3Ccircle cx='18' cy='19' r='3'/%3E%3Cpath d='M8.6 10.5l6.8-4M8.6 13.5l6.8 4'/%3E%3C/svg%3E"); }
+  :global(.snowline-label-forecast) { left: 6px; font-size: 11px; line-height: 21px; color: #ffffff; font-family: Arial,sans-serif; }
+  :global(.snowline-label-chart) { left: 34px; font-size: 17px; line-height: 19px; color: #ffe45c; }
+  :global(.snowline-label-share[title='Copied']), :global(.snowline-label-share[title='Preparing copy']), :global(.snowline-label-share[title='Copy failed']) { background-image: none; font-size: 12px; line-height: 21px; color: white; }
+  :global(.snowline-label-close:hover), :global(.snowline-label-share:hover), :global(.snowline-label-forecast:hover), :global(.snowline-label-chart:hover) { background-color: rgba(255,255,255,0.19); border-color:rgba(255,255,255,.16); color: white; }
+  :global(.snowline-click-label b) { color: var(--probe-accent, white); font-size: 14px; line-height: 1.05; font-weight: 900; letter-spacing: 0.45px; }
+  :global(.snowline-click-label small) { display:block; max-width: 184px; overflow:hidden; text-overflow:ellipsis; font-size: 9.2px; line-height: 1.15; font-weight: 700; color:rgba(255,255,255,.88); opacity:1; }
+  :global(.snowline-click-label em) { width:100%; box-sizing:border-box; margin-top:1px; padding-top: 3px; border-top: 1px solid rgba(255,255,255,0.10); color: rgba(255,228,92,0.92); font-size: 8.4px; line-height: 1.05; font-style: normal; font-weight: 800; }
+  :global(.snowline-probe-above span) { background: linear-gradient(180deg, rgba(8,27,38,0.98), rgba(9,17,23,0.98)); }
+  :global(.snowline-probe-below span) { background: linear-gradient(180deg, rgba(38,23,11,0.98), rgba(20,15,12,0.98)); }
+  :global(.snowline-probe-near span) { background: linear-gradient(180deg, rgba(36,32,10,0.98), rgba(20,18,11,0.98)); }
+  @media (max-width: 520px) {
+    :global(.snowline-click-label span) { width: 286px; padding-left:52px; padding-right:52px; border-radius:9px; }
+    :global(.snowline-click-label b) { font-size:13.5px; }
+    :global(.snowline-click-label small) { max-width:176px; font-size:8.8px; }
+    :global(.snowline-label-close), :global(.snowline-label-share), :global(.snowline-label-forecast), :global(.snowline-label-chart) { width:24px; height:24px; line-height:22px; }
+    :global(.snowline-label-close) { right:5px; }
+    :global(.snowline-label-share) { right:34px; }
+    :global(.snowline-label-forecast) { left:5px; }
+    :global(.snowline-label-chart) { left:34px; }
+  }
 </style>
