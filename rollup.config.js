@@ -12,7 +12,7 @@ import { transformCodeToESMPlugin, keyPEM, certificatePEM } from '@windycom/plug
 const useSourceMaps = true;
 
 export default {
-  input: 'src/plugin.svelte',
+  input: 'src/pluginEntry.svelte',
   output: [
     { file: 'dist/plugin.js', format: 'module', sourcemap: true },
     {
