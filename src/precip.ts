@@ -1,10 +1,9 @@
 import { valueAt } from './snowLevel';
 
 /**
- * Ordered by preference. With the plugin requesting a 1-hour point step,
- * prefer Windy's explicit past-hour field whenever it is available. The
- * past-3-hour field remains a deterministic fallback and is converted to an
- * average hourly rate.
+ * Ordered by preference. Point forecasts are requested hourly, so use Windy's
+ * explicit past-hour precipitation field when available. The past-3-hour field
+ * is a deterministic fallback and is converted to an average hourly rate.
  */
 const EXACT_KEYS = [
   'past1hprecip-surface',
@@ -18,7 +17,6 @@ const EXACT_KEYS = [
   'tp',
 ] as const;
 
-/** Windy's explicit past-hour ECMWF precipitation fields are metres of water equivalent. */
 const METRE_WATER_KEYS = new Set([
   'past1hprecip-surface',
   'past3hprecip-surface',
@@ -27,16 +25,19 @@ const METRE_WATER_KEYS = new Set([
 /** Minimum hourly precipitation rate used for precipitation-type diagnosis. */
 export const PRECIP_THRESHOLD_MM_H = 0.1;
 
+type PrecipField = { key: string; field: unknown };
+const precipFieldCache = new WeakMap<object, PrecipField | null>();
+
 function normalizedKey(key: string): string {
   return key.toLowerCase().replace(/[_\s]/g, '-');
 }
 
 function isPrecipKey(key: string): boolean {
-  const k = normalizedKey(key);
-  if ((EXACT_KEYS as readonly string[]).includes(k)) return true;
-  return (k.includes('precip') || k === 'rain' || k.startsWith('rain-') || k === 'tp')
-    && !k.includes('type')
-    && !k.includes('snow');
+  const normalized = normalizedKey(key);
+  if ((EXACT_KEYS as readonly string[]).includes(normalized)) return true;
+  return (normalized.includes('precip') || normalized === 'rain' || normalized.startsWith('rain-') || normalized === 'tp')
+    && !normalized.includes('type')
+    && !normalized.includes('snow');
 }
 
 function looksArrayLike(value: unknown): boolean {
@@ -45,42 +46,47 @@ function looksArrayLike(value: unknown): boolean {
   return !!value && typeof value === 'object' && Number.isFinite(Number((value as any)?.length));
 }
 
-function findPrecipField(value: unknown, depth = 0): { key: string; field: unknown } | null {
+function findPrecipFieldUncached(value: unknown, depth = 0): PrecipField | null {
   if (!value || typeof value !== 'object' || depth > 5) return null;
-  const obj = value as Record<string, unknown>;
+  const object = value as Record<string, unknown>;
 
   for (const wanted of EXACT_KEYS) {
-    for (const [key, field] of Object.entries(obj)) {
+    for (const [key, field] of Object.entries(object)) {
       if (normalizedKey(key) === wanted && looksArrayLike(field)) return { key, field };
     }
   }
 
-  // Compatibility fallback for unfamiliar precipitation aliases. Because the
-  // point request itself is hourly, unknown aliases are interpreted as mm/h;
-  // no value-magnitude guessing is used.
-  for (const [key, field] of Object.entries(obj)) {
+  // Compatibility fallback for unfamiliar precipitation aliases. Unknown aliases
+  // are interpreted as mm/h because the point request itself is hourly.
+  for (const [key, field] of Object.entries(object)) {
     if (isPrecipKey(key) && looksArrayLike(field)) return { key, field };
   }
 
-  for (const child of Object.values(obj)) {
+  for (const child of Object.values(object)) {
     if (child && typeof child === 'object' && !looksArrayLike(child)) {
-      const found = findPrecipField(child, depth + 1);
+      const found = findPrecipFieldUncached(child, depth + 1);
       if (found) return found;
     }
   }
   return null;
 }
 
+function findPrecipField(data: Record<string, unknown>): PrecipField | null {
+  const cached = precipFieldCache.get(data);
+  if (cached !== undefined) return cached;
+  const found = findPrecipFieldUncached(data);
+  precipFieldCache.set(data, found);
+  return found;
+}
+
 function accumulationHours(key: string): number {
-  const k = normalizedKey(key);
-  if (k === 'past3hprecip-surface') return 3;
-  return 1;
+  return normalizedKey(key) === 'past3hprecip-surface' ? 3 : 1;
 }
 
 function toHourlyMillimetres(key: string, raw: number): number {
-  const k = normalizedKey(key);
-  const mm = METRE_WATER_KEYS.has(k) ? raw * 1000 : raw;
-  return mm / accumulationHours(k);
+  const normalized = normalizedKey(key);
+  const millimetres = METRE_WATER_KEYS.has(normalized) ? raw * 1000 : raw;
+  return millimetres / accumulationHours(normalized);
 }
 
 /** Average precipitation rate in millimetres per hour. */
