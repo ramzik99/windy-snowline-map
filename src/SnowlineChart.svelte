@@ -118,13 +118,19 @@
       <span>❄ Snow ≥ snowline</span><span>🌨 Mix 0–100 m below</span><span>🌧 Rain &gt;100 m below</span><small>shown only with ≥0.1 mm/3h</small>
     </div>
 
-    <div class="chart-foot">
+    <div class:with-depth={snowDepthOverlayActive} class="chart-foot">
       <span><small>Snowline</small><b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span><small>Terrain Δ</small><b class:positive={chart.currentTerrainDifference !== null && chart.currentTerrainDifference > 0} class:negative={chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0}>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
       <span><small>Precip</small><b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= 0.05}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
+      {#if snowDepthOverlayActive}
+        <span><small>Snow depth</small><b class="depth-value">{snowDepthLoading ? '…' : formatMapSnowDepthCm(currentSnowDepthCm)}</b></span>
+      {/if}
       <span class="phase-card"><small>Type</small><b>{chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—'}</b></span>
     </div>
 
+    {#if snowDepthOverlayActive}
+      <div class="depth-note">Snow depth is the current Windy Snow depth map value only; no 144 h depth series is inferred.</div>
+    {/if}
     <div class="forecast-summary">{chart.phaseSummary}</div>
     {#if crossing?.summary}<div class="forecast-note">{crossing.summary}</div>{/if}
     <div class="hint">Tap the graph for exact values · crossing marker jumps to that time</div>
@@ -139,6 +145,7 @@
   import { buildProfile, wetBulbZeroHeight } from './snowLevel';
   import { precipMmAt, formatPrecipMm } from './precip';
   import { terrainCrossingState } from './terrainCrossing';
+  import { currentMapSnowDepthCm, formatMapSnowDepthCm } from './mapSnowDepth';
 
   export let point: any;
   export let terrainM: number | null = null;
@@ -151,7 +158,14 @@
   let timestamp = Date.now();
   let realNow = Date.now();
   let timestampListener: number | null = null;
+  let overlayListener: number | null = null;
+  let productListener: number | null = null;
   let realNowTimer: ReturnType<typeof setInterval> | null = null;
+  let snowDepthTimer: ReturnType<typeof setTimeout> | null = null;
+  let snowDepthGeneration = 0;
+  let currentSnowDepthCm: number | null = null;
+  let snowDepthOverlayActive = false;
+  let snowDepthLoading = false;
   let chartShell: HTMLDivElement | null = null;
   let svgEl: SVGSVGElement | null = null;
   let position = { x: 24, y: 68 };
@@ -190,7 +204,7 @@
   function formatTooltipTime(time: number): string { const d = new Date(time); const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }); const hh = String(d.getUTCHours()).padStart(2, '0'); return `${day} ${hh} UTC`; }
   function formatRun(time: number | null | undefined): string { if (!Number.isFinite(Number(time))) return 'ECMWF'; const d = new Date(Number(time)); const hh = String(d.getUTCHours()).padStart(2, '0'); return `ECMWF ${hh}Z`; }
 
-  function clampPosition(x: number, y: number) { const rect = chartShell?.getBoundingClientRect(); const width = rect?.width ?? 430; const height = rect?.height ?? 470; return { x: Math.max(6, Math.min(window.innerWidth - width - 6, x)), y: Math.max(6, Math.min(window.innerHeight - height - 6, y)) }; }
+  function clampPosition(x: number, y: number) { const rect = chartShell?.getBoundingClientRect(); const width = rect?.width ?? 430; const height = rect?.height ?? 490; return { x: Math.max(6, Math.min(window.innerWidth - width - 6, x)), y: Math.max(6, Math.min(window.innerHeight - height - 6, y)) }; }
   function startDrag(event: PointerEvent) { if (!chartShell) return; dragPointerId = event.pointerId; const rect = chartShell.getBoundingClientRect(); dragOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top }; try { (event.currentTarget as HTMLElement)?.setPointerCapture(event.pointerId); } catch {} window.addEventListener('pointermove', dragMove); window.addEventListener('pointerup', stopDrag, { once: true }); event.preventDefault(); event.stopPropagation(); }
   function dragMove(event: PointerEvent) { if (dragPointerId !== event.pointerId) return; position = clampPosition(event.clientX - dragOffset.x, event.clientY - dragOffset.y); }
   function stopDrag(event: PointerEvent) { if (dragPointerId !== event.pointerId) return; dragPointerId = null; window.removeEventListener('pointermove', dragMove); }
@@ -199,6 +213,32 @@
   function resetToNow() { if (!point || !Array.isArray(point.times) || !point.times.length) return; realNow = Date.now(); const idx = nearestIndex(point.times, realNow); setTimeline(point.times[idx], 'Snow forecast could not reset Windy timeline to now'); }
   function clearTooltip() { tooltip = null; }
   function safeFilename(value: string): string { const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); return cleaned || 'selected-point'; }
+
+  function updateSnowDepthOverlayState(): boolean {
+    try {
+      const overlay = store.get('overlay');
+      const product = store.get('product');
+      snowDepthOverlayActive = overlay === 'snowcover' && (!product || product === 'ecmwf');
+    } catch { snowDepthOverlayActive = false; }
+    if (!snowDepthOverlayActive) currentSnowDepthCm = null;
+    return snowDepthOverlayActive;
+  }
+
+  function scheduleCurrentSnowDepth(delay = 260) {
+    const myGeneration = ++snowDepthGeneration;
+    if (snowDepthTimer) { clearTimeout(snowDepthTimer); snowDepthTimer = null; }
+    if (!updateSnowDepthOverlayState()) { snowDepthLoading = false; return; }
+    snowDepthLoading = true;
+    snowDepthTimer = setTimeout(async () => {
+      snowDepthTimer = null;
+      const lat = Number(point?.lat), lon = Number(point?.lon);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) { if (myGeneration === snowDepthGeneration) snowDepthLoading = false; return; }
+      const value = await currentMapSnowDepthCm(lat, lon);
+      if (myGeneration !== snowDepthGeneration) return;
+      currentSnowDepthCm = value;
+      snowDepthLoading = false;
+    }, delay);
+  }
 
   function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, label: string, value: string, accent = '#ffffff') {
     ctx.fillStyle = '#151f26'; ctx.strokeStyle = '#263640'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(x, y, w, 88, 12); ctx.fill(); ctx.stroke();
@@ -236,7 +276,7 @@
       const serialized = new XMLSerializer().serializeToString(clone); const svgBlob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' }); const url = URL.createObjectURL(svgBlob); const image = new Image();
       await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('PNG image render failed')); image.src = url; });
 
-      const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1280; const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas unavailable');
+      const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1310; const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas unavailable');
       ctx.fillStyle = '#0d151b'; ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = '#fff'; ctx.font = '700 42px Arial'; ctx.fillText('Snow forecast', 44, 58);
       ctx.fillStyle = '#d4dde4'; ctx.font = '23px Arial'; ctx.fillText(placeName || 'Selected point', 44, 94);
@@ -248,15 +288,20 @@
       ctx.font = '19px Arial'; ctx.fillText('❄ Snow ≥ snowline   ·   🌨 Mix 0–100 m below   ·   🌧 Rain >100 m below', 44, 1054);
       ctx.fillStyle = '#7f909b'; ctx.font = '16px Arial'; ctx.fillText('Shown only when precipitation is ≥0.1 mm/3h', 44, 1081);
 
-      const cardGap = 12, cardW = (992 - 3 * cardGap) / 4, cardY = 1104;
+      const hasDepth = snowDepthOverlayActive && currentSnowDepthCm !== null;
+      const cards = hasDepth ? 5 : 4;
+      const cardGap = 10, cardW = (992 - (cards - 1) * cardGap) / cards, cardY = 1104;
       const delta = chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—';
-      drawCard(ctx, 44, cardY, cardW, 'Snowline', chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—', '#65d5ff');
-      drawCard(ctx, 44 + (cardW + cardGap), cardY, cardW, 'Terrain Δ', delta, chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0 ? '#ffae56' : '#65d5ff');
-      drawCard(ctx, 44 + 2 * (cardW + cardGap), cardY, cardW, 'Precip', chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—', '#65d5ff');
-      drawCard(ctx, 44 + 3 * (cardW + cardGap), cardY, cardW, 'Type', chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—', '#ffffff');
+      let cardIndex = 0;
+      drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Snowline', chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—', '#65d5ff');
+      drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Terrain Δ', delta, chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0 ? '#ffae56' : '#65d5ff');
+      drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Precip', chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—', '#65d5ff');
+      if (hasDepth) drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Snow depth', formatMapSnowDepthCm(currentSnowDepthCm), '#8de39a');
+      drawCard(ctx, 44 + cardIndex * (cardW + cardGap), cardY, cardW, 'Type', chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—', '#ffffff');
 
       ctx.fillStyle = '#d8e4ec'; ctx.font = '700 20px Arial'; ctx.textAlign = 'center'; ctx.fillText(chart.phaseSummary, 540, 1222); ctx.textAlign = 'left';
-      if (crossing?.summary) { ctx.fillStyle = '#ffe05b'; ctx.font = '18px Arial'; ctx.textAlign = 'center'; ctx.fillText(crossing.summary, 540, 1250); ctx.textAlign = 'left'; }
+      if (hasDepth) { ctx.fillStyle = '#8de39a'; ctx.font = '16px Arial'; ctx.textAlign = 'center'; ctx.fillText('Snow depth: current Windy Snow depth map timestep (channel 0), not a generated time series.', 540, 1252); ctx.textAlign = 'left'; }
+      if (crossing?.summary) { ctx.fillStyle = '#ffe05b'; ctx.font = '18px Arial'; ctx.textAlign = 'center'; ctx.fillText(crossing.summary, 540, hasDepth ? 1280 : 1250); ctx.textAlign = 'left'; }
       const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG export failed')), 'image/png'));
       await savePngBlob(png, `snow-forecast-${safeFilename(placeName || 'selected-point')}.png`);
     } catch (e) { console.warn('Snow forecast PNG export failed', e); }
@@ -321,9 +366,24 @@
   onMount(() => {
     const width = Math.min(430, window.innerWidth - 20); position = { x: Math.max(6, (window.innerWidth - width) / 2), y: window.innerWidth <= 520 ? 36 : 54 };
     realNow = Date.now(); realNowTimer = setInterval(() => { realNow = Date.now(); }, 30_000);
-    try { const current = store.get('timestamp'); if (typeof current === 'number' && Number.isFinite(current)) timestamp = current; timestampListener = store.on('timestamp', (value: any) => { const next = Number(value); if (Number.isFinite(next)) timestamp = next; }); } catch {}
+    try {
+      const current = store.get('timestamp'); if (typeof current === 'number' && Number.isFinite(current)) timestamp = current;
+      timestampListener = store.on('timestamp', (value: any) => { const next = Number(value); if (Number.isFinite(next)) timestamp = next; scheduleCurrentSnowDepth(320); });
+    } catch {}
+    try { overlayListener = store.on('overlay', () => scheduleCurrentSnowDepth(320)); } catch {}
+    try { productListener = store.on('product', () => scheduleCurrentSnowDepth(320)); } catch {}
+    scheduleCurrentSnowDepth(420);
   });
-  onDestroy(() => { window.removeEventListener('pointermove', dragMove); if (realNowTimer) clearInterval(realNowTimer); if (timestampListener !== null) try { store.off(timestampListener); } catch {} });
+
+  onDestroy(() => {
+    snowDepthGeneration += 1;
+    if (snowDepthTimer) clearTimeout(snowDepthTimer);
+    window.removeEventListener('pointermove', dragMove);
+    if (realNowTimer) clearInterval(realNowTimer);
+    if (timestampListener !== null) try { store.off(timestampListener); } catch {}
+    if (overlayListener !== null) try { store.off(overlayListener); } catch {}
+    if (productListener !== null) try { store.off(productListener); } catch {}
+  });
 </script>
 
 <style lang="less">
@@ -349,8 +409,10 @@
   .plot-tooltip { position: absolute; z-index: 4; min-width: 164px; transform: translateX(-50%); padding: 7px 9px; border-radius: 8px; background: rgba(5,12,17,0.985); border: 1px solid rgba(98,213,255,0.28); box-shadow: 0 7px 20px rgba(0,0,0,0.44); pointer-events: none; }
   .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; } .plot-tooltip b { font-size: 8.9px; color: white; margin-bottom: 2px; } .plot-tooltip span { margin-top: 1px; font-size: 7.8px; color: rgba(255,255,255,0.75); } .tooltip-phase { margin-top: 3px !important; font-weight: 800; } .phase-text-snow { color: #74dcff !important; } .phase-text-mix { color: #e8df73 !important; } .phase-text-rain { color: #8caaff !important; }
   .phase-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 2px 3px 6px; color: rgba(255,255,255,.72); font-size: 7.4px; } .phase-legend span { white-space: nowrap; } .phase-legend small { color: rgba(255,255,255,.35); font-size: 6.7px; }
-  .chart-foot { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 2px; } .chart-foot span { padding: 6px 2px 5px; border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; background: rgba(255,255,255,0.043); text-align: center; min-width: 0; } .chart-foot small { display: block; color: rgba(255,255,255,0.45); font-size: 6.2px; } .chart-foot b { display: block; margin-top: 1px; color: white; font-size: 7.8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .chart-foot b.positive { color: #65d5ff; } .chart-foot b.negative { color: #ffae56; } .chart-foot b.wet { color: #65d5ff; } .phase-card b { font-size: 7.4px; }
+  .chart-foot { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 2px; } .chart-foot.with-depth { grid-template-columns: repeat(5, 1fr); }
+  .chart-foot span { padding: 6px 2px 5px; border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; background: rgba(255,255,255,0.043); text-align: center; min-width: 0; } .chart-foot small { display: block; color: rgba(255,255,255,0.45); font-size: 6.2px; } .chart-foot b { display: block; margin-top: 1px; color: white; font-size: 7.8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .chart-foot b.positive { color: #65d5ff; } .chart-foot b.negative { color: #ffae56; } .chart-foot b.wet { color: #65d5ff; } .chart-foot b.depth-value { color: #8de39a; } .phase-card b { font-size: 7.4px; }
+  .depth-note { margin-top: 4px; color: rgba(141,227,154,.72); font-size: 6.7px; line-height: 1.2; text-align: center; }
   .forecast-summary { margin-top: 6px; padding: 5px 7px; border-radius: 7px; background: rgba(98,213,255,0.065); border: 1px solid rgba(98,213,255,0.10); color: rgba(224,239,247,0.86); font-size: 7.8px; font-weight: 700; text-align: center; }
   .forecast-note { margin-top: 4px; padding: 3px 6px; border-radius: 6px; background: rgba(255,224,91,0.055); color: rgba(255,224,91,0.86); font-size: 7.4px; text-align: center; } .hint { margin-top: 4px; color: rgba(255,255,255,0.32); font-size: 6.8px; text-align: center; } .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
-  @media (max-width: 520px) { .chart-shell { width: calc(100vw - 12px); padding: 9px; border-radius: 12px; } .place-line, .meta-line { max-width: 175px; } .plot-tooltip { min-width: 142px; } .chart-head button { padding: 0 5px; } .chart-foot { gap: 3px; } .chart-foot small { font-size: 5.8px; } .chart-foot b { font-size: 7px; } .phase-legend { gap: 4px 7px; } }
+  @media (max-width: 520px) { .chart-shell { width: calc(100vw - 12px); padding: 9px; border-radius: 12px; } .place-line, .meta-line { max-width: 175px; } .plot-tooltip { min-width: 142px; } .chart-head button { padding: 0 5px; } .chart-foot { gap: 3px; } .chart-foot.with-depth { grid-template-columns: repeat(5, minmax(0, 1fr)); } .chart-foot small { font-size: 5.4px; } .chart-foot b { font-size: 6.7px; } .phase-legend { gap: 4px 7px; } }
 </style>
