@@ -6,38 +6,44 @@
       <em>{validLabel}</em>
     </div>
     <div class="actions">
+      <button class="png" type="button" title="Download sounding PNG" aria-label="Download sounding PNG" disabled={pngBusy} on:click={downloadPng}>{pngBusy ? '…' : 'PNG'}</button>
+      <button type="button" title="Zoom out" aria-label="Zoom out" on:click={() => setZoom(zoom - 0.2)}>−</button>
+      <button class="zoom-readout" type="button" title="Reset zoom" aria-label="Reset zoom" on:click={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
+      <button type="button" title="Zoom in" aria-label="Zoom in" on:click={() => setZoom(zoom + 0.2)}>+</button>
       <button class="drag" type="button" title="Drag sounding" aria-label="Drag sounding" on:pointerdown={startDrag}>↕</button>
       <button type="button" title="Close" aria-label="Close sounding" on:click={() => dispatch('close')}>×</button>
     </div>
   </div>
 
   {#if sounding}
-    <svg viewBox="0 0 330 390" role="img" aria-label="Temperature, dew point and wet-bulb vertical profile">
-      <rect x="48" y="22" width="262" height="320" rx="9" class="plot-bg" />
-      {#each sounding.tempGrid as g}
-        <line x1={g.x} x2={g.x} y1="22" y2="342" class:zero={g.value === 0} class="temp-grid" />
-        <text x={g.x} y="360" text-anchor="middle" class="axis">{g.value}°</text>
-      {/each}
-      {#each sounding.pressureGrid as g}
-        <line x1="48" x2="310" y1={g.y} y2={g.y} class="pressure-grid" />
-        <text x="42" y={g.y + 3} text-anchor="end" class="axis">{g.label}</text>
-      {/each}
+    <div class="sounding-viewport" on:wheel|preventDefault={handleWheel}>
+      <svg bind:this={svgEl} viewBox="0 0 330 390" role="img" aria-label="Temperature, dew point and wet-bulb vertical profile" style={`width:${zoom * 100}%;`}>
+        <rect x="48" y="22" width="262" height="320" rx="9" class="plot-bg" />
+        {#each sounding.tempGrid as g}
+          <line x1={g.x} x2={g.x} y1="22" y2="342" class:zero={g.value === 0} class="temp-grid" />
+          <text x={g.x} y="360" text-anchor="middle" class="axis">{g.value}°</text>
+        {/each}
+        {#each sounding.pressureGrid as g}
+          <line x1="48" x2="310" y1={g.y} y2={g.y} class="pressure-grid" />
+          <text x="42" y={g.y + 3} text-anchor="end" class="axis">{g.label}</text>
+        {/each}
 
-      {#if sounding.terrainY !== null}
-        <rect x="48" y={sounding.terrainY} width="262" height={Math.max(0, 342 - sounding.terrainY)} class="terrain-zone" />
-        <line x1="48" x2="310" y1={sounding.terrainY} y2={sounding.terrainY} class="terrain-line" />
-        <text x="306" y={Math.max(31, sounding.terrainY - 4)} text-anchor="end" class="terrain-text">terrain</text>
-      {/if}
+        {#if sounding.terrainY !== null}
+          <rect x="48" y={sounding.terrainY} width="262" height={Math.max(0, 342 - sounding.terrainY)} class="terrain-zone" />
+          <line x1="48" x2="310" y1={sounding.terrainY} y2={sounding.terrainY} class="terrain-line" />
+          <text x="306" y={Math.max(31, sounding.terrainY - 4)} text-anchor="end" class="terrain-text">terrain</text>
+        {/if}
 
-      <polyline points={sounding.tempPoints} class="temp-line" />
-      <polyline points={sounding.dewPoints} class="dew-line" />
-      <polyline points={sounding.wetBulbPoints} class="wetbulb-line" />
+        <polyline points={sounding.tempPoints} class="temp-line" />
+        <polyline points={sounding.dewPoints} class="dew-line" />
+        <polyline points={sounding.wetBulbPoints} class="wetbulb-line" />
 
-      {#each sounding.nodes as n}
-        <circle cx={n.tx} cy={n.y} r="2.1" class="temp-dot" />
-        <circle cx={n.dx} cy={n.y} r="2" class="dew-dot" />
-      {/each}
-    </svg>
+        {#each sounding.nodes as n}
+          <circle cx={n.tx} cy={n.y} r="2.1" class="temp-dot" />
+          <circle cx={n.dx} cy={n.y} r="2" class="dew-dot" />
+        {/each}
+      </svg>
+    </div>
 
     <div class="key">
       <span><i class="t"></i>Temp</span>
@@ -51,7 +57,7 @@
       <span><small>Warm energy</small><b>{sounding.warmEnergy}</b></span>
       <span><small>Cold energy</small><b>{sounding.coldEnergy}</b></span>
     </div>
-    <div class="hint">ECMWF profile · Windy local terrain · selected forecast time</div>
+    <div class="hint">Wheel or +/- to zoom · click % to reset · selected forecast time</div>
   {:else}
     <div class="empty">Sounding unavailable for this forecast time.</div>
   {/if}
@@ -71,9 +77,12 @@
   let timestamp = Date.now();
   let timestampListener: number | null = null;
   let shell: HTMLDivElement | null = null;
+  let svgEl: SVGSVGElement | null = null;
   let position = { x: 24, y: 64 };
   let dragPointerId: number | null = null;
   let dragOffset = { x: 0, y: 0 };
+  let zoom = 1;
+  let pngBusy = false;
 
   type SoundingData = {
     tempPoints: string; dewPoints: string; wetBulbPoints: string;
@@ -93,10 +102,36 @@
     const t = p.times[nearestIndex(p.times, target)], d = new Date(t);
     return `${d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · ${String(d.getUTCHours()).padStart(2, '0')} UTC`;
   }
-  function clampPosition(x: number, y: number) { const rect = shell?.getBoundingClientRect(); const w = rect?.width ?? 360, h = rect?.height ?? 500; return { x: Math.max(6, Math.min(window.innerWidth - w - 6, x)), y: Math.max(6, Math.min(window.innerHeight - h - 6, y)) }; }
+  function clampPosition(x: number, y: number) { const rect = shell?.getBoundingClientRect(); const w = rect?.width ?? 390, h = rect?.height ?? 520; return { x: Math.max(6, Math.min(window.innerWidth - w - 6, x)), y: Math.max(6, Math.min(window.innerHeight - h - 6, y)) }; }
   function startDrag(event: PointerEvent) { if (!shell) return; dragPointerId = event.pointerId; const rect = shell.getBoundingClientRect(); dragOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top }; window.addEventListener('pointermove', dragMove); window.addEventListener('pointerup', stopDrag, { once: true }); event.preventDefault(); }
   function dragMove(event: PointerEvent) { if (event.pointerId === dragPointerId) position = clampPosition(event.clientX - dragOffset.x, event.clientY - dragOffset.y); }
   function stopDrag(event: PointerEvent) { if (event.pointerId === dragPointerId) dragPointerId = null; window.removeEventListener('pointermove', dragMove); }
+  function setZoom(value: number) { zoom = Math.max(0.8, Math.min(2.4, Math.round(value * 10) / 10)); }
+  function handleWheel(event: WheelEvent) { setZoom(zoom + (event.deltaY < 0 ? 0.1 : -0.1)); }
+
+  async function downloadPng() {
+    if (!svgEl || pngBusy) return;
+    pngBusy = true;
+    try {
+      const clone = svgEl.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      clone.setAttribute('width', '1320'); clone.setAttribute('height', '1560');
+      const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+      style.textContent = 'text{font-family:Arial,sans-serif}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:#392716;opacity:.32}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.temp-grid{stroke:#2a3c46}.temp-grid.zero{stroke:#75caef;stroke-width:1.3}.pressure-grid{stroke:#2a3c46}.axis{fill:#94a7b1;font-size:7px}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}';
+      clone.insertBefore(style, clone.firstChild);
+      const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob), img = new Image();
+      await new Promise<void>((resolve, reject) => { img.onload = () => resolve(); img.onerror = () => reject(new Error('Sounding image failed')); img.src = url; });
+      const canvas = document.createElement('canvas'); canvas.width = 1320; canvas.height = 1760; const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('No canvas');
+      ctx.fillStyle = '#0b141a'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#fff'; ctx.font = '700 48px Arial'; ctx.fillText('Wintry forecast · sounding', 54, 70);
+      ctx.fillStyle = '#c3d0d7'; ctx.font = '26px Arial'; ctx.fillText(placeName || 'Selected point', 54, 112);
+      ctx.fillStyle = '#6ecdf2'; ctx.font = '22px Arial'; ctx.fillText(validLabel, 54, 148);
+      ctx.drawImage(img, 0, 170, 1320, 1560); URL.revokeObjectURL(url);
+      const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(v => v ? resolve(v) : reject(new Error('PNG failed')), 'image/png'));
+      const href = URL.createObjectURL(png), a = document.createElement('a'); a.href = href; a.download = `wintry-sounding-${(placeName || 'point').toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(href), 30000);
+    } catch (e) { console.warn('Wintry forecast sounding PNG failed', e); } finally { pngBusy = false; }
+  }
 
   function buildSounding(p: any, terrain: number | null, target: number): SoundingData | null {
     if (!p?.times?.length) return null;
@@ -134,17 +169,17 @@
   }
 
   onMount(() => {
-    const width = Math.min(360, window.innerWidth - 12); position = { x: Math.max(6, window.innerWidth - width - 16), y: window.innerWidth <= 520 ? 38 : 66 };
+    const width = Math.min(390, window.innerWidth - 12); position = { x: Math.max(6, window.innerWidth - width - 16), y: window.innerWidth <= 520 ? 38 : 66 };
     try { const t = store.get('timestamp'); if (typeof t === 'number') timestamp = t; timestampListener = store.on('timestamp', (v: any) => { const n = Number(v); if (Number.isFinite(n)) timestamp = n; }); } catch {}
   });
   onDestroy(() => { window.removeEventListener('pointermove', dragMove); if (timestampListener !== null) try { store.off(timestampListener); } catch {} });
 </script>
 
 <style lang="less">
-  .sounding-shell{position:fixed;z-index:10025;width:min(360px,calc(100vw - 12px));padding:10px 11px;border:1px solid rgba(139,213,244,.34);border-radius:13px;background:linear-gradient(180deg,rgba(14,23,30,.995),rgba(8,15,20,.995));color:#fff;box-shadow:0 16px 42px rgba(0,0,0,.56)}
-  .head{display:flex;justify-content:space-between;gap:10px}.head>div:first-child{min-width:0}.head b{display:block;font-size:14px}.head small,.head em{display:block;max-width:235px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal}.head small{margin-top:2px;color:#a8b7c0;font-size:8px}.head em{margin-top:2px;color:#6ecdf2;font-size:7.5px}.actions{display:flex;gap:4px}.actions button{width:27px;height:27px;padding:0;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.07);color:#fff;font-size:14px;font-weight:800}.drag{cursor:grab;touch-action:none}
-  svg{display:block;width:100%;height:auto;margin-top:6px}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:rgba(255,174,86,.08)}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.temp-grid{stroke:rgba(154,181,196,.10)}.temp-grid.zero{stroke:rgba(117,202,239,.5);stroke-width:1.3}.pressure-grid{stroke:rgba(154,181,196,.12)}.axis{fill:#758995;font-size:7px;font-family:sans-serif}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}
-  .key{display:flex;flex-wrap:wrap;gap:5px 10px;margin:2px 2px 6px;color:#a0b0ba;font-size:7px}.key span{display:flex;align-items:center;gap:4px}.key i{display:inline-block;width:13px;border-top:2px solid}.key .t{border-color:#ff765f}.key .d{border-color:#72d98b}.key .w{border-color:#69d4ff;border-top-style:dashed}.key .z{border-color:#75caef}
+  .sounding-shell{position:fixed;z-index:10025;width:min(390px,calc(100vw - 12px));padding:10px 11px;border:1px solid rgba(139,213,244,.34);border-radius:13px;background:linear-gradient(180deg,rgba(14,23,30,.995),rgba(8,15,20,.995));color:#fff;box-shadow:0 16px 42px rgba(0,0,0,.56)}
+  .head{display:flex;justify-content:space-between;gap:8px}.head>div:first-child{min-width:0;flex:1}.head b{display:block;font-size:14px}.head small,.head em{display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal}.head small{margin-top:2px;color:#a8b7c0;font-size:8px}.head em{margin-top:2px;color:#6ecdf2;font-size:7.5px}.actions{display:flex;gap:3px;align-items:flex-start}.actions button{min-width:25px;height:27px;padding:0 5px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.07);color:#fff;font-size:13px;font-weight:800;cursor:pointer}.actions button:hover{background:rgba(105,212,255,.14)}.actions .png{font-size:7px;padding:0 6px}.actions .zoom-readout{min-width:43px;font-size:7px}.drag{cursor:grab!important;touch-action:none}
+  .sounding-viewport{max-height:430px;overflow:auto;margin-top:6px;border-radius:9px;overscroll-behavior:contain}.sounding-viewport svg{display:block;min-width:100%;height:auto;margin:0;transform-origin:top left}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:rgba(255,174,86,.08)}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.temp-grid{stroke:rgba(154,181,196,.10)}.temp-grid.zero{stroke:rgba(117,202,239,.5);stroke-width:1.3}.pressure-grid{stroke:rgba(154,181,196,.12)}.axis{fill:#758995;font-size:7px;font-family:sans-serif}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}
+  .key{display:flex;flex-wrap:wrap;gap:5px 10px;margin:4px 2px 6px;color:#a0b0ba;font-size:7px}.key span{display:flex;align-items:center;gap:4px}.key i{display:inline-block;width:13px;border-top:2px solid}.key .t{border-color:#ff765f}.key .d{border-color:#72d98b}.key .w{border-color:#69d4ff;border-top-style:dashed}.key .z{border-color:#75caef}
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}.stats span{padding:5px 2px;border-radius:7px;background:rgba(255,255,255,.04);text-align:center}.stats small{display:block;color:#71838e;font-size:5.6px}.stats b{display:block;margin-top:2px;font-size:6.7px;white-space:nowrap}.hint{margin-top:6px;color:#60717b;font-size:6.4px;text-align:center}.empty{padding:30px 8px;text-align:center;color:#82939d;font-size:9px}
-  @media(max-width:520px){.sounding-shell{width:calc(100vw - 12px);padding:9px}.stats b{font-size:6.3px}}
+  @media(max-width:520px){.sounding-shell{width:calc(100vw - 12px);padding:9px}.head small,.head em{max-width:125px}.stats b{font-size:6.3px}.sounding-viewport{max-height:55vh}.actions{gap:2px}.actions button{min-width:24px;height:26px}.actions .zoom-readout{min-width:38px}}
 </style>
