@@ -27,15 +27,14 @@
       <span><i class="snowline-chart-key-line now-key"></i> Now</span>
       {#if crossing?.crossingTime}<span><i class="snowline-chart-key-cross"></i> Crossing</span>{/if}
       <span><i class="snowline-chart-key-bar"></i> Precipitation</span>
-      <span><i class="snowline-chart-key-depth"></i> Modelled snow depth</span>
     </div>
 
     <div class="plot-wrap">
       <svg
         bind:this={svgEl}
-        viewBox="0 0 360 320"
+        viewBox="0 0 360 270"
         role="img"
-        aria-label="Snowline, terrain, precipitation, modelled snow depth and precipitation type through forecast time"
+        aria-label="Snowline, terrain, precipitation and precipitation type through forecast time"
         on:pointermove={handlePlotPointer}
         on:pointerdown={handlePlotPointer}
         on:pointerleave={clearTooltip}
@@ -66,37 +65,24 @@
           <text x="195" y="175" text-anchor="middle" class="empty-band">No measurable precipitation</text>
         {/if}
 
-        <text x="42" y="202" class="section-label depth-label">MODELLED SNOW DEPTH <tspan class="unit">cm</tspan></text>
-        <rect x="42" y="208" width="306" height="36" rx="7" class="lower-bg" />
-        {#if chart.hasSnowDepth}
-          <text x="37" y="213" text-anchor="end" class="axis depth-axis">{chart.snowDepthMaxLabel}</text>
-          <text x="37" y="245" text-anchor="end" class="axis">0</text>
-          {#each chart.snowDepthBars as bar}
-            <rect x={bar.x} y={bar.y} width={bar.width} height={bar.height} rx="1.4" class="snow-depth-bar" />
-          {/each}
-        {:else}
-          <text x="195" y="225" text-anchor="middle" class="empty-band">Snow depth not supplied in point forecast</text>
-          <text x="195" y="235" text-anchor="middle" class="empty-band subtle">No map-layer activation required</text>
-        {/if}
-
-        <text x="42" y="260" class="section-label phase-label">PRECIPITATION TYPE <tspan class="unit">terrain vs snowline</tspan></text>
-        <rect x="42" y="266" width="306" height="27" rx="7" class="phase-bg" />
+        <text x="42" y="202" class="section-label phase-label">PRECIPITATION TYPE <tspan class="unit">terrain vs snowline</tspan></text>
+        <rect x="42" y="208" width="306" height="27" rx="7" class="phase-bg" />
         {#each chart.phaseBlocks as block}
-          <rect x={block.x} y="267" width={block.width} height="25" rx="5" class={`phase-block phase-${block.kind}`} />
-          <text x={block.x + block.width / 2} y="285" text-anchor="middle" class="phase-icon">{block.icon}</text>
+          <rect x={block.x} y="209" width={block.width} height="25" rx="5" class={`phase-block phase-${block.kind}`} />
+          <text x={block.x + block.width / 2} y="227" text-anchor="middle" class="phase-icon">{block.icon}</text>
         {/each}
         {#if !chart.phaseBlocks.length}
-          <text x="195" y="284" text-anchor="middle" class="empty-band">No precipitation phase to classify</text>
+          <text x="195" y="226" text-anchor="middle" class="empty-band">No precipitation phase to classify</text>
         {/if}
 
         {#if chart.nowX !== null}
-          <line x1={chart.nowX} x2={chart.nowX} y1="18" y2="293" class="now-line" />
+          <line x1={chart.nowX} x2={chart.nowX} y1="18" y2="235" class="now-line" />
           <rect x={Math.max(43, Math.min(322, chart.nowX - 13))} y="20" width="26" height="12" rx="3" class="now-tag-bg" />
           <text x={Math.max(56, Math.min(335, chart.nowX))} y="29" text-anchor="middle" class="now-tag">Now</text>
         {/if}
 
         {#if chart.currentX !== null && chart.currentY !== null}
-          <line x1={chart.currentX} x2={chart.currentX} y1="18" y2="293" class="cursor" />
+          <line x1={chart.currentX} x2={chart.currentX} y1="18" y2="235" class="cursor" />
           <circle cx={chart.currentX} cy={chart.currentY} r="4.4" class="current-dot" />
         {/if}
 
@@ -106,13 +92,13 @@
         {/if}
 
         {#if tooltip}
-          <line x1={tooltip.x} x2={tooltip.x} y1="18" y2="293" class="inspect-line" />
+          <line x1={tooltip.x} x2={tooltip.x} y1="18" y2="235" class="inspect-line" />
           {#if tooltip.snowlineY !== null}<circle cx={tooltip.x} cy={tooltip.snowlineY} r="3.8" class="inspect-dot" />{/if}
         {/if}
 
-        <text x="42" y="312" text-anchor="start" class="axis">{chart.startLabel}</text>
-        <text x="195" y="312" text-anchor="middle" class="axis">+72 h</text>
-        <text x="348" y="312" text-anchor="end" class="axis">+144 h</text>
+        <text x="42" y="261" text-anchor="start" class="axis">{chart.startLabel}</text>
+        <text x="195" y="261" text-anchor="middle" class="axis">+72 h</text>
+        <text x="348" y="261" text-anchor="end" class="axis">+144 h</text>
       </svg>
 
       {#if tooltip}
@@ -122,7 +108,6 @@
           {#if terrainM !== null}<span>Terrain {Math.round(terrainM / 10) * 10} m</span>{/if}
           {#if tooltip.terrainDifference !== null}<span>Terrain − snowline {tooltip.terrainDifference >= 0 ? '+' : ''}{tooltip.terrainDifference} m</span>{/if}
           <span>Precipitation {tooltip.precip !== null ? `${formatPrecipMm(tooltip.precip)} mm/3h` : '—'}</span>
-          <span>Modelled snow depth {tooltip.snowDepth !== null ? `${formatSnowDepthCm(tooltip.snowDepth)} cm` : '—'}</span>
           {#if tooltip.phase}<span class={`tooltip-phase phase-text-${tooltip.phase.kind}`}>{tooltip.phase.icon} {tooltip.phase.label}</span>{/if}
           {#if tooltip.tendency}<span>Snowline tendency {tooltip.tendency}</span>{/if}
         </div>
@@ -137,7 +122,6 @@
       <span><small>Snowline</small><b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span><small>Terrain Δ</small><b class:positive={chart.currentTerrainDifference !== null && chart.currentTerrainDifference > 0} class:negative={chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0}>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
       <span><small>Precip</small><b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= 0.05}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
-      <span><small>Modelled depth</small><b class="depth-value">{chart.currentSnowDepth !== null ? `${formatSnowDepthCm(chart.currentSnowDepth)} cm` : '—'}</b></span>
       <span class="phase-card"><small>Type</small><b>{chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—'}</b></span>
     </div>
 
@@ -154,7 +138,6 @@
   import store from '@windy/store';
   import { buildProfile, wetBulbZeroHeight } from './snowLevel';
   import { precipMmAt, formatPrecipMm } from './precip';
-  import { snowDepthCmAt, formatSnowDepthCm } from './snowDepth';
   import { terrainCrossingState } from './terrainCrossing';
 
   export let point: any;
@@ -176,16 +159,16 @@
   let dragOffset = { x: 0, y: 0 };
   let tooltip: TooltipData | null = null;
 
-  type Bar = { x: number; y: number; width: number; height: number; mm?: number; cm?: number };
+  type Bar = { x: number; y: number; width: number; height: number; mm?: number };
   type PhaseKind = 'snow' | 'mix' | 'rain';
   type Phase = { kind: PhaseKind; icon: string; label: string };
   type PhaseBlock = { x: number; width: number; kind: PhaseKind; icon: string };
-  type TooltipData = { x: number; cssX: number; cssY: number; snowlineY: number | null; snowline: number | null; terrainDifference: number | null; precip: number | null; snowDepth: number | null; phase: Phase | null; tendency: string; timeLabel: string; };
+  type TooltipData = { x: number; cssX: number; cssY: number; snowlineY: number | null; snowline: number | null; terrainDifference: number | null; precip: number | null; phase: Phase | null; tendency: string; timeLabel: string; };
   type ChartData = {
     points: string; terrainY: number | null; currentX: number | null; currentY: number | null; nowX: number | null; crossingX: number | null;
     minLabel: string; midLabel: string; maxLabel: string; startLabel: string; currentSnowline: number | null; currentTerrainDifference: number | null;
-    currentPrecip: number | null; currentSnowDepth: number | null; currentPhase: Phase | null; precipBars: Bar[]; snowDepthBars: Bar[]; hasPrecip: boolean; hasSnowDepth: boolean;
-    precipMaxLabel: string; snowDepthMaxLabel: string; minScale: number; maxScale: number; validLabel: string; currentIndex: number; phaseBlocks: PhaseBlock[]; phaseSummary: string;
+    currentPrecip: number | null; currentPhase: Phase | null; precipBars: Bar[]; hasPrecip: boolean;
+    precipMaxLabel: string; minScale: number; maxScale: number; validLabel: string; currentIndex: number; phaseBlocks: PhaseBlock[]; phaseSummary: string;
   };
 
   $: crossing = terrainCrossingState(point, terrainM, timestamp);
@@ -193,7 +176,6 @@
 
   function nearestIndex(times: number[], target: number): number { let best = 0, distance = Infinity; times.forEach((time, index) => { const d = Math.abs(time - target); if (d < distance) { best = index; distance = d; } }); return best; }
   function snowlineAt(p: any, index: number): number | null { try { const result = wetBulbZeroHeight(buildProfile(p.forecast, index)); return result.snowLevelM !== null && Number.isFinite(result.snowLevelM) ? result.snowLevelM : null; } catch { return null; } }
-  function modelDepthAt(p: any, index: number): number | null { return snowDepthCmAt(p.forecast, index); }
   function phaseAt(p: any, terrain: number | null, index: number): Phase | null {
     if (terrain === null || !Number.isFinite(terrain)) return null;
     const precip = precipMmAt(p.forecast, index); if (precip === null || precip < PHASE_PRECIP_THRESHOLD) return null;
@@ -208,7 +190,7 @@
   function formatTooltipTime(time: number): string { const d = new Date(time); const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }); const hh = String(d.getUTCHours()).padStart(2, '0'); return `${day} ${hh} UTC`; }
   function formatRun(time: number | null | undefined): string { if (!Number.isFinite(Number(time))) return 'ECMWF'; const d = new Date(Number(time)); const hh = String(d.getUTCHours()).padStart(2, '0'); return `ECMWF ${hh}Z`; }
 
-  function clampPosition(x: number, y: number) { const rect = chartShell?.getBoundingClientRect(); const width = rect?.width ?? 430; const height = rect?.height ?? 520; return { x: Math.max(6, Math.min(window.innerWidth - width - 6, x)), y: Math.max(6, Math.min(window.innerHeight - height - 6, y)) }; }
+  function clampPosition(x: number, y: number) { const rect = chartShell?.getBoundingClientRect(); const width = rect?.width ?? 430; const height = rect?.height ?? 470; return { x: Math.max(6, Math.min(window.innerWidth - width - 6, x)), y: Math.max(6, Math.min(window.innerHeight - height - 6, y)) }; }
   function startDrag(event: PointerEvent) { if (!chartShell) return; dragPointerId = event.pointerId; const rect = chartShell.getBoundingClientRect(); dragOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top }; try { (event.currentTarget as HTMLElement)?.setPointerCapture(event.pointerId); } catch {} window.addEventListener('pointermove', dragMove); window.addEventListener('pointerup', stopDrag, { once: true }); event.preventDefault(); event.stopPropagation(); }
   function dragMove(event: PointerEvent) { if (dragPointerId !== event.pointerId) return; position = clampPosition(event.clientX - dragOffset.x, event.clientY - dragOffset.y); }
   function stopDrag(event: PointerEvent) { if (dragPointerId !== event.pointerId) return; dragPointerId = null; window.removeEventListener('pointermove', dragMove); }
@@ -238,9 +220,7 @@
     }
     const pngUrl = URL.createObjectURL(png);
     const link = document.createElement('a'); link.href = pngUrl; link.download = filename; link.rel = 'noopener'; document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    if (isMobileLike) {
-      setTimeout(() => { try { window.open(pngUrl, '_blank', 'noopener'); } catch {} }, 80);
-    }
+    if (isMobileLike) setTimeout(() => { try { window.open(pngUrl, '_blank', 'noopener'); } catch {} }, 80);
     setTimeout(() => URL.revokeObjectURL(pngUrl), 5000);
   }
 
@@ -248,40 +228,35 @@
     if (!svgEl || !chart) return;
     try {
       const clone = svgEl.cloneNode(true) as SVGSVGElement;
-      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg'); clone.setAttribute('width', '1080'); clone.setAttribute('height', '960');
+      clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg'); clone.setAttribute('width', '1080'); clone.setAttribute('height', '810');
       clone.querySelectorAll('.inspect-line,.inspect-dot').forEach(node => node.remove());
       const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-      style.textContent = `.plot-bg{fill:#17222b;stroke:#344957;stroke-width:1}.lower-bg,.phase-bg{fill:#101920;stroke:#2b3d48;stroke-width:.8}.snow-zone{fill:#103746}.grid{stroke:#334752;stroke-width:1}.axis{fill:#b4c0c9;font-size:8px;font-family:Arial,sans-serif}.section-label{fill:#d8e4ec;font-size:7px;font-family:Arial,sans-serif;font-weight:700;letter-spacing:.35px}.unit{fill:#8395a2;font-weight:400}.precip-label,.precip-axis{fill:#64d4f5}.depth-label,.depth-axis{fill:#8de39a}.phase-label{fill:#e8d86d}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.snowline-line{fill:none;stroke:#65d5ff;stroke-width:2.6}.now-line{stroke:#ff6658;stroke-width:1.35}.now-tag-bg{fill:#ff6658}.now-tag{fill:#fff;font-size:7px;font-family:Arial,sans-serif;font-weight:800}.cursor{stroke:#dce7ee;stroke-width:1;stroke-dasharray:2 3}.current-dot{fill:#fff;stroke:#65d5ff;stroke-width:2.3}.crossing-line{stroke:#ffe05b;stroke-width:1.35;stroke-dasharray:3 3}.crossing-dot{fill:#12191f;stroke:#ffe05b;stroke-width:2.2}.precip-bar{fill:#3b90ac}.precip-bar.wet{fill:#5ec8e9}.snow-depth-bar{fill:#74ce85}.phase-block{opacity:.28}.phase-snow{fill:#64d4f5}.phase-mix{fill:#d9d467}.phase-rain{fill:#678eff}.phase-icon{fill:#fff;font-size:10px;font-family:'Segoe UI Emoji','Apple Color Emoji',sans-serif}.empty-band{fill:#788793;font-size:7px;font-family:Arial,sans-serif}.subtle{opacity:.65}`;
+      style.textContent = `.plot-bg{fill:#17222b;stroke:#344957;stroke-width:1}.lower-bg,.phase-bg{fill:#101920;stroke:#2b3d48;stroke-width:.8}.snow-zone{fill:#103746}.grid{stroke:#334752;stroke-width:1}.axis{fill:#b4c0c9;font-size:8px;font-family:Arial,sans-serif}.section-label{fill:#d8e4ec;font-size:7px;font-family:Arial,sans-serif;font-weight:700;letter-spacing:.35px}.unit{fill:#8395a2;font-weight:400}.precip-label,.precip-axis{fill:#64d4f5}.phase-label{fill:#e8d86d}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.snowline-line{fill:none;stroke:#65d5ff;stroke-width:2.6}.now-line{stroke:#ff6658;stroke-width:1.35}.now-tag-bg{fill:#ff6658}.now-tag{fill:#fff;font-size:7px;font-family:Arial,sans-serif;font-weight:800}.cursor{stroke:#dce7ee;stroke-width:1;stroke-dasharray:2 3}.current-dot{fill:#fff;stroke:#65d5ff;stroke-width:2.3}.crossing-line{stroke:#ffe05b;stroke-width:1.35;stroke-dasharray:3 3}.crossing-dot{fill:#12191f;stroke:#ffe05b;stroke-width:2.2}.precip-bar{fill:#3b90ac}.precip-bar.wet{fill:#5ec8e9}.phase-block{opacity:.28}.phase-snow{fill:#64d4f5}.phase-mix{fill:#d9d467}.phase-rain{fill:#678eff}.phase-icon{fill:#fff;font-size:10px;font-family:'Segoe UI Emoji','Apple Color Emoji',sans-serif}.empty-band{fill:#788793;font-size:7px;font-family:Arial,sans-serif}`;
       clone.insertBefore(style, clone.firstChild);
       const serialized = new XMLSerializer().serializeToString(clone); const svgBlob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' }); const url = URL.createObjectURL(svgBlob); const image = new Image();
       await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('PNG image render failed')); image.src = url; });
 
-      const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1480; const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas unavailable');
+      const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1280; const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas unavailable');
       ctx.fillStyle = '#0d151b'; ctx.fillRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = '#fff'; ctx.font = '700 42px Arial'; ctx.fillText('Snow forecast', 44, 58);
       ctx.fillStyle = '#d4dde4'; ctx.font = '23px Arial'; ctx.fillText(placeName || 'Selected point', 44, 94);
       ctx.fillStyle = '#86bcd4'; ctx.font = '19px Arial'; ctx.fillText(chart.validLabel, 44, 124);
+      ctx.font = '18px Arial'; ctx.fillStyle = '#65d5ff'; ctx.fillText('— Snowline', 44, 158); ctx.fillStyle = '#ffae56'; ctx.fillText('– – Terrain', 200, 158); ctx.fillStyle = '#ff6658'; ctx.fillText('— Now', 350, 158); ctx.fillStyle = '#5ec8e9'; ctx.fillText('▮ Precipitation', 470, 158);
+      ctx.drawImage(image, 0, 180, 1080, 810); URL.revokeObjectURL(url);
 
-      ctx.font = '18px Arial'; ctx.fillStyle = '#65d5ff'; ctx.fillText('— Snowline', 44, 158); ctx.fillStyle = '#ffae56'; ctx.fillText('– – Terrain', 200, 158); ctx.fillStyle = '#ff6658'; ctx.fillText('— Now', 350, 158); ctx.fillStyle = '#5ec8e9'; ctx.fillText('▮ Precipitation', 470, 158); ctx.fillStyle = '#74ce85'; ctx.fillText('▮ Modelled snow depth', 690, 158);
+      ctx.fillStyle = '#dce6ec'; ctx.font = '700 20px Arial'; ctx.fillText('Precipitation type', 44, 1022);
+      ctx.font = '19px Arial'; ctx.fillText('❄ Snow ≥ snowline   ·   🌨 Mix 0–100 m below   ·   🌧 Rain >100 m below', 44, 1054);
+      ctx.fillStyle = '#7f909b'; ctx.font = '16px Arial'; ctx.fillText('Shown only when precipitation is ≥0.1 mm/3h', 44, 1081);
 
-      ctx.drawImage(image, 0, 180, 1080, 960); URL.revokeObjectURL(url);
-
-      ctx.fillStyle = '#dce6ec'; ctx.font = '700 20px Arial'; ctx.fillText('Precipitation type', 44, 1178);
-      ctx.font = '19px Arial'; ctx.fillText('❄ Snow ≥ snowline   ·   🌨 Mix 0–100 m below   ·   🌧 Rain >100 m below', 44, 1210);
-      ctx.fillStyle = '#7f909b'; ctx.font = '16px Arial'; ctx.fillText('Shown only when precipitation is ≥0.1 mm/3h', 44, 1237);
-
-      const cardGap = 10, cardW = (992 - 4 * cardGap) / 5, cardY = 1260;
+      const cardGap = 12, cardW = (992 - 3 * cardGap) / 4, cardY = 1104;
       const delta = chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—';
       drawCard(ctx, 44, cardY, cardW, 'Snowline', chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—', '#65d5ff');
       drawCard(ctx, 44 + (cardW + cardGap), cardY, cardW, 'Terrain Δ', delta, chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0 ? '#ffae56' : '#65d5ff');
       drawCard(ctx, 44 + 2 * (cardW + cardGap), cardY, cardW, 'Precip', chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—', '#65d5ff');
-      drawCard(ctx, 44 + 3 * (cardW + cardGap), cardY, cardW, 'Modelled depth', chart.currentSnowDepth !== null ? `${formatSnowDepthCm(chart.currentSnowDepth)} cm` : '—', '#8de39a');
-      drawCard(ctx, 44 + 4 * (cardW + cardGap), cardY, cardW, 'Type', chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—', '#ffffff');
+      drawCard(ctx, 44 + 3 * (cardW + cardGap), cardY, cardW, 'Type', chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—', '#ffffff');
 
-      ctx.fillStyle = '#d8e4ec'; ctx.font = '700 20px Arial'; ctx.textAlign = 'center'; ctx.fillText(chart.phaseSummary, 540, 1380); ctx.textAlign = 'left';
-      if (crossing?.summary) { ctx.fillStyle = '#ffe05b'; ctx.font = '18px Arial'; ctx.textAlign = 'center'; ctx.fillText(crossing.summary, 540, 1412); ctx.textAlign = 'left'; }
-      ctx.fillStyle = '#788793'; ctx.font = '15px Arial'; ctx.fillText('Thermal forecast aid · Snowline and precipitation do not guarantee local accumulation.', 44, 1450);
-
+      ctx.fillStyle = '#d8e4ec'; ctx.font = '700 20px Arial'; ctx.textAlign = 'center'; ctx.fillText(chart.phaseSummary, 540, 1222); ctx.textAlign = 'left';
+      if (crossing?.summary) { ctx.fillStyle = '#ffe05b'; ctx.font = '18px Arial'; ctx.textAlign = 'center'; ctx.fillText(crossing.summary, 540, 1250); ctx.textAlign = 'left'; }
       const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG export failed')), 'image/png'));
       await savePngBlob(png, `snow-forecast-${safeFilename(placeName || 'selected-point')}.png`);
     } catch (e) { console.warn('Snow forecast PNG export failed', e); }
@@ -294,9 +269,9 @@
     const t0 = point.times[0], t1 = point.times[point.times.length - 1]; const target = t0 + ((vx - 42) / 306) * Math.max(1, t1 - t0); const idx = nearestIndex(point.times, target); const time = point.times[idx];
     const snowlineRaw = snowlineAt(point, idx), snowline = snowlineRaw !== null ? Math.round(snowlineRaw / 10) * 10 : null; const x = 42 + ((time - t0) / Math.max(1, t1 - t0)) * 306;
     const snowlineY = snowlineRaw !== null ? 130 - ((snowlineRaw - chart.minScale) / Math.max(1, chart.maxScale - chart.minScale)) * 112 : null;
-    const precip = precipMmAt(point.forecast, idx), snowDepth = modelDepthAt(point, idx); const terrainDifference = snowlineRaw !== null && terrainM !== null && Number.isFinite(terrainM) ? Math.round((terrainM - snowlineRaw) / 10) * 10 : null;
-    const cssX = Math.max(82, Math.min(rect.width - 82, (x / 360) * rect.width)); const cssY = Math.max(8, Math.min(rect.height - 120, (snowlineY !== null ? (snowlineY / 320) * rect.height - 86 : 28)));
-    tooltip = { x, cssX, cssY, snowlineY, snowline, terrainDifference, precip, snowDepth, phase: phaseAt(point, terrainM, idx), tendency: tendencyAt(point, idx), timeLabel: formatTooltipTime(time) };
+    const precip = precipMmAt(point.forecast, idx); const terrainDifference = snowlineRaw !== null && terrainM !== null && Number.isFinite(terrainM) ? Math.round((terrainM - snowlineRaw) / 10) * 10 : null;
+    const cssX = Math.max(82, Math.min(rect.width - 82, (x / 360) * rect.width)); const cssY = Math.max(8, Math.min(rect.height - 105, (snowlineY !== null ? (snowlineY / 270) * rect.height - 78 : 28)));
+    tooltip = { x, cssX, cssY, snowlineY, snowline, terrainDifference, precip, phase: phaseAt(point, terrainM, idx), tendency: tendencyAt(point, idx), timeLabel: formatTooltipTime(time) };
   }
 
   function buildPhaseBlocks(p: any, terrain: number | null, x: (time: number) => number, spacing: number): PhaseBlock[] {
@@ -335,17 +310,12 @@
     const currentIndex = nearestIndex(p.times, target), currentTime = p.times[currentIndex], currentValue = snowlineAt(p, currentIndex), currentX = Number.isFinite(currentTime) ? x(currentTime) : null, currentY = currentValue !== null ? y(currentValue) : null;
     const currentTerrainDifference = currentValue !== null && terrain !== null && Number.isFinite(terrain) ? Math.round((terrain - currentValue) / 10) * 10 : null;
     const nowX = Number.isFinite(realNowTime) && realNowTime >= t0 && realNowTime <= t1 ? x(realNowTime) : null, terrainY = terrain !== null && Number.isFinite(terrain) ? Math.max(top, Math.min(bottom, y(terrain))) : null, crossingX = crossingTime !== null ? x(crossingTime) : null;
-
     const spacing = (right - left) / Math.max(1, p.times.length - 1), barWidth = Math.max(1.2, Math.min(5, spacing * 0.74));
     const precipValues = p.times.map((_: number, i: number) => precipMmAt(p.forecast, i)), currentPrecip = precipValues[currentIndex] ?? null; const validPrecip = precipValues.filter((v: number | null): v is number => v !== null && Number.isFinite(v)), precipMax = validPrecip.length ? Math.max(0.1, ...validPrecip) : 0;
     const precipBars: Bar[] = precipValues.map((mm: number | null, i: number) => { const value = mm ?? 0, height = precipMax > 0 ? Math.min(29, (value / precipMax) * 29) : 0; return { x: x(p.times[i]) - barWidth / 2, y: 187 - height, width: barWidth, height, mm: value }; }).filter(bar => bar.height > 0.12);
-
-    const depthValues = p.times.map((_: number, i: number) => modelDepthAt(p, i)), currentSnowDepth = depthValues[currentIndex] ?? null; const validDepth = depthValues.filter((v: number | null): v is number => v !== null && Number.isFinite(v)), depthMax = validDepth.length ? Math.max(1, ...validDepth) : 0;
-    const snowDepthBars: Bar[] = depthValues.map((cm: number | null, i: number) => { if (cm === null) return null; const height = depthMax > 0 ? Math.min(31, (cm / depthMax) * 31) : 0; return { x: x(p.times[i]) - barWidth / 2, y: 244 - height, width: barWidth, height, cm }; }).filter((bar: Bar | null): bar is Bar => !!bar && bar.height > 0.12);
-
     const phases = p.times.map((_: number, i: number) => phaseAt(p, terrain, i)); const currentPhase = phases[currentIndex]; const phaseBlocks = buildPhaseBlocks(p, terrain, x, spacing);
     const validLabel = `Valid ${formatTooltipTime(currentTime)} · ${formatRun(p.runTime)}`;
-    return { points, terrainY, currentX, currentY, nowX, crossingX, minLabel: `${Math.round(min)} m`, midLabel: `${Math.round((min + max) / 2)} m`, maxLabel: `${Math.round(max)} m`, startLabel: formatDay(t0), currentSnowline: currentValue !== null ? Math.round(currentValue / 10) * 10 : null, currentTerrainDifference, currentPrecip, currentSnowDepth, currentPhase, precipBars, snowDepthBars, hasPrecip: validPrecip.some(v => v >= 0.05), hasSnowDepth: validDepth.length > 0, precipMaxLabel: precipMax > 0 ? formatPrecipMm(precipMax) : '—', snowDepthMaxLabel: depthMax > 0 ? formatSnowDepthCm(depthMax) : '—', minScale: min, maxScale: max, validLabel, currentIndex, phaseBlocks, phaseSummary: phaseSummary(phases) };
+    return { points, terrainY, currentX, currentY, nowX, crossingX, minLabel: `${Math.round(min)} m`, midLabel: `${Math.round((min + max) / 2)} m`, maxLabel: `${Math.round(max)} m`, startLabel: formatDay(t0), currentSnowline: currentValue !== null ? Math.round(currentValue / 10) * 10 : null, currentTerrainDifference, currentPrecip, currentPhase, precipBars, hasPrecip: validPrecip.some(v => v >= 0.05), precipMaxLabel: precipMax > 0 ? formatPrecipMm(precipMax) : '—', minScale: min, maxScale: max, validLabel, currentIndex, phaseBlocks, phaseSummary: phaseSummary(phases) };
   }
 
   onMount(() => {
@@ -366,20 +336,20 @@
   .chart-head button:hover { background: rgba(98,213,255,0.15); border-color: rgba(98,213,255,0.30); color: white; } .png-button, .now-button { width: auto !important; font-size: 8.5px !important; font-weight: 800; } .drag-button { cursor: grab !important; touch-action: none; }
   .snowline-chart-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 7px 3px 4px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.67); font-size: 7.7px; }
   .snowline-chart-legend span { display: inline-flex; align-items: center; gap: 4px; } .snowline-chart-key-line { width: 14px; height: 0; border-top: 2px solid; display: inline-block; }
-  .snowline-key { border-color: #65d5ff; } .terrain-key { border-color: #ffae56; border-top-style: dashed; } .now-key { border-color: #ff6658; } .snowline-chart-key-cross { width: 7px; height: 7px; border-radius: 50%; border: 2px solid #ffe05b; display: inline-block; } .snowline-chart-key-bar { width: 12px; height: 7px; border-radius: 2px 2px 0 0; background: #5ec8e9; display: inline-block; } .snowline-chart-key-depth { width: 12px; height: 7px; border-radius: 2px 2px 0 0; background: #74ce85; display: inline-block; }
+  .snowline-key { border-color: #65d5ff; } .terrain-key { border-color: #ffae56; border-top-style: dashed; } .now-key { border-color: #ff6658; } .snowline-chart-key-cross { width: 7px; height: 7px; border-radius: 50%; border: 2px solid #ffe05b; display: inline-block; } .snowline-chart-key-bar { width: 12px; height: 7px; border-radius: 2px 2px 0 0; background: #5ec8e9; display: inline-block; }
   .plot-wrap { position: relative; } svg { display: block; width: 100%; height: auto; overflow: visible; touch-action: none; }
   .plot-bg { fill: rgba(255,255,255,0.028); stroke: rgba(104,151,177,0.25); stroke-width: 1; } .lower-bg, .phase-bg { fill: rgba(255,255,255,0.018); stroke: rgba(104,151,177,0.18); stroke-width: .8; } .snow-zone { fill: rgba(55,190,232,0.095); } .grid { stroke: rgba(160,196,216,0.13); stroke-width: 1; }
-  .axis { fill: rgba(220,231,238,0.58); font-size: 8px; font-family: sans-serif; } .section-label { fill: rgba(226,236,243,0.82); font-size: 6.8px; font-family: sans-serif; font-weight: 800; letter-spacing: .35px; } .section-label .unit, .unit { fill: rgba(255,255,255,0.42); font-weight: 500; letter-spacing: 0; } .precip-label, .precip-axis { fill: #64d4f5; } .depth-label, .depth-axis { fill: #8de39a; } .phase-label { fill: #e8d86d; }
+  .axis { fill: rgba(220,231,238,0.58); font-size: 8px; font-family: sans-serif; } .section-label { fill: rgba(226,236,243,0.82); font-size: 6.8px; font-family: sans-serif; font-weight: 800; letter-spacing: .35px; } .section-label .unit, .unit { fill: rgba(255,255,255,0.42); font-weight: 500; letter-spacing: 0; } .precip-label, .precip-axis { fill: #64d4f5; } .phase-label { fill: #e8d86d; }
   .terrain-line { stroke: #ffae56; stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .93; } .snowline-line { fill: none; stroke: #65d5ff; stroke-width: 2.7; stroke-linecap: round; stroke-linejoin: round; }
   .now-line { stroke: #ff6658; stroke-width: 1.35; opacity: .9; } .now-tag-bg { fill: #ff6658; } .now-tag { fill: #fff; font-size: 7px; font-family: sans-serif; font-weight: 800; } .cursor { stroke: rgba(235,243,248,0.60); stroke-width: 1; stroke-dasharray: 2 3; } .current-dot { fill: #fff; stroke: #65d5ff; stroke-width: 2.3; }
   .crossing-line { stroke: rgba(255,224,91,0.82); stroke-width: 1.35; stroke-dasharray: 3 3; } .crossing-dot { fill: #12191f; stroke: #ffe05b; stroke-width: 2.2; } .crossing-action { cursor: pointer; pointer-events: stroke; } .crossing-dot.crossing-action { pointer-events: all; }
   .inspect-line { stroke: rgba(255,255,255,0.34); stroke-width: 1; } .inspect-dot { fill: #12191f; stroke: white; stroke-width: 1.6; }
-  .precip-bar { fill: rgba(70,176,210,0.50); } .precip-bar.wet { fill: #5ec8e9; } .snow-depth-bar { fill: #74ce85; opacity: .90; }
-  .phase-block { opacity: .30; } .phase-snow { fill: #64d4f5; } .phase-mix { fill: #d9d467; } .phase-rain { fill: #678eff; } .phase-icon { fill: white; font-size: 10px; font-family: 'Segoe UI Emoji','Apple Color Emoji',sans-serif; } .empty-band { fill: rgba(255,255,255,.36); font-size: 7px; font-family: sans-serif; } .empty-band.subtle { opacity: .62; font-size: 6.4px; }
+  .precip-bar { fill: rgba(70,176,210,0.50); } .precip-bar.wet { fill: #5ec8e9; }
+  .phase-block { opacity: .30; } .phase-snow { fill: #64d4f5; } .phase-mix { fill: #d9d467; } .phase-rain { fill: #678eff; } .phase-icon { fill: white; font-size: 10px; font-family: 'Segoe UI Emoji','Apple Color Emoji',sans-serif; } .empty-band { fill: rgba(255,255,255,.36); font-size: 7px; font-family: sans-serif; }
   .plot-tooltip { position: absolute; z-index: 4; min-width: 164px; transform: translateX(-50%); padding: 7px 9px; border-radius: 8px; background: rgba(5,12,17,0.985); border: 1px solid rgba(98,213,255,0.28); box-shadow: 0 7px 20px rgba(0,0,0,0.44); pointer-events: none; }
   .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; } .plot-tooltip b { font-size: 8.9px; color: white; margin-bottom: 2px; } .plot-tooltip span { margin-top: 1px; font-size: 7.8px; color: rgba(255,255,255,0.75); } .tooltip-phase { margin-top: 3px !important; font-weight: 800; } .phase-text-snow { color: #74dcff !important; } .phase-text-mix { color: #e8df73 !important; } .phase-text-rain { color: #8caaff !important; }
   .phase-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 2px 3px 6px; color: rgba(255,255,255,.72); font-size: 7.4px; } .phase-legend span { white-space: nowrap; } .phase-legend small { color: rgba(255,255,255,.35); font-size: 6.7px; }
-  .chart-foot { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 2px; } .chart-foot span { padding: 6px 2px 5px; border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; background: rgba(255,255,255,0.043); text-align: center; min-width: 0; } .chart-foot small { display: block; color: rgba(255,255,255,0.45); font-size: 6.2px; } .chart-foot b { display: block; margin-top: 1px; color: white; font-size: 7.8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .chart-foot b.positive { color: #65d5ff; } .chart-foot b.negative { color: #ffae56; } .chart-foot b.wet { color: #65d5ff; } .chart-foot b.depth-value { color: #8de39a; } .phase-card b { font-size: 7.4px; }
+  .chart-foot { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 2px; } .chart-foot span { padding: 6px 2px 5px; border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; background: rgba(255,255,255,0.043); text-align: center; min-width: 0; } .chart-foot small { display: block; color: rgba(255,255,255,0.45); font-size: 6.2px; } .chart-foot b { display: block; margin-top: 1px; color: white; font-size: 7.8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .chart-foot b.positive { color: #65d5ff; } .chart-foot b.negative { color: #ffae56; } .chart-foot b.wet { color: #65d5ff; } .phase-card b { font-size: 7.4px; }
   .forecast-summary { margin-top: 6px; padding: 5px 7px; border-radius: 7px; background: rgba(98,213,255,0.065); border: 1px solid rgba(98,213,255,0.10); color: rgba(224,239,247,0.86); font-size: 7.8px; font-weight: 700; text-align: center; }
   .forecast-note { margin-top: 4px; padding: 3px 6px; border-radius: 6px; background: rgba(255,224,91,0.055); color: rgba(255,224,91,0.86); font-size: 7.4px; text-align: center; } .hint { margin-top: 4px; color: rgba(255,255,255,0.32); font-size: 6.8px; text-align: center; } .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
   @media (max-width: 520px) { .chart-shell { width: calc(100vw - 12px); padding: 9px; border-radius: 12px; } .place-line, .meta-line { max-width: 175px; } .plot-tooltip { min-width: 142px; } .chart-head button { padding: 0 5px; } .chart-foot { gap: 3px; } .chart-foot small { font-size: 5.8px; } .chart-foot b { font-size: 7px; } .phase-legend { gap: 4px 7px; } }
