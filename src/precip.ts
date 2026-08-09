@@ -23,7 +23,7 @@ const METRE_WATER_KEYS = new Set([
 ]);
 
 /** Minimum 3-hour precipitation amount used for precipitation-type diagnosis. */
-export const PRECIP_THRESHOLD_MM_H = 0.3;
+export const PRECIP_THRESHOLD_MM_H = 0.1;
 
 type PrecipField = { key: string; field: unknown };
 const precipFieldCache = new WeakMap<object, PrecipField | null>();
