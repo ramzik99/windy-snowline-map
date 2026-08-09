@@ -1,8 +1,6 @@
 import store from '@windy/store';
 import { getLatLonInterpolator } from '@windy/interpolator';
 
-let hiddenLoadPromise: Promise<number | null> | null = null;
-
 function decodeSnowcover(raw: unknown): number | null {
   let value: number | null = null;
 
@@ -24,27 +22,25 @@ function decodeSnowcover(raw: unknown): number | null {
   return value !== null && value >= 0 ? value : null;
 }
 
-function wait(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 function safeGet(name: string): any {
   try { return store.get(name as any); } catch { return null; }
 }
 
 /**
- * Windy's public interpolator only interpolates renderer tiles that have been
- * loaded. First try the explicit render-parameter path. If snowcover tiles are
- * not yet present, this function automatically pre-warms Windy's ECMWF
- * snowcover renderer, samples verified channel 0 (centimetres), and restores
- * the user's visible map state immediately afterwards.
+ * Snow depth source verified with the standalone inspector:
+ * ECMWF `snowcover` renderer channel 0 is the displayed snow-depth scalar,
+ * on Windy's centimetre snow-depth scale.
  *
- * During the pre-warm, weather-renderer canvas/image output is hidden so the
- * user does not see the Snow depth layer flash on screen. The user's overlay,
- * product, level and timestamp are restored in a finally block.
+ * IMPORTANT: Windy's public interpolator only interpolates already-loaded
+ * renderer tiles. This helper NEVER changes the user's overlay, product,
+ * level or timestamp. It first asks the interpolator for snowcover using
+ * explicit render parameters; this can succeed when snowcover tiles are
+ * already available/cached. If Windy currently has Snow depth rendered, it
+ * also falls back to the active renderer.
  *
- * This is a current-selected-timestep value only. It does not fabricate a
- * 144-hour snow-depth series from precipitation or snowfall.
+ * We intentionally do not "pre-warm" snowcover by store.set('overlay', ...),
+ * because that changes the visible Windy map and can cause overlay oscillation.
+ * No precipitation/snowfall-derived depth is fabricated.
  */
 export async function currentMapSnowDepthCm(
   lat: number,
@@ -59,96 +55,37 @@ export async function currentMapSnowDepthCm(
 
   try {
     const interpolator = await getLatLonInterpolator();
-    if (interpolator) {
-      const params: any = {
-        overlay: 'snowcover',
-        product: 'ecmwf',
-        level: 'surface',
-      };
-      if (Number.isFinite(selectedTimestamp)) params.timestamp = selectedTimestamp;
+    if (!interpolator) return null;
 
-      try {
-        const raw = await interpolator({ lat, lon } as any, undefined, params);
+    const params: any = {
+      overlay: 'snowcover',
+      product: 'ecmwf',
+      level: 'surface',
+    };
+    if (Number.isFinite(selectedTimestamp)) params.timestamp = selectedTimestamp;
+
+    // Safe attempt: never mutates Windy's visible store state.
+    try {
+      const raw = await interpolator({ lat, lon } as any, undefined, params);
+      const value = decodeSnowcover(raw);
+      if (value !== null) return value;
+    } catch {}
+
+    // Safe fallback if Snow depth is already the active/loaded renderer.
+    try {
+      const overlay = safeGet('overlay');
+      const product = safeGet('product');
+      if (overlay === 'snowcover' && (!product || product === 'ecmwf')) {
+        const raw = await interpolator({ lat, lon } as any);
         const value = decodeSnowcover(raw);
         if (value !== null) return value;
-      } catch {}
-
-      try {
-        if (safeGet('overlay') === 'snowcover' && (!safeGet('product') || safeGet('product') === 'ecmwf')) {
-          const raw = await interpolator({ lat, lon } as any);
-          const value = decodeSnowcover(raw);
-          if (value !== null) return value;
-        }
-      } catch {}
-    }
-  } catch {}
-
-  // Only one hidden renderer pre-warm at a time. Concurrent chart refreshes
-  // share the same request instead of repeatedly toggling Windy store state.
-  if (hiddenLoadPromise) return hiddenLoadPromise;
-
-  hiddenLoadPromise = (async () => {
-    const original = {
-      overlay: safeGet('overlay'),
-      product: safeGet('product'),
-      level: safeGet('level'),
-      timestamp: safeGet('timestamp'),
-    };
-
-    const style = document.createElement('style');
-    style.setAttribute('data-snow-forecast-hidden-renderer', 'true');
-    style.textContent = `
-      .leaflet-overlay-pane canvas,
-      .leaflet-overlay-pane img {
-        visibility: hidden !important;
       }
-    `;
+    } catch {}
 
-    try {
-      document.head.appendChild(style);
-
-      // Set product first where accepted, then snowcover/surface/timestamp.
-      try { (store as any).set('product', 'ecmwf'); } catch {}
-      try { (store as any).set('level', 'surface'); } catch {}
-      try { (store as any).set('overlay', 'snowcover'); } catch {}
-      if (Number.isFinite(selectedTimestamp)) {
-        try { (store as any).set('timestamp', selectedTimestamp); } catch {}
-      }
-
-      // Give Windy's renderer time to request/decode its tiles. Poll rather
-      // than relying on an undocumented renderer-loaded event.
-      for (let attempt = 0; attempt < 8; attempt++) {
-        await wait(attempt === 0 ? 260 : 180);
-        try {
-          const interp = await getLatLonInterpolator();
-          if (!interp) continue;
-          const raw = await interp({ lat, lon } as any);
-          const value = decodeSnowcover(raw);
-          if (value !== null) return value;
-        } catch {}
-      }
-
-      return null;
-    } catch (e) {
-      console.warn('Snow forecast hidden snowcover pre-warm failed', e);
-      return null;
-    } finally {
-      // Restore the map exactly to the user's previous state.
-      try { if (original.product != null) (store as any).set('product', original.product); } catch {}
-      try { if (original.level != null) (store as any).set('level', original.level); } catch {}
-      try { if (original.overlay != null) (store as any).set('overlay', original.overlay); } catch {}
-      try { if (typeof original.timestamp === 'number' && Number.isFinite(original.timestamp)) (store as any).set('timestamp', original.timestamp); } catch {}
-
-      // Keep renderer output hidden briefly while the original overlay redraws.
-      await wait(120);
-      try { style.remove(); } catch {}
-    }
-  })();
-
-  try {
-    return await hiddenLoadPromise;
-  } finally {
-    hiddenLoadPromise = null;
+    return null;
+  } catch (e) {
+    console.warn('Snow forecast snow-depth interpolation failed', e);
+    return null;
   }
 }
 
