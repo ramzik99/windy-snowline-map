@@ -1,215 +1,142 @@
-# Snowline for Windy
+# Wintry forecast for Windy
 
-Snowline is a Windy.com external plugin that estimates the **thermal rain–snow boundary** from ECMWF vertical-profile data and displays it as interactive snowline contours and point labels.
+A Windy.com external plugin for terrain-aware winter-weather guidance using **ECMWF vertical profiles** and **Windy local terrain**.
 
-The plugin follows Windy's forecast timeline and runs up to **+144 hours**.
+The plugin follows Windy's forecast timeline out to **+144 hours** and combines a thermal snowline diagnostic with point-based precipitation-type guidance.
 
 ## What it shows
 
-Snowline estimates the **wet-bulb-zero height (WBZ)**, which is used here as an approximate snowline / rain–snow transition proxy.
+### Map
 
-It is a thermal diagnostic only. A displayed snowline does **not** mean precipitation or accumulating snow is forecast at that location.
-
-## Main features
-
-- ECMWF-only snowline calculation
-- Wet-bulb-zero snowline proxy to +144 h
-- Wider fixed Snowline panel
-- Separate **i** help window with all scientific explanation
-- Label only, Contour only, and Label + contour modes
-- Adaptive contour spacing by zoom
-- Adaptive spatial sampling for a balance between detail and performance
-- Stronger 500 m and 1000 m contour styling
+- Adaptive **snowline contours** that update with the Windy forecast time
+- Contour spacing of approximately:
+  - 500 m at broad scales
+  - 200 m at regional scales
+  - 100 m at local scales
 - Decluttered contour labels
-- Exact selected-point snowline calculation
-- Windy map elevation for terrain height
-- Above / Near / Below Snowline point classification
-- ±100 m Near Snowline transition band
-- 3-hour snowline tendency
-- Source-aware point-label state for search, desktop picker and mobile taps
-- Dismissible, widened selected-point labels
-- Node-style share/copy button on selected-point labels
-- Built-in place search
-- Saved Snowline favourites
-- Clear-search control
-- Hide/show panel control
-- Persistent labels for searched places
-- Desktop Windy picker following
-- Mobile point selection through Windy's `singleclick` mechanism
-- Profile caching and queued viewport refreshes
+- Exact point labels for any normal map click while the plugin is active
 
-## Panel controls
+### Point forecast
 
-The main Snowline panel stays fixed in Windy's normal plugin position. The regular view contains the title, **i** help button, hide control, On/Off control, search and display modes.
+A selected point shows:
 
-The **i** button opens a separate floating **How Snowline works** window over the map. It can be closed with its **×** button or by tapping/clicking outside the help window.
+- Local Windy terrain elevation
+- Thermal snowline
+- Position relative to the snowline
+- Precipitation rate
+- Terrain-aware precipitation type when precipitation is present
+- A 3-hour snowline tendency
+- Quick controls for the forecast graph, favourites, sharing and closing
 
-The **−** button hides the main panel without disabling Snowline, and the small **❄ Snowline** button restores it.
+The precipitation-type diagnosis can identify:
 
-## Help window
+- Snow
+- Wet snow
+- Rain/snow mix
+- Rain
+- Ice pellets / sleet
+- Freezing rain
 
-The separate **i** help window explains:
+### Forecast window
 
-- that Snowline is an approximate ECMWF wet-bulb-zero thermal rain–snow boundary
-- that the forecast runs up to 144 hours
-- that ECMWF temperature, dew point and geopotential height are used
-- that wet-bulb temperature is calculated through the vertical profile
-- that the lowest upward 0°C wet-bulb crossing is interpolated to estimate the snowline
-- that selected-point labels compare the calculated snowline with Windy map elevation
-- that the ±100 m zone is displayed as **NEAR SNOWLINE**
-- that the arrow on a point label shows the approximate 3-hour snowline tendency
-- that contours are reconstructed from sampled profiles across the visible viewport
-- that desktop uses Windy's picker while mobile uses Windy's `singleclick` location event
-- that search, desktop-picker and mobile-tap labels have separate persistence rules
-- that the node-style share control copies point and forecast details including explicit valid and lead times
-- that the result is a thermal boundary and does not imply precipitation, snowfall or accumulation
+The forecast window contains:
 
-## Contour resolution
+- A **144-hour graph** of snowline, precipitation, precipitation type and estimated new snow
+- A **forecast sounding** with temperature, dew point and wet-bulb temperature
+- Sounding zoom and pan controls
+- PNG export
 
-The plugin does not download a complete ECMWF gridded field. Instead, it requests ECMWF vertical profiles at a set of points across the current Windy viewport and reconstructs the snowline field from those samples.
+Estimated new snow is calculated from forecast precipitation, terrain-aware precipitation type and wet-bulb conditions. It is **not existing snow depth or snowpack**.
 
-Sampling density increases with zoom:
+## Map interaction
 
-| View | Sampling grid |
-| --- | --- |
-| Zoom ≤ 4 | 13 × 9 |
-| Zoom 5–6 | 17 × 11 |
-| Zoom 7–8, mobile | 19 × 13 |
-| Zoom 7–8, desktop | 23 × 15 |
-| Zoom 9+, mobile | 23 × 15 |
-| Zoom 9+, desktop | 27 × 19 |
+When Wintry forecast is **On**:
 
-A maximum of eight profile requests are processed concurrently. Profiles are cached so repeated timeline changes and nearby redraws can reuse downloaded data.
+- A normal map click opens the plugin's point label.
+- That click is intercepted so it does not also open Windy's native point picker.
+- Windy's own pointer is independent of the plugin and can be opened separately, including through Windy's context/right-click controls.
+- Opening or moving Windy's pointer does not create or move the plugin point label.
 
-Contour interval also changes with zoom:
+This separation prevents the two point-selection systems from competing with each other.
 
-- Continental scale: 500 m
-- Regional scale: 200 m
-- Local scale: 100 m
+## Search and saved places
 
-At 100 m contour spacing, labels are placed on selected 500 m contours to keep the map readable.
+The panel includes:
 
-## How the snowline is calculated
+- Place search using OpenStreetMap Nominatim
+- Current device location
+- Locally saved favourite points
+- A clear control
+- A hide/show panel control
 
-For each sampled point, the plugin requests an ECMWF meteogram profile from Windy.
+Saved places are stored locally in the browser/app environment.
 
-The calculation uses pressure-level:
+## Snowline calculation
 
-- temperature
-- dew-point temperature
-- geopotential height
-- pressure
+For each sampled point, the plugin requests an ECMWF meteogram profile and uses pressure-level:
 
-The currently used levels are:
+- Temperature
+- Dew-point temperature
+- Geopotential height
+- Pressure
+
+Current pressure levels:
 
 `1000, 950, 925, 900, 850, 800, 700, 600, 500, 400, 300, 250, 200, 150 hPa`
 
-For each pressure level, wet-bulb temperature is solved using a pressure-aware psychrometric relation.
+Wet-bulb temperature is solved using a pressure-aware psychrometric relation. The plugin then finds the lowest upward crossing from wet-bulb temperature above 0°C to wet-bulb temperature at or below 0°C and linearly interpolates its height.
 
-The algorithm then searches upward through the atmospheric profile for the **lowest transition from wet-bulb temperature above 0°C to wet-bulb temperature at or below 0°C**.
+That wet-bulb-zero height is used as the plugin's **thermal snowline proxy**.
 
-The height of that crossing is linearly interpolated between the two surrounding pressure levels. That interpolated wet-bulb-zero height is the displayed Snowline value.
+If the lowest resolved atmospheric level is already at or below 0°C wet bulb, the lowest available level is used as the available estimate rather than pretending the true lower crossing is resolved.
 
-If the lowest resolved model level is already at or below 0°C wet-bulb temperature, the height of that lowest level is used as the available estimate.
+## Terrain-aware precipitation type
 
-## Point labels
+For a selected point, the atmospheric profile is intersected with Windy's local terrain elevation. The precipitation-type algorithm evaluates positive wet-bulb energy in warm layers and sub-zero wet-bulb energy below them.
 
-Selecting a point performs a dedicated ECMWF profile calculation for that exact latitude and longitude.
+This is a profile-based diagnostic, not ECMWF precipitation-type output. Sparse pressure-level structure and marginal thermal profiles can reduce confidence.
 
-Terrain height comes from Windy's map-elevation service rather than ECMWF model elevation.
+Precipitation type is only diagnosed when precipitation reaches **0.1 mm/h**.
 
-The point is classified relative to the calculated snowline:
+## Contour generation and performance
 
-- **↑ ABOVE SNOWLINE** — terrain is more than 100 m above the snowline
-- **≈ NEAR SNOWLINE** — terrain lies within ±100 m of the snowline
-- **↓ BELOW SNOWLINE** — terrain is more than 100 m below the snowline
+The plugin does not download a complete ECMWF gridded snowline field. It samples vertical profiles across the visible map and reconstructs contours using marching squares.
 
-The ±100 m band is a practical transition/uncertainty display zone. It is not intended as a universal physical threshold.
+Sampling density increases with zoom:
 
-The label also reports the approximate snowline tendency over the following three hours, for example `↑120 m/3h`, `↓80 m/3h`, or `→ steady`.
+| Zoom | Sampling grid |
+| --- | --- |
+| ≤ 4 | 9 × 15 |
+| 5–6 | 13 × 21 |
+| 7–8 | 17 × 27 |
+| 9+ | 19 × 31 |
 
-### Point-label state model
+Up to **12 profile requests** are processed concurrently. Profiles are cached, and viewport refreshes are queued to avoid unnecessary redraw competition.
 
-Version 1 explicitly records the origin of the active point as one of:
+Precipitation-field discovery is also cached for each forecast object so the graph does not repeatedly scan the same data structure.
 
-- `search`
-- `desktop-picker`
-- `mobile-tap`
+## Interpretation
 
-This avoids accidental cross-clearing between Windy's picker and Snowline's own search/tap labels. Search labels persist when desktop picker state is absent, mobile tap labels persist until replaced or closed, and desktop-picker labels are cleared when the Windy picker closes.
+The snowline is a **thermal rain–snow boundary proxy**, not proof that snowfall is occurring.
 
-A short picker guard is also used immediately after a Snowline search selection so an old desktop picker position cannot overwrite the newly selected searched place while the map is moving.
+Actual precipitation type and accumulation still depend on precipitation availability and intensity, local terrain, boundary-layer structure, unresolved vertical layers, model error and other microphysical processes.
 
-Every new point request receives a generation id. If a slower older request finishes after a newer point has already been selected, the old result is ignored instead of replacing the current label.
-
-The selected-point label is intentionally wider to give the values and controls more room.
-
-Every selected-point label has two compact controls:
-
-- **Node-style Share/copy** — copies a plain-text summary containing the place name, coordinates, **Valid time**, **Lead time** from the ECMWF run, snowline, terrain elevation and 3-hour tendency.
-- **× Close** — removes that point label without turning off contours or the Snowline plugin.
-
-The copied output uses explicit lines such as:
-
-```text
-Valid time: 2026-08-09 12:00 UTC
-Lead time: +36 h from run 2026-08-08 00:00 UTC
-```
-
-For points selected from Snowline search or favourites, the stored place name is used directly. For map-tap or picker points, Snowline resolves a place name only when the share button is pressed, so ordinary point loading is not slowed down.
-
-The copied text also includes the reminder that Snowline is a thermal boundary and precipitation is not implied.
-
-## Desktop and mobile point selection
-
-Windy's `pickerLocation` state is designed for desktop use, so Snowline uses different mechanisms by platform:
-
-- **Desktop:** follows Windy's picker location.
-- **Mobile:** listens to Windy's plugin `singleclick` events so a map tap directly supplies the selected coordinates.
-
-Desktop ignores the `singleclick` path, preventing a normal desktop click from competing with Windy's picker state.
-
-This avoids using map-center coordinates as a substitute for the user's selected point.
-
-Search and favourite selections use their own exact stored coordinates on both platforms.
-
-## Search and favourites
-
-Snowline contains a compact place search using OpenStreetMap Nominatim results.
-
-Search results can be saved with the ☆ button. Saved places are stored locally in the browser/app environment and can be reopened from the ★ favourites button.
-
-The × button in the search box clears the current searched-point label without incorrectly removing a separately active mobile or desktop-picker point.
-
-## Forecast timing
-
-The plugin follows Windy's forecast timestamp.
-
-The ECMWF meteogram request is limited to six days and the plugin applies a hard forecast limit of **144 hours**. Data beyond the allowed range are not displayed.
-
-## Important interpretation
-
-Snowline should be interpreted as an **approximate thermal rain–snow boundary**, not as a snowfall forecast.
-
-Actual precipitation type and accumulation can also depend on factors including:
-
-- whether precipitation is occurring
-- precipitation intensity
-- melting through layers below the wet-bulb-zero level
-- evaporative cooling
-- terrain and local boundary-layer effects
-- unresolved vertical structure
-- model error
-
-For this reason the plugin intentionally does not require precipitation data before displaying the thermal snowline.
+Use the map contours for spatial context and the point forecast for local detail.
 
 ## Project structure
 
-- `src/plugin.svelte` — Windy UI, map interaction, ECMWF profile loading, labels and contours
-- `src/snowLevel.ts` — wet-bulb and wet-bulb-zero calculation
-- `src/contours.ts` — marching-squares contour generation and line stitching
-- `src/PlaceSearch.svelte` — place search and saved favourites
-- `src/pluginConfig.ts` — Windy external-plugin metadata
+- `src/plugin.svelte` — main Windy UI, map interaction, point loading and contours
+- `src/PlaceSearch.svelte` — place search, geolocation and saved points
+- `src/SnowlineChart.svelte` — 144-hour point forecast graph
+- `src/SoundingChart.svelte` — interactive forecast sounding
+- `src/snowLevel.ts` — wet-bulb and thermal snowline calculation
+- `src/precip.ts` — precipitation-field selection and normalization
+- `src/precipType.ts` — terrain-aware precipitation-type diagnosis
+- `src/snowAccum.ts` — estimated forecast-created new snow
+- `src/terrainCrossing.ts` — snowline/terrain crossing timing
+- `src/contours.ts` — marching-squares contour generation and stitching
+- `src/selectedPrecip.ts` — supplemental ECMWF precipitation loading
+- `src/pluginConfig.ts` — Windy plugin metadata
 
 ## Local development
 
@@ -218,17 +145,17 @@ npm install
 npm start
 ```
 
-Then open the local Windy plugin-development environment served by the Windy plugin devtools. A browser warning for the local self-signed HTTPS certificate can be normal during development.
+A browser warning for the local self-signed development certificate can be normal when using Windy's plugin devtools.
 
 ## Build
 
-On Unix-like systems:
+Unix-like systems:
 
 ```bash
 npm run build
 ```
 
-On Windows:
+Windows:
 
 ```bash
 npm run build:win
@@ -238,20 +165,13 @@ The compiled plugin is written to `dist/`.
 
 ## Publishing
 
-This repository includes the Windy plugin publishing workflow.
-
-1. Create a Windy Plugins API key.
-2. Store it in the GitHub repository's Actions secrets as `WINDY_API_KEY`.
-3. Open **Actions → publish-plugin**.
-4. Run the workflow from the `main` branch.
-
-Do not commit API keys or other secrets to the public repository.
+The repository includes a Windy plugin publishing workflow. Keep the Windy API key in GitHub Actions secrets as `WINDY_API_KEY`; never commit it to the repository.
 
 Each published release must use a new version number.
 
 ## Current version
 
-**1.0.0**
+**12.2.2**
 
 ## Author
 
