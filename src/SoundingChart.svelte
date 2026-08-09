@@ -7,16 +7,16 @@
     </div>
     <div class="actions">
       <button class="png" type="button" title="Download sounding PNG" aria-label="Download sounding PNG" disabled={pngBusy} on:click={downloadPng}>{pngBusy ? '…' : 'PNG'}</button>
-      <button type="button" title="Zoom out" aria-label="Zoom out" on:click={() => setZoom(zoom - 0.2)}>−</button>
-      <button class="zoom-readout" type="button" title="Reset zoom" aria-label="Reset zoom" on:click={() => setZoom(1)}>{Math.round(zoom * 100)}%</button>
-      <button type="button" title="Zoom in" aria-label="Zoom in" on:click={() => setZoom(zoom + 0.2)}>+</button>
-      <button class="drag" type="button" title="Drag sounding" aria-label="Drag sounding" on:pointerdown={startDrag}>↕</button>
+      <button type="button" title="Zoom out" aria-label="Zoom out" on:click={() => zoomAtCentre(zoom / 1.25)}>−</button>
+      <button class="zoom-readout" type="button" title="Fit sounding" aria-label="Fit sounding" on:click={resetZoom}>{Math.round(zoom * 100)}%</button>
+      <button type="button" title="Zoom in" aria-label="Zoom in" on:click={() => zoomAtCentre(zoom * 1.25)}>+</button>
+      <button class="drag" type="button" title="Drag sounding window" aria-label="Drag sounding window" on:pointerdown={startDrag}>↕</button>
       <button type="button" title="Close" aria-label="Close sounding" on:click={() => dispatch('close')}>×</button>
     </div>
   </div>
 
   {#if sounding}
-    <div class="sounding-viewport" on:wheel|preventDefault={handleWheel}>
+    <div class="sounding-viewport" bind:this={viewport} tabindex="0" role="group" aria-label="Zoomable forecast sounding" on:wheel|preventDefault={handleWheel} on:pointerdown={startPlotPointer} on:pointermove={movePlotPointer} on:pointerup={endPlotPointer} on:pointercancel={endPlotPointer} on:dblclick={resetZoom} on:keydown={handleViewportKey}>
       <svg bind:this={svgEl} viewBox="0 0 330 390" role="img" aria-label="Temperature, dew point and wet-bulb vertical profile" style={`width:${zoom * 100}%;`}>
         <rect x="48" y="22" width="262" height="320" rx="9" class="plot-bg" />
         {#each sounding.tempGrid as g}
@@ -57,7 +57,7 @@
       <span><small>Warm energy</small><b>{sounding.warmEnergy}</b></span>
       <span><small>Cold energy</small><b>{sounding.coldEnergy}</b></span>
     </div>
-    <div class="hint">Wheel or +/- to zoom · click % to reset · selected forecast time</div>
+    <div class="hint">Wheel / pinch / +/- to zoom · drag to pan · double-click or tap % to fit</div>
   {:else}
     <div class="empty">Sounding unavailable for this forecast time.</div>
   {/if}
@@ -78,11 +78,18 @@
   let timestampListener: number | null = null;
   let shell: HTMLDivElement | null = null;
   let svgEl: SVGSVGElement | null = null;
+  let viewport: HTMLDivElement | null = null;
   let position = { x: 24, y: 64 };
   let dragPointerId: number | null = null;
   let dragOffset = { x: 0, y: 0 };
   let zoom = 1;
   let pngBusy = false;
+  const MIN_ZOOM = 1;
+  const MAX_ZOOM = 3.5;
+  const plotPointers = new Map<number, { x: number; y: number }>();
+  let panPointerId: number | null = null;
+  let panStart = { x: 0, y: 0, left: 0, top: 0 };
+  let pinchDistance = 0;
 
   type SoundingData = {
     tempPoints: string; dewPoints: string; wetBulbPoints: string;
@@ -106,8 +113,86 @@
   function startDrag(event: PointerEvent) { if (!shell) return; dragPointerId = event.pointerId; const rect = shell.getBoundingClientRect(); dragOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top }; window.addEventListener('pointermove', dragMove); window.addEventListener('pointerup', stopDrag, { once: true }); event.preventDefault(); }
   function dragMove(event: PointerEvent) { if (event.pointerId === dragPointerId) position = clampPosition(event.clientX - dragOffset.x, event.clientY - dragOffset.y); }
   function stopDrag(event: PointerEvent) { if (event.pointerId === dragPointerId) dragPointerId = null; window.removeEventListener('pointermove', dragMove); }
-  function setZoom(value: number) { zoom = Math.max(0.8, Math.min(2.4, Math.round(value * 10) / 10)); }
-  function handleWheel(event: WheelEvent) { setZoom(zoom + (event.deltaY < 0 ? 0.1 : -0.1)); }
+
+  function clampZoom(value: number): number { return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, value)); }
+  function zoomAround(value: number, clientX?: number, clientY?: number) {
+    if (!viewport) { zoom = clampZoom(value); return; }
+    const next = clampZoom(value), old = zoom;
+    if (Math.abs(next - old) < 0.002) return;
+    const rect = viewport.getBoundingClientRect();
+    const anchorX = clientX === undefined ? rect.width / 2 : Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const anchorY = clientY === undefined ? rect.height / 2 : Math.max(0, Math.min(rect.height, clientY - rect.top));
+    const contentX = (viewport.scrollLeft + anchorX) / old;
+    const contentY = (viewport.scrollTop + anchorY) / old;
+    zoom = next;
+    requestAnimationFrame(() => {
+      if (!viewport) return;
+      viewport.scrollLeft = Math.max(0, contentX * next - anchorX);
+      viewport.scrollTop = Math.max(0, contentY * next - anchorY);
+    });
+  }
+  function zoomAtCentre(value: number) { zoomAround(value); }
+  function resetZoom() {
+    zoom = 1;
+    requestAnimationFrame(() => { if (viewport) { viewport.scrollLeft = 0; viewport.scrollTop = 0; } });
+  }
+  function handleWheel(event: WheelEvent) {
+    const factor = Math.exp(-event.deltaY * 0.00135);
+    zoomAround(zoom * factor, event.clientX, event.clientY);
+  }
+  function pointerDistance(): number {
+    const pts = [...plotPointers.values()];
+    return pts.length < 2 ? 0 : Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  }
+  function pointerCentre(): { x: number; y: number } | null {
+    const pts = [...plotPointers.values()];
+    if (pts.length < 2) return null;
+    return { x: (pts[0].x + pts[1].x) / 2, y: (pts[0].y + pts[1].y) / 2 };
+  }
+  function startPlotPointer(event: PointerEvent) {
+    if (!viewport || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    plotPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    try { viewport.setPointerCapture(event.pointerId); } catch {}
+    if (plotPointers.size === 1) {
+      panPointerId = event.pointerId;
+      panStart = { x: event.clientX, y: event.clientY, left: viewport.scrollLeft, top: viewport.scrollTop };
+    } else if (plotPointers.size === 2) {
+      panPointerId = null;
+      pinchDistance = pointerDistance();
+    }
+  }
+  function movePlotPointer(event: PointerEvent) {
+    if (!viewport || !plotPointers.has(event.pointerId)) return;
+    plotPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (plotPointers.size >= 2) {
+      const distance = pointerDistance(), centre = pointerCentre();
+      if (pinchDistance > 0 && distance > 0 && centre) zoomAround(zoom * (distance / pinchDistance), centre.x, centre.y);
+      pinchDistance = distance;
+      event.preventDefault();
+      return;
+    }
+    if (panPointerId === event.pointerId && zoom > 1.001) {
+      viewport.scrollLeft = panStart.left - (event.clientX - panStart.x);
+      viewport.scrollTop = panStart.top - (event.clientY - panStart.y);
+      event.preventDefault();
+    }
+  }
+  function endPlotPointer(event: PointerEvent) {
+    plotPointers.delete(event.pointerId);
+    try { viewport?.releasePointerCapture(event.pointerId); } catch {}
+    if (plotPointers.size < 2) pinchDistance = 0;
+    if (panPointerId === event.pointerId) panPointerId = null;
+    if (plotPointers.size === 1 && viewport) {
+      const [id, p] = [...plotPointers.entries()][0];
+      panPointerId = id;
+      panStart = { x: p.x, y: p.y, left: viewport.scrollLeft, top: viewport.scrollTop };
+    }
+  }
+  function handleViewportKey(event: KeyboardEvent) {
+    if (event.key === '+' || event.key === '=') { event.preventDefault(); zoomAtCentre(zoom * 1.25); }
+    else if (event.key === '-') { event.preventDefault(); zoomAtCentre(zoom / 1.25); }
+    else if (event.key === '0' || event.key === 'Escape') { event.preventDefault(); resetZoom(); }
+  }
 
   async function downloadPng() {
     if (!svgEl || pngBusy) return;
@@ -172,13 +257,17 @@
     const width = Math.min(390, window.innerWidth - 12); position = { x: Math.max(6, window.innerWidth - width - 16), y: window.innerWidth <= 520 ? 38 : 66 };
     try { const t = store.get('timestamp'); if (typeof t === 'number') timestamp = t; timestampListener = store.on('timestamp', (v: any) => { const n = Number(v); if (Number.isFinite(n)) timestamp = n; }); } catch {}
   });
-  onDestroy(() => { window.removeEventListener('pointermove', dragMove); if (timestampListener !== null) try { store.off(timestampListener); } catch {} });
+  onDestroy(() => {
+    plotPointers.clear();
+    window.removeEventListener('pointermove', dragMove);
+    if (timestampListener !== null) try { store.off(timestampListener); } catch {}
+  });
 </script>
 
 <style lang="less">
   .sounding-shell{position:fixed;z-index:10025;width:min(390px,calc(100vw - 12px));padding:10px 11px;border:1px solid rgba(139,213,244,.34);border-radius:13px;background:linear-gradient(180deg,rgba(14,23,30,.995),rgba(8,15,20,.995));color:#fff;box-shadow:0 16px 42px rgba(0,0,0,.56)}
   .head{display:flex;justify-content:space-between;gap:8px}.head>div:first-child{min-width:0;flex:1}.head b{display:block;font-size:14px}.head small,.head em{display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal}.head small{margin-top:2px;color:#a8b7c0;font-size:8px}.head em{margin-top:2px;color:#6ecdf2;font-size:7.5px}.actions{display:flex;gap:3px;align-items:flex-start}.actions button{min-width:25px;height:27px;padding:0 5px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.07);color:#fff;font-size:13px;font-weight:800;cursor:pointer}.actions button:hover{background:rgba(105,212,255,.14)}.actions .png{font-size:7px;padding:0 6px}.actions .zoom-readout{min-width:43px;font-size:7px}.drag{cursor:grab!important;touch-action:none}
-  .sounding-viewport{max-height:430px;overflow:auto;margin-top:6px;border-radius:9px;overscroll-behavior:contain}.sounding-viewport svg{display:block;min-width:100%;height:auto;margin:0;transform-origin:top left}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:rgba(255,174,86,.08)}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.temp-grid{stroke:rgba(154,181,196,.10)}.temp-grid.zero{stroke:rgba(117,202,239,.5);stroke-width:1.3}.pressure-grid{stroke:rgba(154,181,196,.12)}.axis{fill:#758995;font-size:7px;font-family:sans-serif}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}
+  .sounding-viewport{max-height:430px;overflow:auto;margin-top:6px;border-radius:9px;overscroll-behavior:contain;touch-action:none;cursor:grab;scrollbar-width:thin}.sounding-viewport:active{cursor:grabbing}.sounding-viewport:focus-visible{outline:1px solid rgba(105,212,255,.55);outline-offset:2px}.sounding-viewport svg{display:block;min-width:100%;height:auto;margin:0;transform-origin:top left;user-select:none;-webkit-user-select:none}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:rgba(255,174,86,.08)}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.temp-grid{stroke:rgba(154,181,196,.10)}.temp-grid.zero{stroke:rgba(117,202,239,.5);stroke-width:1.3}.pressure-grid{stroke:rgba(154,181,196,.12)}.axis{fill:#758995;font-size:7px;font-family:sans-serif}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}
   .key{display:flex;flex-wrap:wrap;gap:5px 10px;margin:4px 2px 6px;color:#a0b0ba;font-size:7px}.key span{display:flex;align-items:center;gap:4px}.key i{display:inline-block;width:13px;border-top:2px solid}.key .t{border-color:#ff765f}.key .d{border-color:#72d98b}.key .w{border-color:#69d4ff;border-top-style:dashed}.key .z{border-color:#75caef}
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}.stats span{padding:5px 2px;border-radius:7px;background:rgba(255,255,255,.04);text-align:center}.stats small{display:block;color:#71838e;font-size:5.6px}.stats b{display:block;margin-top:2px;font-size:6.7px;white-space:nowrap}.hint{margin-top:6px;color:#60717b;font-size:6.4px;text-align:center}.empty{padding:30px 8px;text-align:center;color:#82939d;font-size:9px}
   @media(max-width:520px){.sounding-shell{width:calc(100vw - 12px);padding:9px}.head small,.head em{max-width:125px}.stats b{font-size:6.3px}.sounding-viewport{max-height:55vh}.actions{gap:2px}.actions button{min-width:24px;height:26px}.actions .zoom-readout{min-width:38px}}
