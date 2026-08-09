@@ -121,7 +121,7 @@
     <div class="chart-foot with-depth">
       <span><small>Snowline</small><b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span><small>Terrain Δ</small><b class:positive={chart.currentTerrainDifference !== null && chart.currentTerrainDifference > 0} class:negative={chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0}>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
-      <span><small>Precip</small><b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= 0.05}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
+      <span><small>Precip</small><b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= PHASE_PRECIP_THRESHOLD}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
       <span class="depth-card">
         <small>Snow depth</small>
         {#if snowDepthLayerActive}
@@ -294,9 +294,6 @@
     const nav: any = navigator as any;
     const win: any = window as any;
 
-    // Best path when the host exposes the File System Access API: hand the
-    // PNG bytes to the device's native save-file surface rather than opening
-    // an image preview or share sheet.
     if (typeof win.showSaveFilePicker === 'function') {
       try {
         const handle = await win.showSaveFilePicker({
@@ -320,11 +317,13 @@
 
     const isMobileLike = window.innerWidth <= 520 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 
-    // Some mobile WebViews ignore download= for blob: URLs and instead open
-    // the image full-screen. A data: URL avoids that blob-navigation path and
-    // lets the host's download handler receive a normal downloadable href.
     if (isMobileLike) {
-      const dataUrl = await blobToDataUrl(png);
+      // Some mobile WebViews preview image/png even when download= is set.
+      // Present identical PNG bytes as an attachment-like octet stream so the
+      // host is more likely to hand them to its download manager. The .png
+      // filename remains unchanged.
+      const attachmentBlob = new Blob([png], { type: 'application/octet-stream' });
+      const dataUrl = await blobToDataUrl(attachmentBlob);
       clickDownloadHref(dataUrl, filename);
       return;
     }
@@ -422,13 +421,28 @@
     return blocks;
   }
 
-  function phaseSummary(phases: (Phase | null)[]): string {
-    const active = phases.filter((p): p is Phase => p !== null); if (!active.length) return 'Little or no precipitation to classify.';
-    const counts = { snow: 0, mix: 0, rain: 0 }; active.forEach(p => counts[p.kind]++); const total = active.length;
-    if (counts.snow / total >= 0.6) return 'Mostly snow when precipitation occurs.';
-    if (counts.rain / total >= 0.6) return 'Mostly rain when precipitation occurs.';
-    if (counts.mix / total >= 0.45) return 'Mixed precipitation is common just below the snowline.';
-    if (counts.snow > 0 && counts.rain > 0) return 'A transition between rain and snow is forecast.';
+  function phaseSummary(phases: (Phase | null)[], precipValues: (number | null)[]): string {
+    const amounts = { snow: 0, mix: 0, rain: 0 };
+    let total = 0;
+
+    phases.forEach((phase, index) => {
+      const mm = precipValues[index];
+      if (!phase || mm === null || !Number.isFinite(mm) || mm < PHASE_PRECIP_THRESHOLD) return;
+      amounts[phase.kind] += mm;
+      total += mm;
+    });
+
+    if (total < PHASE_PRECIP_THRESHOLD) return 'Little or no precipitation to classify.';
+
+    const snowShare = amounts.snow / total;
+    const mixShare = amounts.mix / total;
+    const rainShare = amounts.rain / total;
+    const pct = (value: number) => Math.round(value * 100);
+
+    if (snowShare >= 0.6) return `Snow favoured for ${pct(snowShare)}% of forecast precipitation.`;
+    if (rainShare >= 0.6) return `Rain favoured for ${pct(rainShare)}% of forecast precipitation.`;
+    if (mixShare >= 0.45) return `Mixed precipitation accounts for ${pct(mixShare)}% of forecast precipitation.`;
+    if (amounts.snow > 0 && amounts.rain > 0) return `Rain–snow transition: ${pct(snowShare)}% snow · ${pct(rainShare)}% rain.`;
     return 'Precipitation type varies through the forecast.';
   }
 
@@ -443,11 +457,11 @@
     const currentTerrainDifference = currentValue !== null && terrain !== null && Number.isFinite(terrain) ? Math.round((terrain - currentValue) / 10) * 10 : null;
     const nowX = Number.isFinite(realNowTime) && realNowTime >= t0 && realNowTime <= t1 ? x(realNowTime) : null, terrainY = terrain !== null && Number.isFinite(terrain) ? Math.max(top, Math.min(bottom, y(terrain))) : null, crossingX = crossingTime !== null ? x(crossingTime) : null;
     const spacing = (right - left) / Math.max(1, p.times.length - 1), barWidth = Math.max(1.2, Math.min(5, spacing * 0.74));
-    const precipValues = p.times.map((_: number, i: number) => precipMmAt(p.forecast, i)), currentPrecip = precipValues[currentIndex] ?? null; const validPrecip = precipValues.filter((v: number | null): v is number => v !== null && Number.isFinite(v)), precipMax = validPrecip.length ? Math.max(0.1, ...validPrecip) : 0;
+    const precipValues = p.times.map((_: number, i: number) => precipMmAt(p.forecast, i)), currentPrecip = precipValues[currentIndex] ?? null; const validPrecip = precipValues.filter((v: number | null): v is number => v !== null && Number.isFinite(v)), precipMax = validPrecip.length ? Math.max(PHASE_PRECIP_THRESHOLD, ...validPrecip) : 0;
     const precipBars: Bar[] = precipValues.map((mm: number | null, i: number) => { const value = mm ?? 0, height = precipMax > 0 ? Math.min(29, (value / precipMax) * 29) : 0; return { x: x(p.times[i]) - barWidth / 2, y: 187 - height, width: barWidth, height, mm: value }; }).filter(bar => bar.height > 0.12);
     const phases = p.times.map((_: number, i: number) => phaseAt(p, terrain, i)); const currentPhase = phases[currentIndex]; const phaseBlocks = buildPhaseBlocks(p, terrain, x, spacing);
     const validLabel = `Valid ${formatTooltipTime(currentTime)} · ${formatRun(p.runTime)}`;
-    return { points, terrainY, currentX, currentY, nowX, crossingX, minLabel: `${Math.round(min)} m`, midLabel: `${Math.round((min + max) / 2)} m`, maxLabel: `${Math.round(max)} m`, startLabel: formatDay(t0), currentSnowline: currentValue !== null ? Math.round(currentValue / 10) * 10 : null, currentTerrainDifference, currentPrecip, currentPhase, precipBars, hasPrecip: validPrecip.some(v => v >= 0.05), precipMaxLabel: precipMax > 0 ? formatPrecipMm(precipMax) : '—', minScale: min, maxScale: max, validLabel, currentIndex, phaseBlocks, phaseSummary: phaseSummary(phases) };
+    return { points, terrainY, currentX, currentY, nowX, crossingX, minLabel: `${Math.round(min)} m`, midLabel: `${Math.round((min + max) / 2)} m`, maxLabel: `${Math.round(max)} m`, startLabel: formatDay(t0), currentSnowline: currentValue !== null ? Math.round(currentValue / 10) * 10 : null, currentTerrainDifference, currentPrecip, currentPhase, precipBars, hasPrecip: validPrecip.some(v => v >= PHASE_PRECIP_THRESHOLD), precipMaxLabel: precipMax > 0 ? formatPrecipMm(precipMax) : '—', minScale: min, maxScale: max, validLabel, currentIndex, phaseBlocks, phaseSummary: phaseSummary(phases, precipValues) };
   }
 
   onMount(() => {
