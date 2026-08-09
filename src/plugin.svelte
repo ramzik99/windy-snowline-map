@@ -49,7 +49,7 @@
       </div>
       <div class="info-body">
         <div><b>Snow forecast</b> uses ECMWF temperature, dew point and geopotential height to estimate the wet-bulb-zero snowline. Runs up to 144 hours only.</div>
-        <div>Map contours show the approximate rain–snow thermal boundary. With precipitation ≥0.1 mm/3h, the point label shows snow at or above the snowline, mix up to 100 m below it, and rain farther below. Without measurable precipitation it shows above, near (±100 m), or below the snowline.</div>
+        <div>Map contours show the approximate rain–snow thermal boundary. With precipitation ≥0.03 mm/h, the point label shows snow at or above the snowline, mix up to 100 m below it, and rain farther below. Without measurable precipitation it shows above, near (±100 m), or below the snowline.</div>
         <div>The point graph shows snowline and precipitation through time. Snow depth is available only for the selected timestep after opening Windy’s ECMWF Snow depth layer. Desktop users can export the graph as PNG.</div>
         <div class="info-caveat">This is a thermal forecast aid. A favourable snowline does not guarantee snowfall or accumulation, and snow depth is model output for the selected timestep.</div>
       </div>
@@ -69,7 +69,7 @@
   import PlaceSearch from './PlaceSearch.svelte';
   import SnowlineChart from './SnowlineChart.svelte';
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
-  import { precipMmAt, formatPrecipMm } from './precip';
+  import { precipMmAt, formatPrecipMm, PRECIP_THRESHOLD_MM_H } from './precip';
   import { loadSelectedPrecipFields } from './selectedPrecip';
   import { terrainCrossingState } from './terrainCrossing';
   import { contourPolylines, type GridPoint, type ContourPolyline } from './contours';
@@ -120,7 +120,6 @@
   const MIN_VALID_FRACTION = 0.35;
   const MIX_BELOW_SNOWLINE_METRES = 100;
   const POSITION_NEAR_SNOWLINE_METRES = 100;
-  const LABEL_PRECIP_THRESHOLD_MM_3H = 0.1;
   const PICKER_PROBE_DELAY_MS = 180;
   const PICKER_SYNC_MS = 700;
   const DESKTOP_PICKER_SETTLE_MS = 650;
@@ -167,8 +166,11 @@
   async function loadPoint(lat: number, lon: number): Promise<CachedPoint | null> { const existing = cachedProfile(lat, lon); if (existing) return existing; try { const response = await getMeteogramForecastData(MODEL, { lat, lon, step: 1, days: FORECAST_DAYS }); const { forecast, header } = extractPayload(response); if (!Object.keys(forecast).length) return null; const runTime = parseTime(header.refTime); invalidateForNewRun(runTime); const point: CachedPoint = { lat, lon, forecast, header, times: buildForecastTimes(forecast, header), runTime }; rememberProfile(point); return point; } catch (e) { console.warn('Snowline point failed', lat, lon, e); return null; } }
   async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> { const out = new Array<R>(items.length); let next = 0; async function worker() { while (true) { const i = next++; if (i >= items.length) return; out[i] = await fn(items[i]); } } await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker())); return out; }
   function gridShapeForZoom(): { rows: number; cols: number } {
-    const zoom = Number(map.getZoom?.() ?? 6); const mapWidth = Number(map.getSize?.().x ?? 800); const mobile = mapWidth < 520;
-    if (zoom <= 4) return { rows: 9, cols: 13 }; if (zoom <= 6) return { rows: 11, cols: 17 }; if (zoom <= 8) return mobile ? { rows: 13, cols: 19 } : { rows: 15, cols: 23 }; return mobile ? { rows: 15, cols: 23 } : { rows: 19, cols: 27 };
+    const zoom = Number(map.getZoom?.() ?? 6);
+    if (zoom <= 4) return { rows: 11, cols: 17 };
+    if (zoom <= 6) return { rows: 15, cols: 23 };
+    if (zoom <= 8) return { rows: 19, cols: 29 };
+    return { rows: 23, cols: 35 };
   }
   function buildViewportPoints(): { points: ViewportPoint[]; rows: number; cols: number } { const { rows, cols } = gridShapeForZoom(), b = map.getBounds(); const south = Math.max(-75, b.getSouth()), north = Math.min(75, b.getNorth()), west = b.getWest(), east = b.getEast(); const latStep = (north - south) / (rows - 1), lonStep = (east - west) / (cols - 1), points: ViewportPoint[] = []; for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) points.push({ lat: south + r * latStep, lon: west + c * lonStep, r, c }); return { points, rows, cols }; }
 
@@ -210,7 +212,7 @@
   }
   async function copyText(text: string): Promise<void> { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; } const textarea = document.createElement('textarea'); textarea.value = text; textarea.style.position = 'fixed'; textarea.style.opacity = '0'; document.body.appendChild(textarea); textarea.focus(); textarea.select(); const copied = document.execCommand('copy'); document.body.removeChild(textarea); if (!copied) throw new Error('Clipboard copy failed'); }
   async function shareCurrentPoint(button: HTMLButtonElement) {
-    if (!clickedPoint || !clickedLatLon || !clickedPoint.times.length) return; const point = clickedPoint; const [lat, lon] = clickedLatLon; const sourceAtShare = pointSource; const target = getStoreTimestamp(); const idx = nearestIndex(point.times, target); const validTime = point.times[idx]; const snowline = snowlineAt(point, idx); const precip = precipMmAt(point.forecast, idx); const crossing = terrainCrossingState(point, clickedMapElevationM, target); const tendency = tendencyText(point, idx) || 'Unavailable'; const elevation = clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM) ? `${Math.round(clickedMapElevationM / 10) * 10} m AMSL` : 'Unavailable'; const snowlineText = snowline !== null ? `${Math.round(snowline / 10) * 10} m AMSL` : 'Unavailable'; const precipText = precip !== null ? `${formatPrecipMm(precip)} mm/3h` : 'Unavailable'; const leadHours = point.runTime !== null ? Math.round((validTime - point.runTime) / 3600_000) : null; const leadText = leadHours === null ? 'Unavailable' : `${leadHours >= 0 ? '+' : ''}${leadHours} h`; button.textContent = '…'; button.title = 'Preparing copy';
+    if (!clickedPoint || !clickedLatLon || !clickedPoint.times.length) return; const point = clickedPoint; const [lat, lon] = clickedLatLon; const sourceAtShare = pointSource; const target = getStoreTimestamp(); const idx = nearestIndex(point.times, target); const validTime = point.times[idx]; const snowline = snowlineAt(point, idx); const precip = precipMmAt(point.forecast, idx); const crossing = terrainCrossingState(point, clickedMapElevationM, target); const tendency = tendencyText(point, idx) || 'Unavailable'; const elevation = clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM) ? `${Math.round(clickedMapElevationM / 10) * 10} m AMSL` : 'Unavailable'; const snowlineText = snowline !== null ? `${Math.round(snowline / 10) * 10} m AMSL` : 'Unavailable'; const precipText = precip !== null ? `${formatPrecipMm(precip)} mm/h` : 'Unavailable'; const leadHours = point.runTime !== null ? Math.round((validTime - point.runTime) / 3600_000) : null; const leadText = leadHours === null ? 'Unavailable' : `${leadHours >= 0 ? '+' : ''}${leadHours} h`; button.textContent = '…'; button.title = 'Preparing copy';
     try { const placeName = await resolvePlaceName(lat, lon); if (clickedPoint !== point || pointSource !== sourceAtShare || !clickedLatLon || clickedLatLon[0] !== lat || clickedLatLon[1] !== lon) return; if (!clickedPlaceName) clickedPlaceName = placeName; const text = ['Snowline · ECMWF', `Place: ${placeName}`, `Coordinates: ${formatCoordinate(lat, lon)}`, `Valid time: ${formatUtc(validTime)}`, `Lead time: ${leadText}${point.runTime !== null ? ` from run ${formatUtc(point.runTime)}` : ''}`, `Snowline: ${snowlineText}`, `Elevation: ${elevation}`, `Precipitation: ${precipText}`, `Terrain outlook: ${crossing?.detail ?? 'Unavailable'}`, `Tendency: ${tendency}`, 'Snowline is a thermal boundary; precipitation does not guarantee snowfall.'].join('\n'); await copyText(text); button.textContent = '✓'; button.title = 'Copied'; setTimeout(() => { if (button.isConnected) { button.textContent = 'share'; button.title = 'Copy Snowline details'; } }, 1400); }
     catch (e) { console.warn('Snowline share copy failed', e); button.textContent = '!'; button.title = 'Copy failed'; setTimeout(() => { if (button.isConnected) { button.textContent = 'share'; button.title = 'Copy Snowline details'; } }, 1600); }
   }
@@ -241,8 +243,8 @@
     if (target < firstTime - 30 * 60_000 || target > effectiveEnd + 30 * 60_000) { showClickLabel(lat, lon, 'Outside +144 h'); return; }
     const idx = nearestIndex(clickedPoint.times, target), snowline = snowlineAt(clickedPoint, idx); if (snowline === null) { showClickLabel(lat, lon, 'No snowline'); return; }
     const rounded = Math.round(snowline / 10) * 10, tendency = tendencyText(clickedPoint, idx), precip = precipMmAt(clickedPoint.forecast, idx), crossing = terrainCrossingState(clickedPoint, clickedMapElevationM, target);
-    const hasPrecip = precip !== null && precip >= LABEL_PRECIP_THRESHOLD_MM_3H;
-    const precipText = hasPrecip ? ` · ${formatPrecipMm(precip)} mm/3h` : '';
+    const hasPrecip = precip !== null && precip >= PRECIP_THRESHOLD_MM_H;
+    const precipText = hasPrecip ? ` · ${formatPrecipMm(precip)} mm/h` : '';
     const outlookText = crossing?.summary ?? '';
     if (clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM)) {
       const terrainRounded = Math.round(clickedMapElevationM / 10) * 10;
@@ -314,11 +316,11 @@
     const field: GridPoint[][] = []; for (let r = 0; r < cache.length; r++) { const row: GridPoint[] = []; for (let c = 0; c < cache[r].length; c++) { const cp = cache[r][c]; if (!cp || !cp.times.length) { row.push({ lat: 0, lon: 0, value: null }); continue; } const idx = nearestIndex(cp.times, target), snowline = snowlineAt(cp, idx); row.push({ lat: cp.lat, lon: cp.lon, value: snowline }); } field.push(row); }
     const values = field.flat().map(p => p.value).filter((v): v is number => typeof v === 'number' && Number.isFinite(v)); if (!values.length) { clearContours(); return; }
     const interval = contourIntervalForZoom(), nextLayer = L.layerGroup(), min = Math.floor(Math.min(...values) / interval) * interval, max = Math.ceil(Math.max(...values) / interval) * interval, labelCandidates: LabelCandidate[] = [];
-    for (let level = min; level <= max; level += interval) { const lines = contourPolylines(field, level), is1000 = level % 1000 === 0, is500 = level % 500 === 0, contourColor = colorForLevel(level); for (const line of lines) { if (line.length < 2) continue; if (is500 || is1000) L.polyline(line, { color: '#11151b', weight: is1000 ? 4.3 : 3.0, opacity: is1000 ? 0.58 : 0.42, interactive: false, lineCap: 'round', lineJoin: 'round', smoothFactor: 0.8 }).addTo(nextLayer); L.polyline(line, { color: contourColor, weight: is1000 ? 2.9 : is500 ? 1.9 : 0.9, opacity: is1000 ? 1.0 : is500 ? 0.96 : 0.68, interactive: false, lineCap: 'round', lineJoin: 'round', smoothFactor: is500 ? 0.7 : 0.9 }).addTo(nextLayer); } const shouldLabel = interval === 100 ? is500 : is1000; if (shouldLabel && lines.length) { const longest = [...lines].sort((a, b) => lineLength(b) - lineLength(a))[0], length = lineLength(longest), labelPoint = midpointAlongLine(longest); if (labelPoint && length > 0.08) labelCandidates.push({ point: labelPoint, level, color: contourColor, length, isMajor: is1000 }); } }
+    for (let level = min; level <= max; level += interval) { const lines = contourPolylines(field, level), is1000 = level % 1000 === 0, is500 = level % 500 === 0, contourColor = colorForLevel(level); for (const line of lines) { if (line.length < 2) continue; if (is500 || is1000) L.polyline(line, { color: '#11151b', weight: is1000 ? 4.3 : 3.0, opacity: is1000 ? 0.58 : 0.42, interactive: false, lineCap: 'round', lineJoin: 'round', smoothFactor: 0.78 }).addTo(nextLayer); L.polyline(line, { color: contourColor, weight: is1000 ? 2.9 : is500 ? 1.9 : 0.9, opacity: is1000 ? 1.0 : is500 ? 0.96 : 0.68, interactive: false, lineCap: 'round', lineJoin: 'round', smoothFactor: is1000 ? 0.65 : is500 ? 0.72 : 0.95 }).addTo(nextLayer); } const shouldLabel = interval === 100 ? is500 : is1000; if (shouldLabel && lines.length) { const longest = [...lines].sort((a, b) => lineLength(b) - lineLength(a))[0], length = lineLength(longest), labelPoint = midpointAlongLine(longest); if (labelPoint && length > 0.08) labelCandidates.push({ point: labelPoint, level, color: contourColor, length, isMajor: is1000 }); } }
     drawDeclutteredLabels(labelCandidates, nextLayer); nextLayer.addTo(map); const oldLayer = contourLayer; contourLayer = nextLayer; if (oldLayer) try { map.removeLayer(oldLayer); } catch {}
   }
 
-  function handleMapNavigation() { if (!enabled) return; if (contoursEnabled()) { if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 700); } }
+  function handleMapNavigation() { if (!enabled) return; if (contoursEnabled()) { if (moveTimer) clearTimeout(moveTimer); moveTimer = setTimeout(() => refreshViewport(), 600); } }
   function setDisplayMode(mode: DisplayMode) { if (!enabled || displayMode === mode) return; displayMode = mode; generation += 1; viewportLoading = false; refreshQueued = false; if (!contoursEnabled()) clearContours(); else refreshViewport(); if (!labelsEnabled()) clearPointState(); else if (!isMobile && !clickedLatLon) syncPickerFromStore(true); }
   function toggleEnabled() { if (enabled) { if (contoursEnabled()) refreshViewport(); if (!isMobile && labelsEnabled() && !clickedLatLon) syncPickerFromStore(true); } else { generation += 1; viewportLoading = false; refreshQueued = false; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearContours(); clearPointState(); } }
 
