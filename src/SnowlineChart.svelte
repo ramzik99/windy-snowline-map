@@ -130,7 +130,7 @@
     </div>
 
     <div class="phase-legend">
-      <span>❄ Snow</span><span>🌨 Near snowline ±50 m</span><span>🌧 Rain</span><small>shown only with ≥0.1 mm/3h</small>
+      <span>❄ Snow ≥ snowline</span><span>🌨 Mix 0–100 m below</span><span>🌧 Rain &gt;100 m below</span><small>shown only with ≥0.1 mm/3h</small>
     </div>
 
     <div class="chart-foot">
@@ -163,7 +163,7 @@
 
   const dispatch = createEventDispatcher<{ close: void }>();
   const PHASE_PRECIP_THRESHOLD = 0.1;
-  const NEAR_SNOWLINE_M = 50;
+  const MIX_BELOW_SNOWLINE_M = 100;
 
   let timestamp = Date.now();
   let realNow = Date.now();
@@ -177,7 +177,7 @@
   let tooltip: TooltipData | null = null;
 
   type Bar = { x: number; y: number; width: number; height: number; mm?: number; cm?: number };
-  type PhaseKind = 'snow' | 'near' | 'rain';
+  type PhaseKind = 'snow' | 'mix' | 'rain';
   type Phase = { kind: PhaseKind; icon: string; label: string };
   type PhaseBlock = { x: number; width: number; kind: PhaseKind; icon: string };
   type TooltipData = { x: number; cssX: number; cssY: number; snowlineY: number | null; snowline: number | null; terrainDifference: number | null; precip: number | null; snowDepth: number | null; phase: Phase | null; tendency: string; timeLabel: string; };
@@ -199,9 +199,9 @@
     const precip = precipMmAt(p.forecast, index); if (precip === null || precip < PHASE_PRECIP_THRESHOLD) return null;
     const snowline = snowlineAt(p, index); if (snowline === null) return null;
     const delta = terrain - snowline;
-    if (delta > NEAR_SNOWLINE_M) return { kind: 'snow', icon: '❄', label: 'Snow' };
-    if (delta < -NEAR_SNOWLINE_M) return { kind: 'rain', icon: '🌧', label: 'Rain' };
-    return { kind: 'near', icon: '🌨', label: 'Near snowline' };
+    if (delta >= 0) return { kind: 'snow', icon: '❄', label: 'Snow' };
+    if (delta >= -MIX_BELOW_SNOWLINE_M) return { kind: 'mix', icon: '🌨', label: 'Mix' };
+    return { kind: 'rain', icon: '🌧', label: 'Rain' };
   }
   function tendencyAt(p: any, index: number): string { const now = snowlineAt(p, index); if (now === null || !p?.times?.length) return ''; const target = p.times[index] + 3 * 3600_000; if (target > p.times[p.times.length - 1] + 30 * 60_000) return ''; const next = nearestIndex(p.times, target); if (next === index) return ''; const future = snowlineAt(p, next); if (future === null) return ''; const delta = Math.round((future - now) / 10) * 10; if (Math.abs(delta) < 20) return 'steady'; return `${delta > 0 ? '↑' : '↓'}${Math.abs(delta)} m/3h`; }
   function formatDay(time: number): string { return new Date(time).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }); }
@@ -251,7 +251,7 @@
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg'); clone.setAttribute('width', '1080'); clone.setAttribute('height', '960');
       clone.querySelectorAll('.inspect-line,.inspect-dot').forEach(node => node.remove());
       const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-      style.textContent = `.plot-bg{fill:#17222b;stroke:#344957;stroke-width:1}.lower-bg,.phase-bg{fill:#101920;stroke:#2b3d48;stroke-width:.8}.snow-zone{fill:#103746}.grid{stroke:#334752;stroke-width:1}.axis{fill:#b4c0c9;font-size:8px;font-family:Arial,sans-serif}.section-label{fill:#d8e4ec;font-size:7px;font-family:Arial,sans-serif;font-weight:700;letter-spacing:.35px}.unit{fill:#8395a2;font-weight:400}.precip-label,.precip-axis{fill:#64d4f5}.depth-label,.depth-axis{fill:#8de39a}.phase-label{fill:#e8d86d}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.snowline-line{fill:none;stroke:#65d5ff;stroke-width:2.6}.now-line{stroke:#ff6658;stroke-width:1.35}.now-tag-bg{fill:#ff6658}.now-tag{fill:#fff;font-size:7px;font-family:Arial,sans-serif;font-weight:800}.cursor{stroke:#dce7ee;stroke-width:1;stroke-dasharray:2 3}.current-dot{fill:#fff;stroke:#65d5ff;stroke-width:2.3}.crossing-line{stroke:#ffe05b;stroke-width:1.35;stroke-dasharray:3 3}.crossing-dot{fill:#12191f;stroke:#ffe05b;stroke-width:2.2}.precip-bar{fill:#3b90ac}.precip-bar.wet{fill:#5ec8e9}.snow-depth-bar{fill:#74ce85}.phase-block{opacity:.28}.phase-snow{fill:#64d4f5}.phase-near{fill:#d9d467}.phase-rain{fill:#678eff}.phase-icon{fill:#fff;font-size:10px;font-family:'Segoe UI Emoji','Apple Color Emoji',sans-serif}.empty-band{fill:#788793;font-size:7px;font-family:Arial,sans-serif}.subtle{opacity:.65}`;
+      style.textContent = `.plot-bg{fill:#17222b;stroke:#344957;stroke-width:1}.lower-bg,.phase-bg{fill:#101920;stroke:#2b3d48;stroke-width:.8}.snow-zone{fill:#103746}.grid{stroke:#334752;stroke-width:1}.axis{fill:#b4c0c9;font-size:8px;font-family:Arial,sans-serif}.section-label{fill:#d8e4ec;font-size:7px;font-family:Arial,sans-serif;font-weight:700;letter-spacing:.35px}.unit{fill:#8395a2;font-weight:400}.precip-label,.precip-axis{fill:#64d4f5}.depth-label,.depth-axis{fill:#8de39a}.phase-label{fill:#e8d86d}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.snowline-line{fill:none;stroke:#65d5ff;stroke-width:2.6}.now-line{stroke:#ff6658;stroke-width:1.35}.now-tag-bg{fill:#ff6658}.now-tag{fill:#fff;font-size:7px;font-family:Arial,sans-serif;font-weight:800}.cursor{stroke:#dce7ee;stroke-width:1;stroke-dasharray:2 3}.current-dot{fill:#fff;stroke:#65d5ff;stroke-width:2.3}.crossing-line{stroke:#ffe05b;stroke-width:1.35;stroke-dasharray:3 3}.crossing-dot{fill:#12191f;stroke:#ffe05b;stroke-width:2.2}.precip-bar{fill:#3b90ac}.precip-bar.wet{fill:#5ec8e9}.snow-depth-bar{fill:#74ce85}.phase-block{opacity:.28}.phase-snow{fill:#64d4f5}.phase-mix{fill:#d9d467}.phase-rain{fill:#678eff}.phase-icon{fill:#fff;font-size:10px;font-family:'Segoe UI Emoji','Apple Color Emoji',sans-serif}.empty-band{fill:#788793;font-size:7px;font-family:Arial,sans-serif}.subtle{opacity:.65}`;
       clone.insertBefore(style, clone.firstChild);
       const serialized = new XMLSerializer().serializeToString(clone); const svgBlob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' }); const url = URL.createObjectURL(svgBlob); const image = new Image();
       await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('PNG image render failed')); image.src = url; });
@@ -267,7 +267,7 @@
       ctx.drawImage(image, 0, 180, 1080, 960); URL.revokeObjectURL(url);
 
       ctx.fillStyle = '#dce6ec'; ctx.font = '700 20px Arial'; ctx.fillText('Precipitation type', 44, 1178);
-      ctx.font = '19px Arial'; ctx.fillText('❄ Snow   ·   🌨 Near snowline ±50 m   ·   🌧 Rain', 44, 1210);
+      ctx.font = '19px Arial'; ctx.fillText('❄ Snow ≥ snowline   ·   🌨 Mix 0–100 m below   ·   🌧 Rain >100 m below', 44, 1210);
       ctx.fillStyle = '#7f909b'; ctx.font = '16px Arial'; ctx.fillText('Shown only when precipitation is ≥0.1 mm/3h', 44, 1237);
 
       const cardGap = 10, cardW = (992 - 4 * cardGap) / 5, cardY = 1260;
@@ -307,7 +307,7 @@
       if (nextKind !== kind) {
         if (kind !== null && start >= 0) {
           const end = i - 1; const x1 = Math.max(42, x(p.times[start]) - spacing * 0.46); const x2 = Math.min(348, x(p.times[end]) + spacing * 0.46);
-          const icon = kind === 'snow' ? '❄' : kind === 'near' ? '🌨' : '🌧'; blocks.push({ x: x1, width: Math.max(3, x2 - x1), kind, icon });
+          const icon = kind === 'snow' ? '❄' : kind === 'mix' ? '🌨' : '🌧'; blocks.push({ x: x1, width: Math.max(3, x2 - x1), kind, icon });
         }
         start = nextKind === null ? -1 : i; kind = nextKind;
       }
@@ -317,12 +317,12 @@
 
   function phaseSummary(phases: (Phase | null)[]): string {
     const active = phases.filter((p): p is Phase => p !== null); if (!active.length) return 'Little or no precipitation to classify.';
-    const counts = { snow: 0, near: 0, rain: 0 }; active.forEach(p => counts[p.kind]++); const total = active.length;
+    const counts = { snow: 0, mix: 0, rain: 0 }; active.forEach(p => counts[p.kind]++); const total = active.length;
     if (counts.snow / total >= 0.6) return 'Mostly snow when precipitation occurs.';
     if (counts.rain / total >= 0.6) return 'Mostly rain when precipitation occurs.';
-    if (counts.near / total >= 0.45) return 'Precipitation often occurs close to the snowline.';
+    if (counts.mix / total >= 0.45) return 'Mixed precipitation is common just below the snowline.';
     if (counts.snow > 0 && counts.rain > 0) return 'A transition between rain and snow is forecast.';
-    return 'Snowline conditions vary through the forecast.';
+    return 'Precipitation type varies through the forecast.';
   }
 
   function buildChart(p: any, terrain: number | null, target: number, crossingTime: number | null, realNowTime: number): ChartData | null {
@@ -375,9 +375,9 @@
   .crossing-line { stroke: rgba(255,224,91,0.82); stroke-width: 1.35; stroke-dasharray: 3 3; } .crossing-dot { fill: #12191f; stroke: #ffe05b; stroke-width: 2.2; } .crossing-action { cursor: pointer; pointer-events: stroke; } .crossing-dot.crossing-action { pointer-events: all; }
   .inspect-line { stroke: rgba(255,255,255,0.34); stroke-width: 1; } .inspect-dot { fill: #12191f; stroke: white; stroke-width: 1.6; }
   .precip-bar { fill: rgba(70,176,210,0.50); } .precip-bar.wet { fill: #5ec8e9; } .snow-depth-bar { fill: #74ce85; opacity: .90; }
-  .phase-block { opacity: .30; } .phase-snow { fill: #64d4f5; } .phase-near { fill: #d9d467; } .phase-rain { fill: #678eff; } .phase-icon { fill: white; font-size: 10px; font-family: 'Segoe UI Emoji','Apple Color Emoji',sans-serif; } .empty-band { fill: rgba(255,255,255,.36); font-size: 7px; font-family: sans-serif; } .empty-band.subtle { opacity: .62; font-size: 6.4px; }
+  .phase-block { opacity: .30; } .phase-snow { fill: #64d4f5; } .phase-mix { fill: #d9d467; } .phase-rain { fill: #678eff; } .phase-icon { fill: white; font-size: 10px; font-family: 'Segoe UI Emoji','Apple Color Emoji',sans-serif; } .empty-band { fill: rgba(255,255,255,.36); font-size: 7px; font-family: sans-serif; } .empty-band.subtle { opacity: .62; font-size: 6.4px; }
   .plot-tooltip { position: absolute; z-index: 4; min-width: 164px; transform: translateX(-50%); padding: 7px 9px; border-radius: 8px; background: rgba(5,12,17,0.985); border: 1px solid rgba(98,213,255,0.28); box-shadow: 0 7px 20px rgba(0,0,0,0.44); pointer-events: none; }
-  .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; } .plot-tooltip b { font-size: 8.9px; color: white; margin-bottom: 2px; } .plot-tooltip span { margin-top: 1px; font-size: 7.8px; color: rgba(255,255,255,0.75); } .tooltip-phase { margin-top: 3px !important; font-weight: 800; } .phase-text-snow { color: #74dcff !important; } .phase-text-near { color: #e8df73 !important; } .phase-text-rain { color: #8caaff !important; }
+  .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; } .plot-tooltip b { font-size: 8.9px; color: white; margin-bottom: 2px; } .plot-tooltip span { margin-top: 1px; font-size: 7.8px; color: rgba(255,255,255,0.75); } .tooltip-phase { margin-top: 3px !important; font-weight: 800; } .phase-text-snow { color: #74dcff !important; } .phase-text-mix { color: #e8df73 !important; } .phase-text-rain { color: #8caaff !important; }
   .phase-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 2px 3px 6px; color: rgba(255,255,255,.72); font-size: 7.4px; } .phase-legend span { white-space: nowrap; } .phase-legend small { color: rgba(255,255,255,.35); font-size: 6.7px; }
   .chart-foot { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 2px; } .chart-foot span { padding: 6px 2px 5px; border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; background: rgba(255,255,255,0.043); text-align: center; min-width: 0; } .chart-foot small { display: block; color: rgba(255,255,255,0.45); font-size: 6.2px; } .chart-foot b { display: block; margin-top: 1px; color: white; font-size: 7.8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .chart-foot b.positive { color: #65d5ff; } .chart-foot b.negative { color: #ffae56; } .chart-foot b.wet { color: #65d5ff; } .chart-foot b.depth-value { color: #8de39a; } .phase-card b { font-size: 7.4px; }
   .forecast-summary { margin-top: 6px; padding: 5px 7px; border-radius: 7px; background: rgba(98,213,255,0.065); border: 1px solid rgba(98,213,255,0.10); color: rgba(224,239,247,0.86); font-size: 7.8px; font-weight: 700; text-align: center; }
