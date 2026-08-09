@@ -13,7 +13,7 @@
       <small class="meta-line">{chart?.validLabel ?? 'ECMWF forecast'}</small>
     </div>
     <div class="chart-actions">
-      <button class="png-button" type="button" aria-label="Download graph as PNG" title="Download PNG" on:click={downloadPng}>PNG</button>
+      <button class="png-button" type="button" aria-label="Save graph as PNG" title="Save PNG" on:click={downloadPng}>PNG</button>
       <button class="now-button" type="button" aria-label="Reset Windy timeline to now" title="Back to now" on:click={resetToNow}>Now</button>
       <button class="drag-button" type="button" aria-label="Drag snow forecast graph" title="Drag graph" on:pointerdown={startDrag}>↕</button>
       <button type="button" aria-label="Close snow forecast graph" title="Close" on:click={() => dispatch('close')}>×</button>
@@ -40,7 +40,6 @@
         on:pointerdown={handlePlotPointer}
         on:pointerleave={clearTooltip}
       >
-        <!-- Labels are deliberately outside the data rectangles. -->
         <text x="42" y="11" class="section-label">SNOWLINE ALTITUDE <tspan class="unit">m</tspan></text>
         <rect x="42" y="18" width="306" height="112" rx="8" class="plot-bg" />
         {#if chart.terrainY !== null}
@@ -75,10 +74,9 @@
           {#each chart.snowDepthBars as bar}
             <rect x={bar.x} y={bar.y} width={bar.width} height={bar.height} rx="1.4" class="snow-depth-bar" />
           {/each}
-        {:else if depthLoading}
-          <text x="195" y="229" text-anchor="middle" class="empty-band">Loading ECMWF snow depth…</text>
         {:else}
-          <text x="195" y="229" text-anchor="middle" class="empty-band">Snow depth unavailable</text>
+          <text x="195" y="225" text-anchor="middle" class="empty-band">Snow depth not supplied in point forecast</text>
+          <text x="195" y="235" text-anchor="middle" class="empty-band subtle">No map-layer activation required</text>
         {/if}
 
         <text x="42" y="260" class="section-label phase-label">PRECIPITATION TYPE <tspan class="unit">terrain vs snowline</tspan></text>
@@ -132,7 +130,7 @@
     </div>
 
     <div class="phase-legend">
-      <span>❄ Snow</span><span>🌨 Mix ±100 m</span><span>🌧 Rain</span><small>shown only with ≥0.1 mm/3h</small>
+      <span>❄ Snow</span><span>🌨 Near snowline ±50 m</span><span>🌧 Rain</span><small>shown only with ≥0.1 mm/3h</small>
     </div>
 
     <div class="chart-foot">
@@ -157,7 +155,6 @@
   import { buildProfile, wetBulbZeroHeight } from './snowLevel';
   import { precipMmAt, formatPrecipMm } from './precip';
   import { snowDepthCmAt, formatSnowDepthCm } from './snowDepth';
-  import { loadSnowDepthSeriesCm } from './mapSnowDepth';
   import { terrainCrossingState } from './terrainCrossing';
 
   export let point: any;
@@ -166,7 +163,7 @@
 
   const dispatch = createEventDispatcher<{ close: void }>();
   const PHASE_PRECIP_THRESHOLD = 0.1;
-  const MIX_BUFFER_M = 100;
+  const NEAR_SNOWLINE_M = 50;
 
   let timestamp = Date.now();
   let realNow = Date.now();
@@ -178,12 +175,9 @@
   let dragPointerId: number | null = null;
   let dragOffset = { x: 0, y: 0 };
   let tooltip: TooltipData | null = null;
-  let depthSeries: (number | null)[] = [];
-  let depthLoading = false;
-  let depthGeneration = 0;
 
   type Bar = { x: number; y: number; width: number; height: number; mm?: number; cm?: number };
-  type PhaseKind = 'snow' | 'mix' | 'rain';
+  type PhaseKind = 'snow' | 'near' | 'rain';
   type Phase = { kind: PhaseKind; icon: string; label: string };
   type PhaseBlock = { x: number; width: number; kind: PhaseKind; icon: string };
   type TooltipData = { x: number; cssX: number; cssY: number; snowlineY: number | null; snowline: number | null; terrainDifference: number | null; precip: number | null; snowDepth: number | null; phase: Phase | null; tendency: string; timeLabel: string; };
@@ -199,35 +193,20 @@
 
   function nearestIndex(times: number[], target: number): number { let best = 0, distance = Infinity; times.forEach((time, index) => { const d = Math.abs(time - target); if (d < distance) { best = index; distance = d; } }); return best; }
   function snowlineAt(p: any, index: number): number | null { try { const result = wetBulbZeroHeight(buildProfile(p.forecast, index)); return result.snowLevelM !== null && Number.isFinite(result.snowLevelM) ? result.snowLevelM : null; } catch { return null; } }
-  function modelDepthAt(p: any, index: number): number | null { const direct = snowDepthCmAt(p.forecast, index); if (direct !== null) return direct; const fallback = depthSeries[index]; return fallback !== undefined && fallback !== null && Number.isFinite(fallback) ? fallback : null; }
+  function modelDepthAt(p: any, index: number): number | null { return snowDepthCmAt(p.forecast, index); }
   function phaseAt(p: any, terrain: number | null, index: number): Phase | null {
     if (terrain === null || !Number.isFinite(terrain)) return null;
     const precip = precipMmAt(p.forecast, index); if (precip === null || precip < PHASE_PRECIP_THRESHOLD) return null;
     const snowline = snowlineAt(p, index); if (snowline === null) return null;
     const delta = terrain - snowline;
-    if (delta > MIX_BUFFER_M) return { kind: 'snow', icon: '❄', label: 'Snow' };
-    if (delta < -MIX_BUFFER_M) return { kind: 'rain', icon: '🌧', label: 'Rain' };
-    return { kind: 'mix', icon: '🌨', label: 'Mix' };
+    if (delta > NEAR_SNOWLINE_M) return { kind: 'snow', icon: '❄', label: 'Snow' };
+    if (delta < -NEAR_SNOWLINE_M) return { kind: 'rain', icon: '🌧', label: 'Rain' };
+    return { kind: 'near', icon: '🌨', label: 'Near snowline' };
   }
   function tendencyAt(p: any, index: number): string { const now = snowlineAt(p, index); if (now === null || !p?.times?.length) return ''; const target = p.times[index] + 3 * 3600_000; if (target > p.times[p.times.length - 1] + 30 * 60_000) return ''; const next = nearestIndex(p.times, target); if (next === index) return ''; const future = snowlineAt(p, next); if (future === null) return ''; const delta = Math.round((future - now) / 10) * 10; if (Math.abs(delta) < 20) return 'steady'; return `${delta > 0 ? '↑' : '↓'}${Math.abs(delta)} m/3h`; }
   function formatDay(time: number): string { return new Date(time).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }); }
   function formatTooltipTime(time: number): string { const d = new Date(time); const day = d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }); const hh = String(d.getUTCHours()).padStart(2, '0'); return `${day} ${hh} UTC`; }
   function formatRun(time: number | null | undefined): string { if (!Number.isFinite(Number(time))) return 'ECMWF'; const d = new Date(Number(time)); const hh = String(d.getUTCHours()).padStart(2, '0'); return `ECMWF ${hh}Z`; }
-
-  async function refreshDepthSeries() {
-    const generation = ++depthGeneration;
-    if (!point || !Array.isArray(point.times) || !point.times.length || !Number.isFinite(point.lat) || !Number.isFinite(point.lon)) { depthSeries = []; return; }
-    depthLoading = true;
-    try {
-      const series = await loadSnowDepthSeriesCm(point.lat, point.lon, point.times);
-      if (generation === depthGeneration) depthSeries = series;
-    } catch (e) {
-      console.warn('Snow forecast could not load snow-depth series', e);
-      if (generation === depthGeneration) depthSeries = [];
-    } finally {
-      if (generation === depthGeneration) depthLoading = false;
-    }
-  }
 
   function clampPosition(x: number, y: number) { const rect = chartShell?.getBoundingClientRect(); const width = rect?.width ?? 430; const height = rect?.height ?? 520; return { x: Math.max(6, Math.min(window.innerWidth - width - 6, x)), y: Math.max(6, Math.min(window.innerHeight - height - 6, y)) }; }
   function startDrag(event: PointerEvent) { if (!chartShell) return; dragPointerId = event.pointerId; const rect = chartShell.getBoundingClientRect(); dragOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top }; try { (event.currentTarget as HTMLElement)?.setPointerCapture(event.pointerId); } catch {} window.addEventListener('pointermove', dragMove); window.addEventListener('pointerup', stopDrag, { once: true }); event.preventDefault(); event.stopPropagation(); }
@@ -239,6 +218,32 @@
   function clearTooltip() { tooltip = null; }
   function safeFilename(value: string): string { const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); return cleaned || 'selected-point'; }
 
+  function drawCard(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, label: string, value: string, accent = '#ffffff') {
+    ctx.fillStyle = '#151f26'; ctx.strokeStyle = '#263640'; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(x, y, w, 88, 12); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#81909a'; ctx.font = '18px Arial'; ctx.textAlign = 'center'; ctx.fillText(label, x + w / 2, y + 29);
+    ctx.fillStyle = accent; ctx.font = '700 25px Arial'; ctx.fillText(value, x + w / 2, y + 62); ctx.textAlign = 'left';
+  }
+
+  async function savePngBlob(png: Blob, filename: string) {
+    const isMobileLike = window.innerWidth <= 520 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+    if (isMobileLike && typeof navigator.share === 'function') {
+      try {
+        const file = new File([png], filename, { type: 'image/png' });
+        const canShare = typeof (navigator as any).canShare !== 'function' || (navigator as any).canShare({ files: [file] });
+        if (canShare) { await navigator.share({ files: [file], title: 'Snow forecast' }); return; }
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return;
+        console.warn('Snow forecast mobile share failed; falling back to download', e);
+      }
+    }
+    const pngUrl = URL.createObjectURL(png);
+    const link = document.createElement('a'); link.href = pngUrl; link.download = filename; link.rel = 'noopener'; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+    if (isMobileLike) {
+      setTimeout(() => { try { window.open(pngUrl, '_blank', 'noopener'); } catch {} }, 80);
+    }
+    setTimeout(() => URL.revokeObjectURL(pngUrl), 5000);
+  }
+
   async function downloadPng() {
     if (!svgEl || !chart) return;
     try {
@@ -246,14 +251,39 @@
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg'); clone.setAttribute('width', '1080'); clone.setAttribute('height', '960');
       clone.querySelectorAll('.inspect-line,.inspect-dot').forEach(node => node.remove());
       const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-      style.textContent = `.plot-bg{fill:#17222b;stroke:#344957;stroke-width:1}.lower-bg,.phase-bg{fill:#101920;stroke:#2b3d48;stroke-width:.8}.snow-zone{fill:#103746}.grid{stroke:#334752;stroke-width:1}.axis{fill:#b4c0c9;font-size:8px;font-family:Arial,sans-serif}.section-label{fill:#d8e4ec;font-size:7px;font-family:Arial,sans-serif;font-weight:700;letter-spacing:.35px}.unit{fill:#8395a2;font-weight:400}.precip-label,.precip-axis{fill:#64d4f5}.depth-label,.depth-axis{fill:#8de39a}.phase-label{fill:#e8d86d}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.snowline-line{fill:none;stroke:#65d5ff;stroke-width:2.6}.now-line{stroke:#ff6658;stroke-width:1.35}.now-tag-bg{fill:#ff6658}.now-tag{fill:#fff;font-size:7px;font-family:Arial,sans-serif;font-weight:800}.cursor{stroke:#dce7ee;stroke-width:1;stroke-dasharray:2 3}.current-dot{fill:#fff;stroke:#65d5ff;stroke-width:2.3}.crossing-line{stroke:#ffe05b;stroke-width:1.35;stroke-dasharray:3 3}.crossing-dot{fill:#12191f;stroke:#ffe05b;stroke-width:2.2}.precip-bar{fill:#3b90ac}.precip-bar.wet{fill:#5ec8e9}.snow-depth-bar{fill:#74ce85}.phase-block{opacity:.28}.phase-snow{fill:#64d4f5}.phase-mix{fill:#d9d467}.phase-rain{fill:#678eff}.phase-icon{fill:#fff;font-size:10px;font-family:'Segoe UI Emoji','Apple Color Emoji',sans-serif}.empty-band{fill:#788793;font-size:7px;font-family:Arial,sans-serif}`;
+      style.textContent = `.plot-bg{fill:#17222b;stroke:#344957;stroke-width:1}.lower-bg,.phase-bg{fill:#101920;stroke:#2b3d48;stroke-width:.8}.snow-zone{fill:#103746}.grid{stroke:#334752;stroke-width:1}.axis{fill:#b4c0c9;font-size:8px;font-family:Arial,sans-serif}.section-label{fill:#d8e4ec;font-size:7px;font-family:Arial,sans-serif;font-weight:700;letter-spacing:.35px}.unit{fill:#8395a2;font-weight:400}.precip-label,.precip-axis{fill:#64d4f5}.depth-label,.depth-axis{fill:#8de39a}.phase-label{fill:#e8d86d}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.snowline-line{fill:none;stroke:#65d5ff;stroke-width:2.6}.now-line{stroke:#ff6658;stroke-width:1.35}.now-tag-bg{fill:#ff6658}.now-tag{fill:#fff;font-size:7px;font-family:Arial,sans-serif;font-weight:800}.cursor{stroke:#dce7ee;stroke-width:1;stroke-dasharray:2 3}.current-dot{fill:#fff;stroke:#65d5ff;stroke-width:2.3}.crossing-line{stroke:#ffe05b;stroke-width:1.35;stroke-dasharray:3 3}.crossing-dot{fill:#12191f;stroke:#ffe05b;stroke-width:2.2}.precip-bar{fill:#3b90ac}.precip-bar.wet{fill:#5ec8e9}.snow-depth-bar{fill:#74ce85}.phase-block{opacity:.28}.phase-snow{fill:#64d4f5}.phase-near{fill:#d9d467}.phase-rain{fill:#678eff}.phase-icon{fill:#fff;font-size:10px;font-family:'Segoe UI Emoji','Apple Color Emoji',sans-serif}.empty-band{fill:#788793;font-size:7px;font-family:Arial,sans-serif}.subtle{opacity:.65}`;
       clone.insertBefore(style, clone.firstChild);
-      const serialized = new XMLSerializer().serializeToString(clone); const blob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' }); const url = URL.createObjectURL(blob); const image = new Image();
+      const serialized = new XMLSerializer().serializeToString(clone); const svgBlob = new Blob([serialized], { type: 'image/svg+xml;charset=utf-8' }); const url = URL.createObjectURL(svgBlob); const image = new Image();
       await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('PNG image render failed')); image.src = url; });
-      const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1140; const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas unavailable');
-      ctx.fillStyle = '#0d151b'; ctx.fillRect(0, 0, canvas.width, canvas.height); ctx.fillStyle = '#fff'; ctx.font = '700 40px Arial'; ctx.fillText('Snow forecast', 44, 54); ctx.fillStyle = '#d4dde4'; ctx.font = '22px Arial'; ctx.fillText(placeName || 'Selected point', 44, 88); ctx.fillStyle = '#86bcd4'; ctx.font = '18px Arial'; ctx.fillText(chart.validLabel, 44, 117); ctx.drawImage(image, 0, 142, 1080, 960); URL.revokeObjectURL(url);
-      ctx.fillStyle = '#d8e4ec'; ctx.font = '700 17px Arial'; ctx.fillText(chart.phaseSummary, 44, 1124);
-      const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG export failed')), 'image/png')); const pngUrl = URL.createObjectURL(png); const link = document.createElement('a'); link.href = pngUrl; link.download = `snow-forecast-${safeFilename(placeName || 'selected-point')}.png`; document.body.appendChild(link); link.click(); document.body.removeChild(link); setTimeout(() => URL.revokeObjectURL(pngUrl), 1000);
+
+      const canvas = document.createElement('canvas'); canvas.width = 1080; canvas.height = 1480; const ctx = canvas.getContext('2d'); if (!ctx) throw new Error('Canvas unavailable');
+      ctx.fillStyle = '#0d151b'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#fff'; ctx.font = '700 42px Arial'; ctx.fillText('Snow forecast', 44, 58);
+      ctx.fillStyle = '#d4dde4'; ctx.font = '23px Arial'; ctx.fillText(placeName || 'Selected point', 44, 94);
+      ctx.fillStyle = '#86bcd4'; ctx.font = '19px Arial'; ctx.fillText(chart.validLabel, 44, 124);
+
+      ctx.font = '18px Arial'; ctx.fillStyle = '#65d5ff'; ctx.fillText('— Snowline', 44, 158); ctx.fillStyle = '#ffae56'; ctx.fillText('– – Terrain', 200, 158); ctx.fillStyle = '#ff6658'; ctx.fillText('— Now', 350, 158); ctx.fillStyle = '#5ec8e9'; ctx.fillText('▮ Precipitation', 470, 158); ctx.fillStyle = '#74ce85'; ctx.fillText('▮ Modelled snow depth', 690, 158);
+
+      ctx.drawImage(image, 0, 180, 1080, 960); URL.revokeObjectURL(url);
+
+      ctx.fillStyle = '#dce6ec'; ctx.font = '700 20px Arial'; ctx.fillText('Precipitation type', 44, 1178);
+      ctx.font = '19px Arial'; ctx.fillText('❄ Snow   ·   🌨 Near snowline ±50 m   ·   🌧 Rain', 44, 1210);
+      ctx.fillStyle = '#7f909b'; ctx.font = '16px Arial'; ctx.fillText('Shown only when precipitation is ≥0.1 mm/3h', 44, 1237);
+
+      const cardGap = 10, cardW = (992 - 4 * cardGap) / 5, cardY = 1260;
+      const delta = chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—';
+      drawCard(ctx, 44, cardY, cardW, 'Snowline', chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—', '#65d5ff');
+      drawCard(ctx, 44 + (cardW + cardGap), cardY, cardW, 'Terrain Δ', delta, chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0 ? '#ffae56' : '#65d5ff');
+      drawCard(ctx, 44 + 2 * (cardW + cardGap), cardY, cardW, 'Precip', chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—', '#65d5ff');
+      drawCard(ctx, 44 + 3 * (cardW + cardGap), cardY, cardW, 'Modelled depth', chart.currentSnowDepth !== null ? `${formatSnowDepthCm(chart.currentSnowDepth)} cm` : '—', '#8de39a');
+      drawCard(ctx, 44 + 4 * (cardW + cardGap), cardY, cardW, 'Type', chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—', '#ffffff');
+
+      ctx.fillStyle = '#d8e4ec'; ctx.font = '700 20px Arial'; ctx.textAlign = 'center'; ctx.fillText(chart.phaseSummary, 540, 1380); ctx.textAlign = 'left';
+      if (crossing?.summary) { ctx.fillStyle = '#ffe05b'; ctx.font = '18px Arial'; ctx.textAlign = 'center'; ctx.fillText(crossing.summary, 540, 1412); ctx.textAlign = 'left'; }
+      ctx.fillStyle = '#788793'; ctx.font = '15px Arial'; ctx.fillText('Thermal forecast aid · Snowline and precipitation do not guarantee local accumulation.', 44, 1450);
+
+      const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG export failed')), 'image/png'));
+      await savePngBlob(png, `snow-forecast-${safeFilename(placeName || 'selected-point')}.png`);
     } catch (e) { console.warn('Snow forecast PNG export failed', e); }
   }
 
@@ -277,7 +307,7 @@
       if (nextKind !== kind) {
         if (kind !== null && start >= 0) {
           const end = i - 1; const x1 = Math.max(42, x(p.times[start]) - spacing * 0.46); const x2 = Math.min(348, x(p.times[end]) + spacing * 0.46);
-          const icon = kind === 'snow' ? '❄' : kind === 'mix' ? '🌨' : '🌧'; blocks.push({ x: x1, width: Math.max(3, x2 - x1), kind, icon });
+          const icon = kind === 'snow' ? '❄' : kind === 'near' ? '🌨' : '🌧'; blocks.push({ x: x1, width: Math.max(3, x2 - x1), kind, icon });
         }
         start = nextKind === null ? -1 : i; kind = nextKind;
       }
@@ -287,12 +317,12 @@
 
   function phaseSummary(phases: (Phase | null)[]): string {
     const active = phases.filter((p): p is Phase => p !== null); if (!active.length) return 'Little or no precipitation to classify.';
-    const counts = { snow: 0, mix: 0, rain: 0 }; active.forEach(p => counts[p.kind]++); const total = active.length;
+    const counts = { snow: 0, near: 0, rain: 0 }; active.forEach(p => counts[p.kind]++); const total = active.length;
     if (counts.snow / total >= 0.6) return 'Mostly snow when precipitation occurs.';
     if (counts.rain / total >= 0.6) return 'Mostly rain when precipitation occurs.';
-    if (counts.mix / total >= 0.45) return 'Rain/snow mix is a prominent part of the forecast.';
+    if (counts.near / total >= 0.45) return 'Precipitation often occurs close to the snowline.';
     if (counts.snow > 0 && counts.rain > 0) return 'A transition between rain and snow is forecast.';
-    return 'Mixed precipitation types are possible through the forecast.';
+    return 'Snowline conditions vary through the forecast.';
   }
 
   function buildChart(p: any, terrain: number | null, target: number, crossingTime: number | null, realNowTime: number): ChartData | null {
@@ -322,9 +352,8 @@
     const width = Math.min(430, window.innerWidth - 20); position = { x: Math.max(6, (window.innerWidth - width) / 2), y: window.innerWidth <= 520 ? 36 : 54 };
     realNow = Date.now(); realNowTimer = setInterval(() => { realNow = Date.now(); }, 30_000);
     try { const current = store.get('timestamp'); if (typeof current === 'number' && Number.isFinite(current)) timestamp = current; timestampListener = store.on('timestamp', (value: any) => { const next = Number(value); if (Number.isFinite(next)) timestamp = next; }); } catch {}
-    void refreshDepthSeries();
   });
-  onDestroy(() => { depthGeneration += 1; window.removeEventListener('pointermove', dragMove); if (realNowTimer) clearInterval(realNowTimer); if (timestampListener !== null) try { store.off(timestampListener); } catch {} });
+  onDestroy(() => { window.removeEventListener('pointermove', dragMove); if (realNowTimer) clearInterval(realNowTimer); if (timestampListener !== null) try { store.off(timestampListener); } catch {} });
 </script>
 
 <style lang="less">
@@ -346,9 +375,9 @@
   .crossing-line { stroke: rgba(255,224,91,0.82); stroke-width: 1.35; stroke-dasharray: 3 3; } .crossing-dot { fill: #12191f; stroke: #ffe05b; stroke-width: 2.2; } .crossing-action { cursor: pointer; pointer-events: stroke; } .crossing-dot.crossing-action { pointer-events: all; }
   .inspect-line { stroke: rgba(255,255,255,0.34); stroke-width: 1; } .inspect-dot { fill: #12191f; stroke: white; stroke-width: 1.6; }
   .precip-bar { fill: rgba(70,176,210,0.50); } .precip-bar.wet { fill: #5ec8e9; } .snow-depth-bar { fill: #74ce85; opacity: .90; }
-  .phase-block { opacity: .30; } .phase-snow { fill: #64d4f5; } .phase-mix { fill: #d9d467; } .phase-rain { fill: #678eff; } .phase-icon { fill: white; font-size: 10px; font-family: 'Segoe UI Emoji','Apple Color Emoji',sans-serif; } .empty-band { fill: rgba(255,255,255,.36); font-size: 7px; font-family: sans-serif; }
+  .phase-block { opacity: .30; } .phase-snow { fill: #64d4f5; } .phase-near { fill: #d9d467; } .phase-rain { fill: #678eff; } .phase-icon { fill: white; font-size: 10px; font-family: 'Segoe UI Emoji','Apple Color Emoji',sans-serif; } .empty-band { fill: rgba(255,255,255,.36); font-size: 7px; font-family: sans-serif; } .empty-band.subtle { opacity: .62; font-size: 6.4px; }
   .plot-tooltip { position: absolute; z-index: 4; min-width: 164px; transform: translateX(-50%); padding: 7px 9px; border-radius: 8px; background: rgba(5,12,17,0.985); border: 1px solid rgba(98,213,255,0.28); box-shadow: 0 7px 20px rgba(0,0,0,0.44); pointer-events: none; }
-  .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; } .plot-tooltip b { font-size: 8.9px; color: white; margin-bottom: 2px; } .plot-tooltip span { margin-top: 1px; font-size: 7.8px; color: rgba(255,255,255,0.75); } .tooltip-phase { margin-top: 3px !important; font-weight: 800; } .phase-text-snow { color: #74dcff !important; } .phase-text-mix { color: #e8df73 !important; } .phase-text-rain { color: #8caaff !important; }
+  .plot-tooltip b, .plot-tooltip span { display: block; white-space: nowrap; } .plot-tooltip b { font-size: 8.9px; color: white; margin-bottom: 2px; } .plot-tooltip span { margin-top: 1px; font-size: 7.8px; color: rgba(255,255,255,0.75); } .tooltip-phase { margin-top: 3px !important; font-weight: 800; } .phase-text-snow { color: #74dcff !important; } .phase-text-near { color: #e8df73 !important; } .phase-text-rain { color: #8caaff !important; }
   .phase-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 2px 3px 6px; color: rgba(255,255,255,.72); font-size: 7.4px; } .phase-legend span { white-space: nowrap; } .phase-legend small { color: rgba(255,255,255,.35); font-size: 6.7px; }
   .chart-foot { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-top: 2px; } .chart-foot span { padding: 6px 2px 5px; border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; background: rgba(255,255,255,0.043); text-align: center; min-width: 0; } .chart-foot small { display: block; color: rgba(255,255,255,0.45); font-size: 6.2px; } .chart-foot b { display: block; margin-top: 1px; color: white; font-size: 7.8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .chart-foot b.positive { color: #65d5ff; } .chart-foot b.negative { color: #ffae56; } .chart-foot b.wet { color: #65d5ff; } .chart-foot b.depth-value { color: #8de39a; } .phase-card b { font-size: 7.4px; }
   .forecast-summary { margin-top: 6px; padding: 5px 7px; border-radius: 7px; background: rgba(98,213,255,0.065); border: 1px solid rgba(98,213,255,0.10); color: rgba(224,239,247,0.86); font-size: 7.8px; font-weight: 700; text-align: center; }
