@@ -1,0 +1,150 @@
+<div class="sounding-shell" role="dialog" aria-modal="false" aria-label="Forecast sounding" bind:this={shell} style={`left:${position.x}px;top:${position.y}px;`}>
+  <div class="head">
+    <div>
+      <b>Forecast sounding</b>
+      <small>{placeName || 'Selected point'}</small>
+      <em>{validLabel}</em>
+    </div>
+    <div class="actions">
+      <button class="drag" type="button" title="Drag sounding" aria-label="Drag sounding" on:pointerdown={startDrag}>↕</button>
+      <button type="button" title="Close" aria-label="Close sounding" on:click={() => dispatch('close')}>×</button>
+    </div>
+  </div>
+
+  {#if sounding}
+    <svg viewBox="0 0 330 390" role="img" aria-label="Temperature, dew point and wet-bulb vertical profile">
+      <rect x="48" y="22" width="262" height="320" rx="9" class="plot-bg" />
+      {#each sounding.tempGrid as g}
+        <line x1={g.x} x2={g.x} y1="22" y2="342" class:zero={g.value === 0} class="temp-grid" />
+        <text x={g.x} y="360" text-anchor="middle" class="axis">{g.value}°</text>
+      {/each}
+      {#each sounding.pressureGrid as g}
+        <line x1="48" x2="310" y1={g.y} y2={g.y} class="pressure-grid" />
+        <text x="42" y={g.y + 3} text-anchor="end" class="axis">{g.label}</text>
+      {/each}
+
+      {#if sounding.terrainY !== null}
+        <rect x="48" y={sounding.terrainY} width="262" height={Math.max(0, 342 - sounding.terrainY)} class="terrain-zone" />
+        <line x1="48" x2="310" y1={sounding.terrainY} y2={sounding.terrainY} class="terrain-line" />
+        <text x="306" y={Math.max(31, sounding.terrainY - 4)} text-anchor="end" class="terrain-text">terrain</text>
+      {/if}
+
+      <polyline points={sounding.tempPoints} class="temp-line" />
+      <polyline points={sounding.dewPoints} class="dew-line" />
+      <polyline points={sounding.wetBulbPoints} class="wetbulb-line" />
+
+      {#each sounding.nodes as n}
+        <circle cx={n.tx} cy={n.y} r="2.1" class="temp-dot" />
+        <circle cx={n.dx} cy={n.y} r="2" class="dew-dot" />
+      {/each}
+    </svg>
+
+    <div class="key">
+      <span><i class="t"></i>Temp</span>
+      <span><i class="d"></i>Dew point</span>
+      <span><i class="w"></i>Wet bulb</span>
+      <span><i class="z"></i>0°C</span>
+    </div>
+    <div class="stats">
+      <span><small>Surface Tw</small><b>{sounding.surfaceTw}</b></span>
+      <span><small>Snowline</small><b>{sounding.snowline}</b></span>
+      <span><small>Warm energy</small><b>{sounding.warmEnergy}</b></span>
+      <span><small>Cold energy</small><b>{sounding.coldEnergy}</b></span>
+    </div>
+    <div class="hint">ECMWF profile · Windy local terrain · selected forecast time</div>
+  {:else}
+    <div class="empty">Sounding unavailable for this forecast time.</div>
+  {/if}
+</div>
+
+<script lang="ts">
+  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
+  import store from '@windy/store';
+  import { buildProfile, wetBulbZeroHeight, type ProfilePoint } from './snowLevel';
+  import { terrainPrecipitationType } from './precipType';
+
+  export let point: any;
+  export let terrainM: number | null = null;
+  export let placeName = '';
+
+  const dispatch = createEventDispatcher<{ close: void }>();
+  let timestamp = Date.now();
+  let timestampListener: number | null = null;
+  let shell: HTMLDivElement | null = null;
+  let position = { x: 24, y: 64 };
+  let dragPointerId: number | null = null;
+  let dragOffset = { x: 0, y: 0 };
+
+  type SoundingData = {
+    tempPoints: string; dewPoints: string; wetBulbPoints: string;
+    nodes: { tx: number; dx: number; y: number }[];
+    tempGrid: { x: number; value: number }[];
+    pressureGrid: { y: number; label: string }[];
+    terrainY: number | null;
+    surfaceTw: string; snowline: string; warmEnergy: string; coldEnergy: string;
+  };
+
+  $: sounding = buildSounding(point, terrainM, timestamp);
+  $: validLabel = formatValid(point, timestamp);
+
+  function nearestIndex(times: number[], target: number): number { let best = 0, dist = Infinity; times.forEach((t, i) => { const d = Math.abs(t - target); if (d < dist) { dist = d; best = i; } }); return best; }
+  function formatValid(p: any, target: number): string {
+    if (!p?.times?.length) return 'Selected forecast time';
+    const t = p.times[nearestIndex(p.times, target)], d = new Date(t);
+    return `${d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · ${String(d.getUTCHours()).padStart(2, '0')} UTC`;
+  }
+  function clampPosition(x: number, y: number) { const rect = shell?.getBoundingClientRect(); const w = rect?.width ?? 360, h = rect?.height ?? 500; return { x: Math.max(6, Math.min(window.innerWidth - w - 6, x)), y: Math.max(6, Math.min(window.innerHeight - h - 6, y)) }; }
+  function startDrag(event: PointerEvent) { if (!shell) return; dragPointerId = event.pointerId; const rect = shell.getBoundingClientRect(); dragOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top }; window.addEventListener('pointermove', dragMove); window.addEventListener('pointerup', stopDrag, { once: true }); event.preventDefault(); }
+  function dragMove(event: PointerEvent) { if (event.pointerId === dragPointerId) position = clampPosition(event.clientX - dragOffset.x, event.clientY - dragOffset.y); }
+  function stopDrag(event: PointerEvent) { if (event.pointerId === dragPointerId) dragPointerId = null; window.removeEventListener('pointermove', dragMove); }
+
+  function buildSounding(p: any, terrain: number | null, target: number): SoundingData | null {
+    if (!p?.times?.length) return null;
+    const idx = nearestIndex(p.times, target);
+    let profile: ProfilePoint[];
+    try { profile = buildProfile(p.forecast, idx).filter(v => Number.isFinite(v.heightM) && Number.isFinite(v.tempC) && Number.isFinite(v.dewpointC) && Number.isFinite(v.wetBulbC)).sort((a, b) => a.heightM - b.heightM); } catch { return null; }
+    if (profile.length < 3) return null;
+
+    const bottomH = Math.min(...profile.map(v => v.heightM)), topH = Math.max(...profile.map(v => v.heightM));
+    const temps = profile.flatMap(v => [v.tempC, v.dewpointC, v.wetBulbC]);
+    let minT = Math.floor((Math.min(...temps) - 4) / 10) * 10, maxT = Math.ceil((Math.max(...temps) + 4) / 10) * 10;
+    minT = Math.min(minT, -20); maxT = Math.max(maxT, 10); if (maxT - minT < 40) maxT = minT + 40;
+    const x = (t: number) => 48 + (t - minT) / Math.max(1, maxT - minT) * 262;
+    const y = (h: number) => 342 - (h - bottomH) / Math.max(1, topH - bottomH) * 320;
+    const tempPoints = profile.map(v => `${x(v.tempC).toFixed(1)},${y(v.heightM).toFixed(1)}`).join(' ');
+    const dewPoints = profile.map(v => `${x(v.dewpointC).toFixed(1)},${y(v.heightM).toFixed(1)}`).join(' ');
+    const wetBulbPoints = profile.map(v => `${x(v.wetBulbC).toFixed(1)},${y(v.heightM).toFixed(1)}`).join(' ');
+    const nodes = profile.map(v => ({ tx: x(v.tempC), dx: x(v.dewpointC), y: y(v.heightM) }));
+    const tempGrid: { x: number; value: number }[] = []; for (let t = Math.ceil(minT / 10) * 10; t <= maxT; t += 10) tempGrid.push({ x: x(t), value: t });
+    const pressureLevels = [1000, 925, 850, 700, 500, 300, 200];
+    const pressureGrid = pressureLevels.map(level => {
+      const nearest = [...profile].sort((a, b) => Math.abs(a.pressureHpa - level) - Math.abs(b.pressureHpa - level))[0];
+      return { y: y(nearest.heightM), label: `${level}` };
+    });
+    const terrainY = terrain !== null && Number.isFinite(terrain) && terrain >= bottomH && terrain <= topH ? y(terrain) : null;
+    const wbz = wetBulbZeroHeight(profile);
+    const phase = terrain !== null && Number.isFinite(terrain) ? terrainPrecipitationType(profile, terrain) : null;
+    return {
+      tempPoints, dewPoints, wetBulbPoints, nodes, tempGrid, pressureGrid, terrainY,
+      surfaceTw: phase ? `${phase.surfaceWetBulbC.toFixed(1)}°C` : '—',
+      snowline: wbz.snowLevelM !== null ? `${Math.round(wbz.snowLevelM / 10) * 10} m` : '—',
+      warmEnergy: phase ? `${Math.round(phase.meltingDegreeMetres)} °C·m` : '—',
+      coldEnergy: phase ? `${Math.round(phase.refreezingDegreeMetres)} °C·m` : '—',
+    };
+  }
+
+  onMount(() => {
+    const width = Math.min(360, window.innerWidth - 12); position = { x: Math.max(6, window.innerWidth - width - 16), y: window.innerWidth <= 520 ? 38 : 66 };
+    try { const t = store.get('timestamp'); if (typeof t === 'number') timestamp = t; timestampListener = store.on('timestamp', (v: any) => { const n = Number(v); if (Number.isFinite(n)) timestamp = n; }); } catch {}
+  });
+  onDestroy(() => { window.removeEventListener('pointermove', dragMove); if (timestampListener !== null) try { store.off(timestampListener); } catch {} });
+</script>
+
+<style lang="less">
+  .sounding-shell{position:fixed;z-index:10025;width:min(360px,calc(100vw - 12px));padding:10px 11px;border:1px solid rgba(139,213,244,.34);border-radius:13px;background:linear-gradient(180deg,rgba(14,23,30,.995),rgba(8,15,20,.995));color:#fff;box-shadow:0 16px 42px rgba(0,0,0,.56)}
+  .head{display:flex;justify-content:space-between;gap:10px}.head>div:first-child{min-width:0}.head b{display:block;font-size:14px}.head small,.head em{display:block;max-width:235px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal}.head small{margin-top:2px;color:#a8b7c0;font-size:8px}.head em{margin-top:2px;color:#6ecdf2;font-size:7.5px}.actions{display:flex;gap:4px}.actions button{width:27px;height:27px;padding:0;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.07);color:#fff;font-size:14px;font-weight:800}.drag{cursor:grab;touch-action:none}
+  svg{display:block;width:100%;height:auto;margin-top:6px}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:rgba(255,174,86,.08)}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.temp-grid{stroke:rgba(154,181,196,.10)}.temp-grid.zero{stroke:rgba(117,202,239,.5);stroke-width:1.3}.pressure-grid{stroke:rgba(154,181,196,.12)}.axis{fill:#758995;font-size:7px;font-family:sans-serif}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}
+  .key{display:flex;flex-wrap:wrap;gap:5px 10px;margin:2px 2px 6px;color:#a0b0ba;font-size:7px}.key span{display:flex;align-items:center;gap:4px}.key i{display:inline-block;width:13px;border-top:2px solid}.key .t{border-color:#ff765f}.key .d{border-color:#72d98b}.key .w{border-color:#69d4ff;border-top-style:dashed}.key .z{border-color:#75caef}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}.stats span{padding:5px 2px;border-radius:7px;background:rgba(255,255,255,.04);text-align:center}.stats small{display:block;color:#71838e;font-size:5.6px}.stats b{display:block;margin-top:2px;font-size:6.7px;white-space:nowrap}.hint{margin-top:6px;color:#60717b;font-size:6.4px;text-align:center}.empty{padding:30px 8px;text-align:center;color:#82939d;font-size:9px}
+  @media(max-width:520px){.sounding-shell{width:calc(100vw - 12px);padding:9px}.stats b{font-size:6.3px}}
+</style>
