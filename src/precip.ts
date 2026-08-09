@@ -1,12 +1,11 @@
 import { valueAt } from './snowLevel';
 
 /**
- * Ordered by preference. Point forecasts are requested hourly, so use Windy's
- * explicit past-hour precipitation field when available. The past-3-hour field
- * is a deterministic fallback and is converted to an average hourly rate.
+ * Windy's precipitation feed used by this plugin is presented on a 3-hour
+ * accumulation basis. Prefer the explicit past-3-hour field and keep the
+ * returned value as a 3-hour amount rather than converting it to mm/h.
  */
 const EXACT_KEYS = [
-  'past1hprecip-surface',
   'past3hprecip-surface',
   'precip-surface',
   'rain-surface',
@@ -15,6 +14,7 @@ const EXACT_KEYS = [
   'precip',
   'rain',
   'tp',
+  'past1hprecip-surface',
 ] as const;
 
 const METRE_WATER_KEYS = new Set([
@@ -22,8 +22,8 @@ const METRE_WATER_KEYS = new Set([
   'past3hprecip-surface',
 ]);
 
-/** Minimum hourly precipitation rate used for precipitation-type diagnosis. */
-export const PRECIP_THRESHOLD_MM_H = 0.1;
+/** Minimum 3-hour precipitation amount used for precipitation-type diagnosis. */
+export const PRECIP_THRESHOLD_MM_H = 0.3;
 
 type PrecipField = { key: string; field: unknown };
 const precipFieldCache = new WeakMap<object, PrecipField | null>();
@@ -56,8 +56,8 @@ function findPrecipFieldUncached(value: unknown, depth = 0): PrecipField | null 
     }
   }
 
-  // Compatibility fallback for unfamiliar precipitation aliases. Unknown aliases
-  // are interpreted as mm/h because the point request itself is hourly.
+  // Compatibility fallback for unfamiliar precipitation aliases. Windy's
+  // displayed precipitation values are treated as 3-hour amounts here.
   for (const [key, field] of Object.entries(object)) {
     if (isPrecipKey(key) && looksArrayLike(field)) return { key, field };
   }
@@ -79,23 +79,21 @@ function findPrecipField(data: Record<string, unknown>): PrecipField | null {
   return found;
 }
 
-function accumulationHours(key: string): number {
-  return normalizedKey(key) === 'past3hprecip-surface' ? 3 : 1;
-}
-
-function toHourlyMillimetres(key: string, raw: number): number {
+function toThreeHourlyMillimetres(key: string, raw: number): number {
   const normalized = normalizedKey(key);
   const millimetres = METRE_WATER_KEYS.has(normalized) ? raw * 1000 : raw;
-  return millimetres / accumulationHours(normalized);
+  // If only Windy's explicit one-hour field is available, convert it to a
+  // three-hour-equivalent amount so the rest of the UI keeps one unit.
+  return normalized === 'past1hprecip-surface' ? millimetres * 3 : millimetres;
 }
 
-/** Average precipitation rate in millimetres per hour. */
+/** Precipitation amount in millimetres per 3 hours. */
 export function precipMmAt(data: Record<string, unknown>, index: number): number | null {
   const found = findPrecipField(data);
   if (!found) return null;
   const raw = valueAt(found.field, index);
   if (raw === null || !Number.isFinite(raw)) return null;
-  return Math.max(0, toHourlyMillimetres(found.key, raw));
+  return Math.max(0, toThreeHourlyMillimetres(found.key, raw));
 }
 
 export function precipFieldName(data: Record<string, unknown>): string | null {
