@@ -2,10 +2,10 @@ import type { ExternalPluginConfig } from '@windy/interfaces';
 
 const config: ExternalPluginConfig = {
   name: 'windy-plugin-snowline-map-100m',
-  version: '10.0.1',
+  version: '11.0.0',
   icon: '❄️',
   title: 'Snow forecast',
-  description: 'Terrain-aware ECMWF snow forecast for mountainous areas. Builds a wet-bulb vertical profile, combines it with Windy local terrain, and diagnoses snow, wet snow, rain/snow mix, rain, ice pellets or freezing rain when precipitation is ≥0.1 mm/h. Includes adaptive snowline contours, a live point label, a graph that follows map clicks and panel searches, hourly precipitation, selected-timestep Windy snow depth, and desktop PNG export. Runs up to 144 hours only.',
+  description: 'Terrain-aware mountain snow forecast using ECMWF vertical profiles with Windy local terrain. Diagnoses snow, wet snow, mix, rain, ice pellets and freezing rain at ≥0.1 mm/h. v11 adds a compact square point card, map-click capture for labeled places, faster adaptive contours, a visual precipitation-type timeline, terrain-aware estimated new-snow accumulation, and a richer desktop PNG matching the graph. Runs up to 144 hours only.',
   author: 'Ramzi Kandah',
   repository: 'https://github.com/ramzik99/windy-snowline-map',
   desktopUI: 'embedded',
