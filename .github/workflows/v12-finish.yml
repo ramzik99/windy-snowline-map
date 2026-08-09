@@ -1,0 +1,80 @@
+name: Finalize Wintry forecast v12
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/v12-finish.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply v12 refinements
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          # Rename visible product copy while preserving the internal package id.
+          plugin = Path('src/plugin.svelte')
+          s = plugin.read_text()
+          s = s.replace('Snow forecast', 'Wintry forecast')
+          plugin.write_text(s)
+
+          chart = Path('src/SnowlineChart.svelte')
+          s = chart.read_text()
+          s = s.replace('Snow forecast', 'Wintry forecast')
+
+          old_legend = '''        <g class="phase-legend-svg">
+          <rect x="42" y="243" width="7" height="7" rx="1.5" class="phase-snow"/><text x="52" y="249">Snow</text>
+          <rect x="93" y="243" width="7" height="7" rx="1.5" class="phase-wet-snow"/><text x="103" y="249">Wet snow</text>
+          <rect x="163" y="243" width="7" height="7" rx="1.5" class="phase-mix"/><text x="173" y="249">Mix</text>
+          <rect x="212" y="243" width="7" height="7" rx="1.5" class="phase-rain"/><text x="222" y="249">Rain</text>
+          <rect x="259" y="243" width="7" height="7" rx="1.5" class="phase-ice-pellets"/><text x="269" y="249">Ice pellets</text>
+          <rect x="42" y="254" width="7" height="7" rx="1.5" class="phase-freezing-rain"/><text x="52" y="260">Freezing rain</text>
+          <text x="129" y="260" class="threshold-note">type shown at ≥0.1 mm/h</text>
+        </g>'''
+          new_legend = '''        <g class="phase-legend-svg">
+          <rect x="42" y="244" width="7" height="7" rx="1.5" class="phase-snow"/><text x="52" y="250">Snow</text>
+          <rect x="88" y="244" width="7" height="7" rx="1.5" class="phase-wet-snow"/><text x="98" y="250">Wet snow</text>
+          <rect x="149" y="244" width="7" height="7" rx="1.5" class="phase-mix"/><text x="159" y="250">Mix</text>
+          <rect x="183" y="244" width="7" height="7" rx="1.5" class="phase-rain"/><text x="193" y="250">Rain</text>
+          <rect x="218" y="244" width="7" height="7" rx="1.5" class="phase-ice-pellets"/><text x="228" y="250">Ice/sleet</text>
+          <rect x="279" y="244" width="7" height="7" rx="1.5" class="phase-freezing-rain"/><text x="289" y="250">Frz rain</text>
+        </g>'''
+          if old_legend not in s:
+              raise SystemExit('Expected precipitation legend block not found')
+          s = s.replace(old_legend, new_legend)
+
+          # User-selected precipitation-type palette.
+          palette = {
+              '#29bce8': '#f4f7fb',  # snow: white
+              '#8edcef': '#6bd47f',  # wet snow: green
+              '#e7ca45': '#f2d84f',  # mix: yellow
+              '#4b72e8': '#4f82ff',  # rain: blue
+              '#8a70e8': '#a8753e',  # ice pellets/sleet: brown
+              '#e45cae': '#a867e8',  # freezing rain: purple
+          }
+          for old, new in palette.items():
+              s = s.replace(old, new)
+
+          s = s.replace('.phase-legend-svg text{fill:#9eafb8;font-size:6.1px;', '.phase-legend-svg text{fill:#aebcc4;font-size:5.5px;')
+          chart.write_text(s)
+
+          # Remove this one-shot workflow from the final tree.
+          Path('.github/workflows/v12-finish.yml').unlink()
+          PY
+      - name: Commit final refinements
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Finalize Wintry forecast v12 UI"
+          git push
