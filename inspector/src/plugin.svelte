@@ -2,44 +2,60 @@
   <div class="head">
     <div>
       <b>Windy data inspector</b>
-      <small>Standalone diagnostic · ECMWF</small>
+      <small>ECMWF · point forecast vs meteogram vs renderer</small>
     </div>
     <button type="button" on:click={clear}>Clear</button>
   </div>
 
   <div class="instructions">
-    Select Windy's <b>Snow depth</b> layer, then click/tap a map point. The inspector will decode every raw interpolator channel without assuming which one is snow depth.
+    Click/tap any map point. This version tests both <b>getPointForecastData()</b> and <b>getMeteogramForecastData()</b>, recursively scans every returned path for snow/depth fields, and also records the active map interpolator.
   </div>
 
   {#if loading}
-    <div class="status">Reading Windy data…</div>
+    <div class="status">Testing ECMWF point APIs…</div>
   {:else if result}
     <div class="summary">
       <span><small>Location</small><b>{result.lat.toFixed(4)}, {result.lon.toFixed(4)}</b></span>
       <span><small>Elevation</small><b>{result.elevation !== null ? `${Math.round(result.elevation)} m` : '—'}</b></span>
-      <span><small>Overlay</small><b>{result.overlay ?? '—'}</b></span>
-      <span><small>Point fields</small><b>{result.keys.length}</b></span>
+      <span><small>Point paths</small><b>{result.pointPaths.length}</b></span>
+      <span><small>Meteogram paths</small><b>{result.meteogramPaths.length}</b></span>
     </div>
 
-    {#if result.overlay === 'snowcover'}
-      <section class="important">
-        <div class="section-head">
-          <h3>Snowcover decoder</h3>
-          <div class="section-actions">
-            <button type="button" on:click={copySnowDecoder}>{decoderCopied ? 'Copied ✓' : 'Copy'}</button>
-          </div>
-        </div>
-        <div class="decoder-note">
-          Raw map values are shown exactly as Windy's interpolator returns them. Each numeric channel is also passed through Windy's official <b>snow</b> metric converter.
-        </div>
-        <pre>{result.snowDecodeText}</pre>
-      </section>
-    {:else}
-      <section class="important">
-        <div class="section-head"><h3>Snowcover decoder</h3></div>
-        <div class="empty">Current overlay is <b>{result.overlay ?? 'unknown'}</b>. Switch Windy to <b>Snow depth</b> and click the point again.</div>
-      </section>
-    {/if}
+    <section class="important">
+      <div class="section-head"><h3>Snow-depth verdict</h3></div>
+      {#if result.pointSnow.length}
+        <div class="success">Possible snow/depth fields found in <b>getPointForecastData()</b>. Copy the report and send it back.</div>
+        <pre>{rowsText(result.pointSnow)}</pre>
+      {:else}
+        <div class="empty">No snow/depth-named path found in <b>getPointForecastData()</b>.</div>
+      {/if}
+      {#if result.meteogramSnow.length}
+        <div class="success secondary">Possible snow/depth fields found in <b>getMeteogramForecastData()</b>.</div>
+        <pre>{rowsText(result.meteogramSnow)}</pre>
+      {:else}
+        <div class="empty compact">No snow/depth-named path found in the meteogram response.</div>
+      {/if}
+    </section>
+
+    <section>
+      <h3>Point forecast · snow/depth candidates</h3>
+      <pre>{result.pointSnow.length ? rowsText(result.pointSnow) : 'None'}</pre>
+    </section>
+
+    <section>
+      <h3>Point forecast · all recursive paths</h3>
+      <pre>{rowsText(result.pointPaths)}</pre>
+    </section>
+
+    <section>
+      <h3>Meteogram · snow/depth candidates</h3>
+      <pre>{result.meteogramSnow.length ? rowsText(result.meteogramSnow) : 'None'}</pre>
+    </section>
+
+    <section>
+      <h3>Meteogram · all recursive paths</h3>
+      <pre>{rowsText(result.meteogramPaths)}</pre>
+    </section>
 
     <section>
       <h3>Current map interpolator</h3>
@@ -52,50 +68,13 @@
     </section>
 
     <section>
-      <h3>Snow / depth point-field candidates</h3>
-      {#if result.snowRows.length}
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Field</th><th>Length</th><th>First values</th></tr></thead>
-            <tbody>
-              {#each result.snowRows as row}
-                <tr><td>{row.key}</td><td>{row.length}</td><td>{row.preview}</td></tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {:else}
-        <div class="empty">No snow/depth field exists in the ECMWF point forecast response.</div>
-      {/if}
-    </section>
-
-    <section>
-      <h3>Precipitation point-field candidates</h3>
-      {#if result.precipRows.length}
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Field</th><th>Length</th><th>First values</th></tr></thead>
-            <tbody>
-              {#each result.precipRows as row}
-                <tr><td>{row.key}</td><td>{row.length}</td><td>{row.preview}</td></tr>
-              {/each}
-            </tbody>
-          </table>
-        </div>
-      {:else}
-        <div class="empty">No precipitation-like point fields detected.</div>
-      {/if}
-    </section>
-
-    <section>
-      <h3>All point-forecast fields</h3>
-      <pre>{result.keys.join('\n')}</pre>
+      <h3>Point API status / top-level payload</h3>
+      <pre>{result.pointTop}</pre>
     </section>
 
     <div class="actions">
-      <button type="button" on:click={copyReport}>Copy report</button>
+      <button type="button" on:click={copyReport}>{copied ? 'Copied ✓' : 'Copy full report'}</button>
       <button type="button" on:click={downloadReport}>Save TXT</button>
-      {#if copied}<span>Copied ✓</span>{/if}
     </div>
   {:else}
     <div class="empty hero">No point selected yet.</div>
@@ -105,72 +84,85 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import store from '@windy/store';
-  import metrics from '@windy/metrics';
   import { singleclick } from '@windy/singleclick';
-  import { getElevation, getMeteogramForecastData } from '@windy/fetch';
+  import { getElevation, getMeteogramForecastData, getPointForecastData } from '@windy/fetch';
   import { getLatLonInterpolator } from '@windy/interpolator';
   import config from './pluginConfig';
 
-  type Row = { key: string; length: number; preview: string };
+  type PathRow = { path: string; kind: string; length: number; preview: string };
   type InspectorResult = {
     lat: number;
     lon: number;
     elevation: number | null;
-    overlay: string | null;
-    keys: string[];
-    snowRows: Row[];
-    precipRows: Row[];
-    storeText: string;
+    pointPaths: PathRow[];
+    meteogramPaths: PathRow[];
+    pointSnow: PathRow[];
+    meteogramSnow: PathRow[];
     interpolatorText: string;
-    snowDecodeText: string;
+    storeText: string;
+    pointTop: string;
   };
 
   let loading = false;
-  let result: InspectorResult | null = null;
   let copied = false;
-  let decoderCopied = false;
   let generation = 0;
+  let result: InspectorResult | null = null;
 
   function safeStore(name: string): any {
     try { return store.get(name as any); } catch { return null; }
   }
 
-  function scalarNumber(value: unknown): number | null {
-    if (typeof value === 'number' && Number.isFinite(value)) return value;
-    if (typeof value === 'string') { const n = Number(value); if (Number.isFinite(n)) return n; }
-    return null;
+  function preview(value: any): string {
+    try {
+      if (Array.isArray(value)) return JSON.stringify(value.slice(0, 12));
+      if (value && typeof value === 'object' && typeof value.length === 'number') {
+        const out: any[] = [];
+        for (let i = 0; i < Math.min(12, Number(value.length)); i++) out.push(value[i]);
+        return JSON.stringify(out);
+      }
+      const text = typeof value === 'string' ? value : JSON.stringify(value);
+      return String(text ?? value).slice(0, 300);
+    } catch { return String(value).slice(0, 300); }
   }
 
-  function payloadData(payload: any): Record<string, unknown> {
-    if (payload?.data?.data && typeof payload.data.data === 'object') return payload.data.data;
-    if (payload?.data && typeof payload.data === 'object') return payload.data;
-    return {};
-  }
-
-  function previewValue(value: unknown): { length: number; preview: string } {
-    if (Array.isArray(value)) {
-      return { length: value.length, preview: JSON.stringify(value.slice(0, 10)) };
+  function flatten(value: any, root = 'payload', depth = 0, seen = new WeakSet<object>()): PathRow[] {
+    if (depth > 10) return [{ path: root, kind: 'depth-limit', length: 0, preview: '' }];
+    if (value == null || typeof value !== 'object') {
+      return [{ path: root, kind: typeof value, length: 1, preview: preview(value) }];
     }
-    if (value && typeof value === 'object' && typeof (value as any).length === 'number') {
-      const n = Number((value as any).length); const a: unknown[] = [];
-      for (let i = 0; i < Math.min(10, n); i++) a.push((value as any)[i]);
-      return { length: n, preview: JSON.stringify(a) };
+
+    if (Array.isArray(value) || typeof value.length === 'number') {
+      const length = Number(value.length) || 0;
+      return [{ path: root, kind: 'array', length, preview: preview(value) }];
     }
-    return { length: value == null ? 0 : 1, preview: String(value) };
+
+    if (seen.has(value)) return [{ path: root, kind: 'circular', length: 0, preview: '' }];
+    seen.add(value);
+
+    const keys = Object.keys(value);
+    if (!keys.length) return [{ path: root, kind: 'object', length: 0, preview: '{}' }];
+    const rows: PathRow[] = [];
+    for (const key of keys) {
+      const child = value[key];
+      const path = `${root}.${key}`;
+      if (child && typeof child === 'object' && !Array.isArray(child) && typeof child.length !== 'number') {
+        rows.push(...flatten(child, path, depth + 1, seen));
+      } else {
+        const length = Array.isArray(child) || (child && typeof child === 'object' && typeof child.length === 'number') ? Number(child.length) || 0 : 1;
+        rows.push({ path, kind: Array.isArray(child) ? 'array' : typeof child, length, preview: preview(child) });
+      }
+    }
+    return rows;
   }
 
-  function rowsFor(data: Record<string, unknown>, matcher: (key: string) => boolean): Row[] {
-    return Object.keys(data).filter(matcher).sort().map(key => ({ key, ...previewValue(data[key]) }));
+  function snowPath(row: PathRow): boolean {
+    const p = row.path.toLowerCase();
+    const exactish = /(^|[._-])(sd|sde|sdor|hsnow|snowd|snowdepth|snow_depth|snow-cover|snowcover)([._-]|$)/.test(p);
+    return exactish || p.includes('snow') || p.includes('depth');
   }
 
-  function snowKey(key: string): boolean {
-    const k = key.toLowerCase();
-    return k.includes('snow') || k.includes('hsnow') || k.includes('h-snow') || k.includes('depth');
-  }
-
-  function precipKey(key: string): boolean {
-    const k = key.toLowerCase();
-    return k.includes('precip') || k.includes('rain') || k.includes('snowfall') || k.includes('past3h') || k === 'tp' || k.includes('total-precip');
+  function rowsText(rows: PathRow[]): string {
+    return rows.map(r => `${r.path} | ${r.kind} | n=${r.length} | ${r.preview}`).join('\n');
   }
 
   function storeSnapshot(): string {
@@ -179,124 +171,85 @@
     for (const name of names) {
       try { out[name] = store.get(name as any); } catch (e) { out[name] = `unavailable: ${String(e)}`; }
     }
-    try {
-      out.snowMetric = {
-        selected: (metrics as any)?.snow?.metric ?? null,
-        available: typeof (metrics as any)?.snow?.listMetrics === 'function' ? (metrics as any).snow.listMetrics() : null,
-      };
-    } catch (e) { out.snowMetric = `unavailable: ${String(e)}`; }
     return JSON.stringify(out, null, 2);
   }
 
   async function elevationAt(lat: number, lon: number): Promise<number | null> {
     try {
-      const value = await getElevation(lat, lon) as any;
-      for (const candidate of [value?.data, value?.data?.data, value?.value]) {
-        const n = scalarNumber(candidate); if (n !== null) return n;
+      const payload: any = await getElevation(lat, lon);
+      for (const candidate of [payload?.data, payload?.data?.data, payload?.value]) {
+        const n = Number(candidate); if (Number.isFinite(n)) return n;
       }
     } catch {}
     return null;
   }
 
-  function numericChannels(value: unknown): number[] {
-    if (typeof value === 'number' && Number.isFinite(value)) return [value];
-    if (Array.isArray(value)) return value.map(Number).filter(Number.isFinite);
-    if (value && typeof value === 'object' && typeof (value as any).length === 'number') {
-      const out: number[] = [];
-      for (let i = 0; i < Number((value as any).length); i++) {
-        const n = Number((value as any)[i]); if (Number.isFinite(n)) out.push(n);
-      }
-      return out;
-    }
-    return [];
-  }
-
-  function decodeSnow(value: unknown, overlay: string | null): string {
-    const channels = numericChannels(value);
-    const snowMetric: any = (metrics as any)?.snow;
-    const out: any = {
-      overlay,
-      raw: value,
-      note: 'Channel identity is intentionally not assumed. Compare decoded values with the Windy picker/legend.',
-      snowMetricSelected: snowMetric?.metric ?? null,
-      channels: [] as any[],
-    };
-
-    channels.forEach((raw, index) => {
-      const channel: any = { index, raw };
-      try { channel.userUnit = snowMetric?.convertValue?.(raw) ?? null; } catch (e) { channel.userUnitError = String(e); }
-      try { channel.cm = snowMetric?.convertNumber?.(raw, 2, 'cm') ?? null; } catch (e) { channel.cmError = String(e); }
-      try { channel.inches = snowMetric?.convertNumber?.(raw, 3, 'in') ?? null; } catch (e) { channel.inchesError = String(e); }
-      try { channel.metres = snowMetric?.convertNumber?.(raw, 3, 'm') ?? null; } catch (e) { channel.metresError = String(e); }
-      out.channels.push(channel);
-    });
-
-    if (!channels.length) out.note = 'Interpolator returned no finite numeric channels.';
-    return JSON.stringify(out, null, 2);
-  }
-
-  async function interpolatorSnapshot(lat: number, lon: number): Promise<{ text: string; decode: string; overlay: string | null }> {
-    const overlay = safeStore('overlay');
-    const product = safeStore('product');
-    const level = safeStore('level');
-    const timestamp = safeStore('timestamp');
+  async function interpolatorSnapshot(lat: number, lon: number): Promise<string> {
+    const meta = { overlay: safeStore('overlay'), product: safeStore('product'), level: safeStore('level'), timestamp: safeStore('timestamp') };
     try {
       const interpolator = await getLatLonInterpolator();
-      if (!interpolator) {
-        const text = JSON.stringify({ overlay, product, level, timestamp, value: null, note: 'No interpolator available for currently loaded map data.' }, null, 2);
-        return { text, decode: decodeSnow(null, overlay), overlay };
-      }
-      try {
-        const value = await interpolator({ lat, lon } as any);
-        return {
-          text: JSON.stringify({ overlay, product, level, timestamp, value }, null, 2),
-          decode: decodeSnow(value, overlay),
-          overlay,
-        };
-      } catch (e) {
-        const text = JSON.stringify({ overlay, product, level, timestamp, error: String(e) }, null, 2);
-        return { text, decode: decodeSnow(null, overlay), overlay };
-      }
+      if (!interpolator) return JSON.stringify({ ...meta, value: null, note: 'No active interpolator.' }, null, 2);
+      const value = await interpolator({ lat, lon } as any);
+      return JSON.stringify({ ...meta, value }, null, 2);
     } catch (e) {
-      const text = JSON.stringify({ overlay, product, level, timestamp, error: String(e) }, null, 2);
-      return { text, decode: decodeSnow(null, overlay), overlay };
+      return JSON.stringify({ ...meta, error: String(e) }, null, 2);
     }
+  }
+
+  function topSummary(payload: any): string {
+    try {
+      const out: any = {
+        topLevelKeys: payload && typeof payload === 'object' ? Object.keys(payload) : [],
+        dataKeys: payload?.data && typeof payload.data === 'object' ? Object.keys(payload.data) : [],
+        nestedDataKeys: payload?.data?.data && typeof payload.data.data === 'object' ? Object.keys(payload.data.data) : [],
+        header: payload?.data?.header ?? payload?.header ?? null,
+      };
+      return JSON.stringify(out, null, 2);
+    } catch (e) { return String(e); }
   }
 
   async function inspect(lat: number, lon: number) {
-    const mine = ++generation; loading = true; copied = false; decoderCopied = false;
+    const mine = ++generation;
+    loading = true;
+    copied = false;
     try {
-      const [pointPayload, elevation, interp] = await Promise.all([
-        getMeteogramForecastData('ecmwf', { lat, lon, step: 1, days: 6 }),
+      const pointPromise = getPointForecastData('ecmwf', { lat, lon, step: 1 } as any).catch((e: any) => ({ __error: String(e) } as any));
+      const meteogramPromise = getMeteogramForecastData('ecmwf', { lat, lon, step: 1, days: 6 } as any).catch((e: any) => ({ __error: String(e) } as any));
+      const [pointPayload, meteogramPayload, elevation, interpolatorText] = await Promise.all([
+        pointPromise,
+        meteogramPromise,
         elevationAt(lat, lon),
         interpolatorSnapshot(lat, lon),
       ]);
       if (mine !== generation) return;
-      const data = payloadData(pointPayload);
-      const keys = Object.keys(data).sort();
+
+      const pointPaths = flatten(pointPayload).sort((a, b) => a.path.localeCompare(b.path));
+      const meteogramPaths = flatten(meteogramPayload).sort((a, b) => a.path.localeCompare(b.path));
+      const pointSnow = pointPaths.filter(snowPath);
+      const meteogramSnow = meteogramPaths.filter(snowPath);
+
       result = {
-        lat, lon, elevation, overlay: interp.overlay,
-        keys,
-        snowRows: rowsFor(data, snowKey),
-        precipRows: rowsFor(data, precipKey),
+        lat, lon, elevation,
+        pointPaths, meteogramPaths, pointSnow, meteogramSnow,
+        interpolatorText,
         storeText: storeSnapshot(),
-        interpolatorText: interp.text,
-        snowDecodeText: interp.decode,
+        pointTop: topSummary(pointPayload),
       };
-      console.group('Windy data inspector');
-      console.log('Snowcover decode', JSON.parse(result.snowDecodeText));
-      console.log('Interpolator', JSON.parse(result.interpolatorText));
-      console.log('Store', JSON.parse(result.storeText));
-      console.log('All point fields', keys);
-      console.log('Raw point response', pointPayload);
+
+      console.group('Windy snow-depth API probe');
+      console.log('getPointForecastData raw', pointPayload);
+      console.log('getPointForecastData snow candidates', pointSnow);
+      console.log('getMeteogramForecastData raw', meteogramPayload);
+      console.log('getMeteogramForecastData snow candidates', meteogramSnow);
+      console.log('Interpolator', interpolatorText);
       console.groupEnd();
     } catch (e) {
       if (mine !== generation) return;
-      result = {
-        lat, lon, elevation: null, overlay: safeStore('overlay'), keys: [], snowRows: [], precipRows: [],
-        storeText: storeSnapshot(), interpolatorText: `Inspector failed: ${String(e)}`, snowDecodeText: `Inspector failed: ${String(e)}`,
-      };
-    } finally { if (mine === generation) loading = false; }
+      const errorRow = { path: 'error', kind: 'error', length: 1, preview: String(e) };
+      result = { lat, lon, elevation: null, pointPaths: [errorRow], meteogramPaths: [], pointSnow: [], meteogramSnow: [], interpolatorText: String(e), storeText: storeSnapshot(), pointTop: String(e) };
+    } finally {
+      if (mine === generation) loading = false;
+    }
   }
 
   function latLon(value: any): [number, number] | null {
@@ -310,78 +263,55 @@
   function reportText(): string {
     if (!result) return '';
     return [
-      'WINDY DATA INSPECTOR',
+      'WINDY SNOW-DEPTH API PROBE',
       `Location: ${result.lat}, ${result.lon}`,
       `Elevation: ${result.elevation ?? 'unavailable'} m`,
-      `Overlay: ${result.overlay ?? 'unknown'}`,
-      '', 'SNOWCOVER DECODER', result.snowDecodeText,
+      '', 'POINT FORECAST SNOW/DEPTH CANDIDATES', rowsText(result.pointSnow) || 'None',
+      '', 'POINT FORECAST ALL RECURSIVE PATHS', rowsText(result.pointPaths),
+      '', 'METEOGRAM SNOW/DEPTH CANDIDATES', rowsText(result.meteogramSnow) || 'None',
+      '', 'METEOGRAM ALL RECURSIVE PATHS', rowsText(result.meteogramPaths),
       '', 'CURRENT MAP INTERPOLATOR', result.interpolatorText,
       '', 'STORE STATE', result.storeText,
-      '', 'SNOW / DEPTH POINT FIELDS',
-      ...(result.snowRows.length ? result.snowRows.map(r => `${r.key} | length=${r.length} | ${r.preview}`) : ['None']),
-      '', 'PRECIPITATION POINT FIELDS',
-      ...(result.precipRows.length ? result.precipRows.map(r => `${r.key} | length=${r.length} | ${r.preview}`) : ['None']),
-      '', 'ALL POINT FORECAST FIELDS', ...result.keys,
+      '', 'POINT API TOP-LEVEL SUMMARY', result.pointTop,
     ].join('\n');
   }
 
   async function writeClipboard(text: string): Promise<void> {
     if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; }
     const textarea = document.createElement('textarea');
-    textarea.value = text;
-    textarea.style.position = 'fixed';
-    textarea.style.opacity = '0';
-    document.body.appendChild(textarea);
-    textarea.focus();
-    textarea.select();
-    const ok = document.execCommand('copy');
-    textarea.remove();
+    textarea.value = text; textarea.style.position = 'fixed'; textarea.style.opacity = '0';
+    document.body.appendChild(textarea); textarea.focus(); textarea.select();
+    const ok = document.execCommand('copy'); textarea.remove();
     if (!ok) throw new Error('Clipboard copy failed');
-  }
-
-  async function copySnowDecoder() {
-    if (!result?.snowDecodeText) return;
-    const text = [
-      'SNOWCOVER DECODER',
-      `Location: ${result.lat}, ${result.lon}`,
-      `Elevation: ${result.elevation ?? 'unavailable'} m`,
-      result.snowDecodeText,
-    ].join('\n');
-    try {
-      await writeClipboard(text);
-      decoderCopied = true;
-      setTimeout(() => decoderCopied = false, 1600);
-    } catch { decoderCopied = false; }
   }
 
   async function copyReport() {
     const text = reportText(); if (!text) return;
-    try { await writeClipboard(text); copied = true; setTimeout(() => copied = false, 1600); } catch { copied = false; }
+    try { await writeClipboard(text); copied = true; setTimeout(() => copied = false, 1800); } catch { copied = false; }
   }
 
   function downloadReport() {
     const text = reportText(); if (!text) return;
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'windy-data-inspector.txt'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1500);
+    const a = document.createElement('a'); a.href = url; a.download = 'windy-snow-depth-api-probe.txt';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 3000);
   }
 
-  function clear() { generation += 1; loading = false; result = null; copied = false; decoderCopied = false; }
+  function clear() { generation += 1; loading = false; result = null; copied = false; }
 
   onMount(() => singleclick.on(config.name, handleClick));
   onDestroy(() => { generation += 1; singleclick.off(config.name, handleClick); });
 </script>
 
 <style lang="less">
-  .inspector { box-sizing:border-box; width:100%; max-width:100%; max-height:calc(100vh - 110px); overflow-y:auto; overflow-x:hidden; padding:10px; border-radius:10px; background:rgba(20,24,29,.97); color:white; box-shadow:0 8px 30px rgba(0,0,0,.45); font-family:Arial,sans-serif; }
-  .head { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; min-width:0; }.head>div{min-width:0}.head b{display:block;font-size:15px;line-height:1.1}.head small{display:block;margin-top:3px;color:#84cbe9;font-size:8px}
-  button { border:1px solid rgba(255,255,255,.16); border-radius:6px; background:rgba(255,255,255,.07); color:white; padding:5px 7px; cursor:pointer; font-size:9px; font-weight:700; flex-shrink:0; }
-  .instructions,.status,.empty,.decoder-note { margin-top:8px; padding:7px; border-radius:7px; background:rgba(255,255,255,.045); color:rgba(255,255,255,.72); font-size:9px; line-height:1.25; }.hero{padding:20px 7px;text-align:center}.decoder-note{margin-top:0;margin-bottom:5px;color:rgba(255,255,255,.8)}
-  .summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; margin-top:7px; }.summary span{min-width:0;padding:5px;border-radius:7px;background:rgba(255,255,255,.045);text-align:center}.summary small{display:block;color:rgba(255,255,255,.45);font-size:6.5px}.summary b{display:block;margin-top:2px;font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  section { margin-top:9px; min-width:0; } section.important{padding:7px;border:1px solid rgba(142,223,255,.22);border-radius:8px;background:rgba(80,190,255,.045)} h3{margin:0 0 4px;color:#8edfff;font-size:9px;text-transform:uppercase;letter-spacing:.3px}
-  .section-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}.section-head h3{margin:0}.section-actions{display:flex;gap:4px;flex-shrink:0}.section-actions button{padding:3px 6px;font-size:8px}
-  .table-wrap { width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; } table{width:100%;min-width:300px;border-collapse:collapse;table-layout:fixed;font-size:7px}th,td{padding:4px 3px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top;word-break:break-all}th:nth-child(1),td:nth-child(1){width:32%}th:nth-child(2),td:nth-child(2){width:13%}
-  pre { box-sizing:border-box; width:100%; max-width:100%; margin:0; padding:6px; border-radius:7px; background:#0d1217; color:#d5e2e9; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-size:7px; line-height:1.3; }
-  .actions { position:sticky; bottom:0; display:flex; align-items:center; flex-wrap:wrap; gap:5px; margin-top:9px; padding:7px 0 2px; background:linear-gradient(180deg,rgba(20,24,29,0),rgba(20,24,29,.98) 30%); }.actions span{font-size:8px;color:#8de39a}
-  @media(max-width:520px){.inspector{max-height:calc(100vh - 90px);padding:8px}.head b{font-size:14px}table{min-width:280px;font-size:6.7px}pre{font-size:6.7px}}
+  .inspector { box-sizing:border-box; width:100%; max-width:100%; max-height:calc(100vh - 110px); overflow:auto; padding:10px; border-radius:10px; background:rgba(20,24,29,.97); color:white; box-shadow:0 8px 30px rgba(0,0,0,.45); font-family:Arial,sans-serif; }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }.head b{display:block;font-size:15px}.head small{display:block;margin-top:3px;color:#84cbe9;font-size:8px}
+  button { border:1px solid rgba(255,255,255,.16); border-radius:6px; background:rgba(255,255,255,.07); color:white; padding:5px 7px; cursor:pointer; font-size:9px; font-weight:700; }
+  .instructions,.status,.empty,.success { margin-top:8px; padding:7px; border-radius:7px; background:rgba(255,255,255,.045); color:rgba(255,255,255,.72); font-size:9px; line-height:1.3; }.hero{padding:20px 7px;text-align:center}.success{color:#aaf0b5;border:1px solid rgba(141,227,154,.28);background:rgba(141,227,154,.07)}.success.secondary{margin-top:6px}.compact{margin-top:5px}
+  .summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; margin-top:7px; }.summary span{padding:5px;border-radius:7px;background:rgba(255,255,255,.045);text-align:center}.summary small{display:block;color:rgba(255,255,255,.45);font-size:6.5px}.summary b{display:block;margin-top:2px;font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  section { margin-top:9px; } section.important{padding:7px;border:1px solid rgba(142,223,255,.22);border-radius:8px;background:rgba(80,190,255,.045)} h3{margin:0 0 4px;color:#8edfff;font-size:9px;text-transform:uppercase;letter-spacing:.3px}.section-head{display:flex;align-items:center;justify-content:space-between;gap:6px}
+  pre { box-sizing:border-box; width:100%; margin:0; padding:6px; border-radius:7px; background:#0d1217; color:#d5e2e9; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-size:7px; line-height:1.3; }
+  .actions { position:sticky; bottom:0; display:flex; gap:5px; margin-top:9px; padding:7px 0 2px; background:linear-gradient(180deg,rgba(20,24,29,0),rgba(20,24,29,.98) 30%); }
+  @media(max-width:520px){.inspector{max-height:calc(100vh - 90px);padding:8px}.head b{font-size:14px}pre{font-size:6.6px}}
 </style>
