@@ -5,6 +5,7 @@
   import config from './pluginConfig';
 
   let unitObserver: MutationObserver | null = null;
+  let ownsSingleclick = false;
 
   function normaliseLatLon(value: any): { lat: number; lon: number } | null {
     if (!value) return null;
@@ -29,7 +30,7 @@
     for (const node of nodes) {
       if (!isWintryUi(node) || !node.data.includes('mm/h')) continue;
       node.data = node.data
-        .replace(/0\.1 mm\/h/g, '0.3 mm/3h')
+        .replace(/0\.1 mm\/h/g, '0.1 mm/3h')
         .replace(/mm\/h/g, 'mm/3h');
     }
   }
@@ -48,6 +49,16 @@
   };
 
   onMount(() => {
+    // Explicitly claim Windy's high-priority single-click slot for the lifetime
+    // of the open plugin. This prevents the generic `click` topic from reaching
+    // Windy's native weather picker while Wintry forecast is active.
+    try {
+      (singleclick as any).register?.(config.name, 'high');
+      ownsSingleclick = true;
+    } catch (error) {
+      console.warn('Wintry forecast could not claim exclusive single-click handling', error);
+    }
+
     updatePrecipUnits(document.body);
     unitObserver = new MutationObserver(records => {
       for (const record of records) {
@@ -59,6 +70,10 @@
   });
 
   onDestroy(() => {
+    if (ownsSingleclick) {
+      try { (singleclick as any).release?.(config.name, 'high'); } catch {}
+      ownsSingleclick = false;
+    }
     unitObserver?.disconnect();
     unitObserver = null;
   });
