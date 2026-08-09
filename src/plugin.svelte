@@ -49,7 +49,7 @@
       </div>
       <div class="info-body">
         <div><b>Snow forecast</b> uses ECMWF temperature, dew point and geopotential height to estimate the wet-bulb-zero snowline. Runs up to 144 hours only.</div>
-        <div>Map contours show the approximate rain–snow thermal boundary. Point labels compare that boundary with Windy map elevation: above, below or within ±100 m of the snowline.</div>
+        <div>Map contours show the approximate rain–snow thermal boundary. With precipitation, terrain at or above the snowline is shown as snow, terrain up to 100 m below it as mix, and lower terrain as rain.</div>
         <div>The point graph shows snowline through time together with precipitation and modelled snow depth when available. Tap the graph for exact values or download it as PNG.</div>
         <div class="info-caveat">This is a thermal forecast aid. Snowline, precipitation and modelled snow depth do not guarantee local snowfall or accumulation.</div>
       </div>
@@ -118,7 +118,7 @@
   const PROFILE_CACHE_MAX = 1200;
   const LABEL_MIN_DISTANCE_PX = 92;
   const MIN_VALID_FRACTION = 0.35;
-  const NEAR_SNOWLINE_METRES = 100;
+  const MIX_BELOW_SNOWLINE_METRES = 100;
   const PICKER_PROBE_DELAY_MS = 180;
   const PICKER_SYNC_MS = 700;
   const DESKTOP_PICKER_SETTLE_MS = 650;
@@ -241,7 +241,7 @@
     const rounded = Math.round(snowline / 10) * 10, tendency = tendencyText(clickedPoint, idx), precip = precipMmAt(clickedPoint.forecast, idx), crossing = terrainCrossingState(clickedPoint, clickedMapElevationM, target);
     const precipText = precip !== null && precip >= 0.05 ? ` · 💧 ${formatPrecipMm(precip)} mm/3h` : '';
     const outlookText = crossing?.summary ?? '';
-    if (clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM)) { const terrainRounded = Math.round(clickedMapElevationM / 10) * 10, difference = clickedMapElevationM - snowline; let status: ProbeStatus, headline: string; if (difference > NEAR_SNOWLINE_METRES) { status = 'above'; headline = '↑ ABOVE SNOWLINE'; } else if (difference < -NEAR_SNOWLINE_METRES) { status = 'below'; headline = '↓ BELOW SNOWLINE'; } else { status = 'near'; headline = '≈ NEAR SNOWLINE'; } const detail = `Here ${terrainRounded} m · SL ${rounded} m${tendency ? ` · ${tendency}` : ''}${precipText}`; showClickLabel(lat, lon, headline, detail, colorForLevel(snowline), status, outlookText); return; }
+    if (clickedMapElevationM !== null && Number.isFinite(clickedMapElevationM)) { const terrainRounded = Math.round(clickedMapElevationM / 10) * 10, difference = clickedMapElevationM - snowline; let status: ProbeStatus, headline: string; if (difference >= 0) { status = 'above'; headline = '❄ SNOW'; } else if (difference >= -MIX_BELOW_SNOWLINE_METRES) { status = 'near'; headline = '🌨 MIX'; } else { status = 'below'; headline = '🌧 RAIN'; } const detail = `Here ${terrainRounded} m · SL ${rounded} m${tendency ? ` · ${tendency}` : ''}${precipText}`; showClickLabel(lat, lon, headline, detail, colorForLevel(snowline), status, outlookText); return; }
     showClickLabel(lat, lon, `${rounded} m`, `${tendency}${precipText}`, colorForLevel(snowline), 'neutral', outlookText);
   }
 
