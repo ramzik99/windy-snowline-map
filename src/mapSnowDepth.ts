@@ -1,87 +1,154 @@
 import store from '@windy/store';
 import { getLatLonInterpolator } from '@windy/interpolator';
 
+let hiddenLoadPromise: Promise<number | null> | null = null;
+
+function decodeSnowcover(raw: unknown): number | null {
+  let value: number | null = null;
+
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    value = raw;
+  } else if (Array.isArray(raw) && raw.length) {
+    const channel0 = Number(raw[0]);
+    if (Number.isFinite(channel0)) value = channel0;
+  } else if (
+    raw &&
+    typeof raw === 'object' &&
+    typeof (raw as any).length === 'number' &&
+    Number((raw as any).length) > 0
+  ) {
+    const channel0 = Number((raw as any)[0]);
+    if (Number.isFinite(channel0)) value = channel0;
+  }
+
+  return value !== null && value >= 0 ? value : null;
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function safeGet(name: string): any {
+  try { return store.get(name as any); } catch { return null; }
+}
+
 /**
- * Snow depth source verified with the standalone inspector:
- * ECMWF `snowcover` renderer channel 0 is the displayed snow-depth scalar,
- * on Windy's centimetre snow-depth scale.
+ * Windy's public interpolator only interpolates renderer tiles that have been
+ * loaded. First try the explicit render-parameter path. If snowcover tiles are
+ * not yet present, this function automatically pre-warms Windy's ECMWF
+ * snowcover renderer, samples verified channel 0 (centimetres), and restores
+ * the user's visible map state immediately afterwards.
  *
- * Windy's coordinate interpolator accepts render parameters. We therefore
- * request the `snowcover` renderer explicitly for the currently selected
- * Windy timestamp instead of requiring the user to have Snow depth active.
- * If that renderer is unavailable, we fall back to the already-loaded active
- * snowcover renderer when possible.
+ * During the pre-warm, weather-renderer canvas/image output is hidden so the
+ * user does not see the Snow depth layer flash on screen. The user's overlay,
+ * product, level and timestamp are restored in a finally block.
  *
- * This is still a current-timestep value only. No 144 h depth series is
- * fabricated from precipitation or snowfall.
+ * This is a current-selected-timestep value only. It does not fabricate a
+ * 144-hour snow-depth series from precipitation or snowfall.
  */
 export async function currentMapSnowDepthCm(
   lat: number,
   lon: number,
   timestamp?: number,
 ): Promise<number | null> {
+  let selectedTimestamp = Number(timestamp);
+  if (!Number.isFinite(selectedTimestamp)) {
+    const t = safeGet('timestamp');
+    if (typeof t === 'number' && Number.isFinite(t)) selectedTimestamp = t;
+  }
+
   try {
-    let selectedTimestamp = timestamp;
-    if (!Number.isFinite(Number(selectedTimestamp))) {
+    const interpolator = await getLatLonInterpolator();
+    if (interpolator) {
+      const params: any = {
+        overlay: 'snowcover',
+        product: 'ecmwf',
+        level: 'surface',
+      };
+      if (Number.isFinite(selectedTimestamp)) params.timestamp = selectedTimestamp;
+
       try {
-        const t = store.get('timestamp');
-        if (typeof t === 'number' && Number.isFinite(t)) selectedTimestamp = t;
+        const raw = await interpolator({ lat, lon } as any, undefined, params);
+        const value = decodeSnowcover(raw);
+        if (value !== null) return value;
+      } catch {}
+
+      try {
+        if (safeGet('overlay') === 'snowcover' && (!safeGet('product') || safeGet('product') === 'ecmwf')) {
+          const raw = await interpolator({ lat, lon } as any);
+          const value = decodeSnowcover(raw);
+          if (value !== null) return value;
+        }
       } catch {}
     }
+  } catch {}
 
-    const interpolator = await getLatLonInterpolator();
-    if (!interpolator) return null;
+  // Only one hidden renderer pre-warm at a time. Concurrent chart refreshes
+  // share the same request instead of repeatedly toggling Windy store state.
+  if (hiddenLoadPromise) return hiddenLoadPromise;
 
-    const decode = (raw: unknown): number | null => {
-      let value: number | null = null;
+  hiddenLoadPromise = (async () => {
+    const original = {
+      overlay: safeGet('overlay'),
+      product: safeGet('product'),
+      level: safeGet('level'),
+      timestamp: safeGet('timestamp'),
+    };
 
-      if (typeof raw === 'number' && Number.isFinite(raw)) {
-        value = raw;
-      } else if (Array.isArray(raw) && raw.length) {
-        const channel0 = Number(raw[0]);
-        if (Number.isFinite(channel0)) value = channel0;
-      } else if (
-        raw &&
-        typeof raw === 'object' &&
-        typeof (raw as any).length === 'number' &&
-        Number((raw as any).length) > 0
-      ) {
-        const channel0 = Number((raw as any)[0]);
-        if (Number.isFinite(channel0)) value = channel0;
+    const style = document.createElement('style');
+    style.setAttribute('data-snow-forecast-hidden-renderer', 'true');
+    style.textContent = `
+      .leaflet-overlay-pane canvas,
+      .leaflet-overlay-pane img {
+        visibility: hidden !important;
       }
-
-      return value !== null && value >= 0 ? value : null;
-    };
-
-    const params: any = {
-      overlay: 'snowcover',
-      product: 'ecmwf',
-      level: 'surface',
-    };
-    if (Number.isFinite(Number(selectedTimestamp))) params.timestamp = Number(selectedTimestamp);
+    `;
 
     try {
-      const requested = await interpolator({ lat, lon } as any, undefined, params);
-      const decoded = decode(requested);
-      if (decoded !== null) return decoded;
+      document.head.appendChild(style);
+
+      // Set product first where accepted, then snowcover/surface/timestamp.
+      try { (store as any).set('product', 'ecmwf'); } catch {}
+      try { (store as any).set('level', 'surface'); } catch {}
+      try { (store as any).set('overlay', 'snowcover'); } catch {}
+      if (Number.isFinite(selectedTimestamp)) {
+        try { (store as any).set('timestamp', selectedTimestamp); } catch {}
+      }
+
+      // Give Windy's renderer time to request/decode its tiles. Poll rather
+      // than relying on an undocumented renderer-loaded event.
+      for (let attempt = 0; attempt < 8; attempt++) {
+        await wait(attempt === 0 ? 260 : 180);
+        try {
+          const interp = await getLatLonInterpolator();
+          if (!interp) continue;
+          const raw = await interp({ lat, lon } as any);
+          const value = decodeSnowcover(raw);
+          if (value !== null) return value;
+        } catch {}
+      }
+
+      return null;
     } catch (e) {
-      console.warn('Snow forecast explicit snowcover interpolation failed', e);
+      console.warn('Snow forecast hidden snowcover pre-warm failed', e);
+      return null;
+    } finally {
+      // Restore the map exactly to the user's previous state.
+      try { if (original.product != null) (store as any).set('product', original.product); } catch {}
+      try { if (original.level != null) (store as any).set('level', original.level); } catch {}
+      try { if (original.overlay != null) (store as any).set('overlay', original.overlay); } catch {}
+      try { if (typeof original.timestamp === 'number' && Number.isFinite(original.timestamp)) (store as any).set('timestamp', original.timestamp); } catch {}
+
+      // Keep renderer output hidden briefly while the original overlay redraws.
+      await wait(120);
+      try { style.remove(); } catch {}
     }
+  })();
 
-    // Fallback: if Snow depth is already the active map renderer, use it.
-    try {
-      const overlay = store.get('overlay');
-      const product = store.get('product');
-      if (overlay === 'snowcover' && (!product || product === 'ecmwf')) {
-        const active = await interpolator({ lat, lon } as any);
-        return decode(active);
-      }
-    } catch {}
-
-    return null;
-  } catch (e) {
-    console.warn('Snow forecast current snow-depth interpolation failed', e);
-    return null;
+  try {
+    return await hiddenLoadPromise;
+  } finally {
+    hiddenLoadPromise = null;
   }
 }
 
