@@ -22,14 +22,16 @@
     <section>
       <h3>Snow / depth candidates</h3>
       {#if result.snowRows.length}
-        <table>
-          <thead><tr><th>Field</th><th>Length</th><th>First values</th></tr></thead>
-          <tbody>
-            {#each result.snowRows as row}
-              <tr><td>{row.key}</td><td>{row.length}</td><td>{row.preview}</td></tr>
-            {/each}
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Length</th><th>First values</th></tr></thead>
+            <tbody>
+              {#each result.snowRows as row}
+                <tr><td>{row.key}</td><td>{row.length}</td><td>{row.preview}</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       {:else}
         <div class="empty">No point-forecast field containing snow, depth, hsnow, h-snow, snowcover or snow-depth.</div>
       {/if}
@@ -38,14 +40,16 @@
     <section>
       <h3>Precipitation candidates</h3>
       {#if result.precipRows.length}
-        <table>
-          <thead><tr><th>Field</th><th>Length</th><th>First values</th></tr></thead>
-          <tbody>
-            {#each result.precipRows as row}
-              <tr><td>{row.key}</td><td>{row.length}</td><td>{row.preview}</td></tr>
-            {/each}
-          </tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Length</th><th>First values</th></tr></thead>
+            <tbody>
+              {#each result.precipRows as row}
+                <tr><td>{row.key}</td><td>{row.length}</td><td>{row.preview}</td></tr>
+              {/each}
+            </tbody>
+          </table>
+        </div>
       {:else}
         <div class="empty">No precipitation-like point fields detected.</div>
       {/if}
@@ -272,16 +276,36 @@
 </script>
 
 <style lang="less">
-  .inspector { width: min(560px, calc(100vw - 18px)); max-height: 78vh; overflow-y: auto; padding: 11px; border-radius: 10px; background: rgba(20,24,29,.97); color: white; box-shadow: 0 8px 30px rgba(0,0,0,.45); font-family: Arial, sans-serif; }
-  .head { display:flex; justify-content:space-between; align-items:flex-start; gap:10px; }
-  .head b { display:block; font-size:16px; }.head small { display:block; margin-top:3px; color:#84cbe9; font-size:9px; }
-  button { border:1px solid rgba(255,255,255,.16); border-radius:6px; background:rgba(255,255,255,.07); color:white; padding:5px 8px; cursor:pointer; font-size:10px; font-weight:700; }
-  .instructions,.status,.empty { margin-top:9px; padding:8px; border-radius:7px; background:rgba(255,255,255,.045); color:rgba(255,255,255,.72); font-size:10px; }
-  .hero { padding:24px 8px; text-align:center; }
-  .summary { display:grid; grid-template-columns:repeat(4,1fr); gap:5px; margin-top:8px; }.summary span{padding:6px;border-radius:7px;background:rgba(255,255,255,.045);text-align:center}.summary small{display:block;color:rgba(255,255,255,.45);font-size:7px}.summary b{display:block;margin-top:2px;font-size:9px}
-  section { margin-top:10px; } h3 { margin:0 0 5px; color:#8edfff; font-size:10px; text-transform:uppercase; letter-spacing:.4px; }
-  table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:8px; } th,td { padding:4px; border-bottom:1px solid rgba(255,255,255,.08); text-align:left; vertical-align:top; word-break:break-all; } th:nth-child(1),td:nth-child(1){width:34%} th:nth-child(2),td:nth-child(2){width:12%}
-  pre { margin:0; padding:7px; border-radius:7px; background:#0d1217; color:#d5e2e9; white-space:pre-wrap; word-break:break-word; font-size:8px; line-height:1.35; }
-  .actions { display:flex; align-items:center; gap:6px; margin-top:10px; }.actions span{font-size:9px;color:#8de39a}
-  @media(max-width:520px){.inspector{width:calc(100vw - 12px);max-height:74vh;padding:9px}.summary{grid-template-columns:repeat(2,1fr)}table{font-size:7px}pre{font-size:7px}}
+  .inspector {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100vh - 110px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(20,24,29,.97);
+    color: white;
+    box-shadow: 0 8px 30px rgba(0,0,0,.45);
+    font-family: Arial, sans-serif;
+  }
+  .head { display:flex; justify-content:space-between; align-items:flex-start; gap:8px; min-width:0; }
+  .head > div { min-width:0; }
+  .head b { display:block; font-size:15px; line-height:1.1; }.head small { display:block; margin-top:3px; color:#84cbe9; font-size:8px; }
+  button { border:1px solid rgba(255,255,255,.16); border-radius:6px; background:rgba(255,255,255,.07); color:white; padding:5px 7px; cursor:pointer; font-size:9px; font-weight:700; flex-shrink:0; }
+  .instructions,.status,.empty { margin-top:8px; padding:7px; border-radius:7px; background:rgba(255,255,255,.045); color:rgba(255,255,255,.72); font-size:9px; line-height:1.25; }
+  .hero { padding:20px 7px; text-align:center; }
+  .summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; margin-top:7px; }.summary span{min-width:0;padding:5px;border-radius:7px;background:rgba(255,255,255,.045);text-align:center}.summary small{display:block;color:rgba(255,255,255,.45);font-size:6.5px}.summary b{display:block;margin-top:2px;font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  section { margin-top:9px; min-width:0; } h3 { margin:0 0 4px; color:#8edfff; font-size:9px; text-transform:uppercase; letter-spacing:.3px; }
+  .table-wrap { width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; }
+  table { width:100%; min-width:300px; border-collapse:collapse; table-layout:fixed; font-size:7px; } th,td { padding:4px 3px; border-bottom:1px solid rgba(255,255,255,.08); text-align:left; vertical-align:top; word-break:break-all; } th:nth-child(1),td:nth-child(1){width:32%} th:nth-child(2),td:nth-child(2){width:13%}
+  pre { box-sizing:border-box; width:100%; max-width:100%; margin:0; padding:6px; border-radius:7px; background:#0d1217; color:#d5e2e9; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-size:7px; line-height:1.3; }
+  .actions { position:sticky; bottom:0; display:flex; align-items:center; flex-wrap:wrap; gap:5px; margin-top:9px; padding:7px 0 2px; background:linear-gradient(180deg,rgba(20,24,29,0),rgba(20,24,29,.98) 30%); }.actions span{font-size:8px;color:#8de39a}
+  @media(max-width:520px){
+    .inspector{max-height:calc(100vh - 90px);padding:8px}
+    .head b{font-size:14px}
+    table{min-width:280px;font-size:6.7px}
+    pre{font-size:6.7px}
+  }
 </style>
