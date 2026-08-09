@@ -13,86 +13,60 @@ function normaliseKey(key: string): string {
 }
 
 function isPrecipKey(key: string): boolean {
-  const k = normaliseKey(key);
-  return (k.includes('precip') || k === 'rain' || k.startsWith('rain-') || k === 'tp')
-    && !k.includes('type')
-    && !k.includes('snow');
-}
-
-function isSnowDepthKey(key: string): boolean {
-  const k = normaliseKey(key);
-  return k === 'sd'
-    || k === 'sde'
-    || k === 'snow'
-    || k.includes('snowdepth')
-    || k.includes('snow-depth')
-    || k.includes('snowcover')
-    || k.includes('snow-cover')
-    || k === 'h-snow'
-    || k === 'hsnow'
-    || k.startsWith('h-snow-')
-    || k.startsWith('hsnow-');
-}
-
-function isWantedKey(key: string): boolean {
-  return isPrecipKey(key) || isSnowDepthKey(key);
+  const keyNormalised = normaliseKey(key);
+  return (keyNormalised.includes('precip') || keyNormalised === 'rain' || keyNormalised.startsWith('rain-') || keyNormalised === 'tp')
+    && !keyNormalised.includes('type')
+    && !keyNormalised.includes('snow');
 }
 
 function collectFromRecordArray(items: unknown[], out: Record<string, unknown>) {
   if (!items.length || !items.every(item => !!item && typeof item === 'object' && !Array.isArray(item))) return;
+
   const keys = new Set<string>();
   for (const item of items as Record<string, unknown>[]) {
-    for (const key of Object.keys(item)) if (isWantedKey(key)) keys.add(key);
+    for (const key of Object.keys(item)) if (isPrecipKey(key)) keys.add(key);
   }
+
   for (const key of keys) {
     const values = (items as Record<string, unknown>[]).map(item => {
       const raw = item[key];
-      const n = typeof raw === 'number' ? raw : Number(raw);
-      return Number.isFinite(n) ? n : null;
+      const number = typeof raw === 'number' ? raw : Number(raw);
+      return Number.isFinite(number) ? number : null;
     });
     if (values.some(value => value !== null)) out[key] = values;
   }
 }
 
-function collectSelectedFields(value: unknown, out: Record<string, unknown>, depth = 0) {
+function collectPrecipFields(value: unknown, out: Record<string, unknown>, depth = 0) {
   if (!value || typeof value !== 'object' || depth > 9) return;
 
   if (Array.isArray(value)) {
     collectFromRecordArray(value, out);
-    for (const child of value) collectSelectedFields(child, out, depth + 1);
+    for (const child of value) collectPrecipFields(child, out, depth + 1);
     return;
   }
 
-  const obj = value as Record<string, unknown>;
-  for (const [key, field] of Object.entries(obj)) {
-    if (isWantedKey(key) && isNumericArrayLike(field)) out[key] = field;
+  const object = value as Record<string, unknown>;
+  for (const [key, field] of Object.entries(object)) {
+    if (isPrecipKey(key) && isNumericArrayLike(field)) out[key] = field;
   }
-  for (const child of Object.values(obj)) {
-    if (child && typeof child === 'object' && !isNumericArrayLike(child)) collectSelectedFields(child, out, depth + 1);
+
+  for (const child of Object.values(object)) {
+    if (child && typeof child === 'object' && !isNumericArrayLike(child)) {
+      collectPrecipFields(child, out, depth + 1);
+    }
   }
 }
 
-function hasSnowDepth(out: Record<string, unknown>): boolean {
-  return Object.keys(out).some(isSnowDepthKey);
-}
-
-async function requestPointFields(
-  model: SnowForecastModel,
-  lat: number,
-  lon: number,
-  days: number,
-  options?: Record<string, string>,
-): Promise<Record<string, unknown>> {
-  const response = await getPointForecastData(
-    model,
-    { lat, lon, step: 1, days, source: 'detail' } as any,
-    options,
-  );
-  const out: Record<string, unknown> = {};
-  collectSelectedFields(response as unknown, out);
-  return out;
-}
-
+/**
+ * Load precipitation fields from Windy's ECMWF point feed.
+ *
+ * The meteogram response is authoritative for the vertical profile; this
+ * supplemental request is only used to fill precipitation fields that are not
+ * always exposed by the meteogram endpoint. No snow-depth request is made here:
+ * the plugin's "new snow" product is calculated from forecast precipitation
+ * and the terrain-aware precipitation-type diagnosis.
+ */
 export async function loadSelectedPrecipFields(
   lat: number,
   lon: number,
@@ -100,30 +74,15 @@ export async function loadSelectedPrecipFields(
   model: SnowForecastModel = 'ecmwf',
 ): Promise<Record<string, unknown>> {
   try {
-    const out = await requestPointFields(model, lat, lon, days);
-
-    // Windy's generic point feed does not guarantee every map overlay. Ask once
-    // more for the snow-cover view when the ordinary response omitted depth.
-    // Unsupported options are ignored by the backend, so the normal feed still
-    // remains the authoritative source.
-    if (!hasSnowDepth(out)) {
-      try {
-        const snow = await requestPointFields(model, lat, lon, days, {
-          overlay: 'snowcover',
-          display: 'meteogram',
-          extended: 'true',
-        });
-        for (const [key, value] of Object.entries(snow)) {
-          if (isSnowDepthKey(key) && !(key in out)) out[key] = value;
-        }
-      } catch (e) {
-        console.info('Snow forecast: ECMWF point feed has no separate snow-depth series', e);
-      }
-    }
-
+    const response = await getPointForecastData(
+      model,
+      { lat, lon, step: 1, days, source: 'detail' } as any,
+    );
+    const out: Record<string, unknown> = {};
+    collectPrecipFields(response as unknown, out);
     return out;
-  } catch (e) {
-    console.warn('Snow forecast ECMWF point-weather request failed', lat, lon, e);
+  } catch (error) {
+    console.warn('Wintry forecast precipitation request failed', lat, lon, error);
     return {};
   }
 }
