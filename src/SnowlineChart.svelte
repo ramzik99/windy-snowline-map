@@ -53,7 +53,7 @@
         <text x="37" y="134" text-anchor="end" class="axis">{chart.minLabel}</text>
         <polyline points={chart.points} class="snowline-line" />
 
-        <text x="42" y="147" class="section-label precip-label">PRECIPITATION <tspan class="unit">mm/3h</tspan></text>
+        <text x="42" y="147" class="section-label precip-label">PRECIPITATION <tspan class="unit">mm/h</tspan></text>
         <rect x="42" y="153" width="306" height="34" rx="7" class="lower-bg" />
         {#if chart.hasPrecip}
           <text x="37" y="158" text-anchor="end" class="axis precip-axis">{chart.precipMaxLabel}</text>
@@ -107,7 +107,7 @@
           <span>Snowline {tooltip.snowline !== null ? `${tooltip.snowline} m` : '—'}</span>
           {#if terrainM !== null}<span>Terrain {Math.round(terrainM / 10) * 10} m</span>{/if}
           {#if tooltip.terrainDifference !== null}<span>Terrain − snowline {tooltip.terrainDifference >= 0 ? '+' : ''}{tooltip.terrainDifference} m</span>{/if}
-          <span>Precipitation {tooltip.precip !== null ? `${formatPrecipMm(tooltip.precip)} mm/3h` : '—'}</span>
+          <span>Precipitation {tooltip.precip !== null ? `${formatPrecipMm(tooltip.precip)} mm/h` : '—'}</span>
           {#if tooltip.phase}<span class={`tooltip-phase phase-text-${tooltip.phase.kind}`}>{tooltip.phase.icon} {tooltip.phase.label}</span>{/if}
           {#if tooltip.tendency}<span>Snowline tendency {tooltip.tendency}</span>{/if}
         </div>
@@ -115,13 +115,13 @@
     </div>
 
     <div class="phase-legend">
-      <span>❄ Snow ≥ snowline</span><span>🌨 Mix 0–100 m below</span><span>🌧 Rain &gt;100 m below</span><small>shown only with ≥0.1 mm/3h</small>
+      <span>❄ Snow ≥ snowline</span><span>🌨 Mix 0–100 m below</span><span>🌧 Rain &gt;100 m below</span><small>shown only with ≥0.03 mm/h</small>
     </div>
 
     <div class="chart-foot with-depth">
       <span><small>Snowline</small><b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span><small>Terrain Δ</small><b class:positive={chart.currentTerrainDifference !== null && chart.currentTerrainDifference > 0} class:negative={chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0}>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
-      <span><small>Precip</small><b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= PHASE_PRECIP_THRESHOLD}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
+      <span><small>Precip</small><b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= PHASE_PRECIP_THRESHOLD}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/h` : '—'}</b></span>
       <span class="depth-card">
         <small>Snow depth</small>
         {#if snowDepthLayerActive}
@@ -150,7 +150,7 @@
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import store from '@windy/store';
   import { buildProfile, wetBulbZeroHeight } from './snowLevel';
-  import { precipMmAt, formatPrecipMm } from './precip';
+  import { precipMmAt, formatPrecipMm, PRECIP_THRESHOLD_MM_H } from './precip';
   import { terrainCrossingState } from './terrainCrossing';
   import { currentMapSnowDepthCm, formatMapSnowDepthCm } from './mapSnowDepth';
 
@@ -159,7 +159,7 @@
   export let placeName = '';
 
   const dispatch = createEventDispatcher<{ close: void }>();
-  const PHASE_PRECIP_THRESHOLD = 0.1;
+  const PHASE_PRECIP_THRESHOLD = PRECIP_THRESHOLD_MM_H;
   const MIX_BELOW_SNOWLINE_M = 100;
 
   let timestamp = Date.now();
@@ -364,7 +364,7 @@
 
       ctx.fillStyle = '#dce6ec'; ctx.font = '700 20px Arial'; ctx.fillText('Precipitation type', 44, 1022);
       ctx.font = '19px Arial'; ctx.fillText('❄ Snow ≥ snowline   ·   🌨 Mix 0–100 m below   ·   🌧 Rain >100 m below', 44, 1054);
-      ctx.fillStyle = '#7f909b'; ctx.font = '16px Arial'; ctx.fillText('Shown only when precipitation is ≥0.1 mm/3h', 44, 1081);
+      ctx.fillStyle = '#7f909b'; ctx.font = '16px Arial'; ctx.fillText('Shown only when precipitation is ≥0.03 mm/h', 44, 1081);
 
       const hasDepth = exportSnowDepth !== null;
       const cards = hasDepth ? 5 : 4;
@@ -373,7 +373,7 @@
       let cardIndex = 0;
       drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Snowline', chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—', '#65d5ff');
       drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Terrain Δ', delta, chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0 ? '#ffae56' : '#65d5ff');
-      drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Precip', chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—', '#65d5ff');
+      drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Precip', chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/h` : '—', '#65d5ff');
       if (hasDepth) drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Snow depth', formatMapSnowDepthCm(exportSnowDepth), '#8de39a');
       drawCard(ctx, 44 + cardIndex * (cardW + cardGap), cardY, cardW, 'Type', chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—', '#ffffff');
 
