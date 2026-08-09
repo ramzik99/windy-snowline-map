@@ -13,7 +13,7 @@
       <small class="meta-line">{chart?.validLabel ?? 'ECMWF forecast'}</small>
     </div>
     <div class="chart-actions">
-      <button class="png-button" type="button" aria-label="Save graph as PNG" title="Save PNG" on:click={downloadPng}>PNG</button>
+      <button class="png-button" type="button" aria-label="Download graph as PNG" title="Download PNG" on:click={downloadPng}>PNG</button>
       <button class="now-button" type="button" aria-label="Reset Windy timeline to now" title="Back to now" on:click={resetToNow}>Now</button>
       <button class="drag-button" type="button" aria-label="Drag snow forecast graph" title="Drag graph" on:pointerdown={startDrag}>↕</button>
       <button type="button" aria-label="Close snow forecast graph" title="Close" on:click={() => dispatch('close')}>×</button>
@@ -266,21 +266,31 @@
   }
 
   async function savePngBlob(png: Blob, filename: string) {
-    const isMobileLike = window.innerWidth <= 520 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
-    if (isMobileLike && typeof navigator.share === 'function') {
-      try {
-        const file = new File([png], filename, { type: 'image/png' });
-        const canShare = typeof (navigator as any).canShare !== 'function' || (navigator as any).canShare({ files: [file] });
-        if (canShare) { await navigator.share({ files: [file], title: 'Snow forecast' }); return; }
-      } catch (e: any) {
-        if (e?.name === 'AbortError') return;
-        console.warn('Snow forecast mobile share failed; falling back to download', e);
-      }
+    // PNG means download. Do not invoke the share sheet and do not open a
+    // blob URL in a new tab on mobile; both behaviours can look like a large
+    // preview instead of saving the file.
+    const nav: any = navigator as any;
+    if (typeof nav.msSaveOrOpenBlob === 'function') {
+      nav.msSaveOrOpenBlob(png, filename);
+      return;
     }
+
     const pngUrl = URL.createObjectURL(png);
-    const link = document.createElement('a'); link.href = pngUrl; link.download = filename; link.rel = 'noopener'; document.body.appendChild(link); link.click(); document.body.removeChild(link);
-    if (isMobileLike) setTimeout(() => { try { window.open(pngUrl, '_blank', 'noopener'); } catch {} }, 80);
-    setTimeout(() => URL.revokeObjectURL(pngUrl), 5000);
+    try {
+      const link = document.createElement('a');
+      link.href = pngUrl;
+      link.download = filename;
+      link.rel = 'noopener';
+      link.target = '_self';
+      link.style.display = 'none';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } finally {
+      // Keep the URL alive long enough for mobile browsers to hand it to the
+      // download manager, then release it. Never window.open() the PNG.
+      setTimeout(() => URL.revokeObjectURL(pngUrl), 30_000);
+    }
   }
 
   async function downloadPng() {
