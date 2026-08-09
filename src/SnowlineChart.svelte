@@ -33,7 +33,7 @@
         <text x="37" y="134" text-anchor="end" class="axis">{chart.minLabel}</text>
         <polyline points={chart.points} class="snowline-line" />
 
-        <text x="42" y="147" class="section-label precip-title">PRECIPITATION <tspan>mm/h</tspan></text>
+        <text x="42" y="147" class="section-label precip-title">PRECIPITATION <tspan>mm/3h</tspan></text>
         <rect x="42" y="153" width="306" height="36" rx="7" class="band-bg" />
         {#if chart.hasPrecip}
           <text x="37" y="159" text-anchor="end" class="axis precip-axis">{chart.precipMaxLabel}</text>
@@ -94,7 +94,7 @@
           {#if tooltip.phase}<strong class={`text-${tooltip.phase.key}`}><i class={`tip-phase-dot phase-${tooltip.phase.key}`}></i>{tooltip.phase.label}{tooltip.phase.confidence === 'low' ? ' ~' : ''}</strong>{/if}
           <div class="tip-grid">
             <span>SL <b>{tooltip.snowline !== null ? `${tooltip.snowline} m` : '—'}</b></span>
-            <span>Precip <b>{tooltip.precip !== null ? `${formatPrecipMm(tooltip.precip)} mm/h` : '—'}</b></span>
+            <span>Precip <b>{tooltip.precip !== null ? `${formatPrecipMm(tooltip.precip)} mm/3h` : '—'}</b></span>
             <span>New snow <b>{formatNewSnowCm(tooltip.newSnow)}</b></span>
             {#if terrainM !== null}<span>Terrain <b>{Math.round(terrainM / 10) * 10} m</b></span>{/if}
           </div>
@@ -110,7 +110,7 @@
       <div class="metrics">
         <span><small>Snowline</small><b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
         <span><small>Terrain Δ</small><b>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
-        <span><small>Precip</small><b>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/h` : '—'}</b></span>
+        <span><small>Precip</small><b>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
         <span><small>New snow</small><b>{formatNewSnowCm(chart.currentNewSnow)}</b></span>
       </div>
     </div>
@@ -268,7 +268,7 @@
       ctx.drawImage(img, 45, 155, 1110, 1030); URL.revokeObjectURL(url);
       let y = 1217; ctx.fillStyle = '#ffffff'; ctx.font = '700 29px Arial'; ctx.fillText(chart.currentPhase ? `${chart.currentPhase.label}${chart.currentPhase.confidence === 'low' ? ' ~' : ''}` : 'No precip type', 52, y);
       y += 34; ctx.fillStyle = '#b8c8d1'; ctx.font = '22px Arial';
-      const metrics = [`Snowline ${chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}`, `Terrain Δ ${chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}`, `Precip ${chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/h` : '—'}`, `New snow ${formatNewSnowCm(chart.currentNewSnow)}`];
+      const metrics = [`Snowline ${chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}`, `Terrain Δ ${chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}`, `Precip ${chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}`, `New snow ${formatNewSnowCm(chart.currentNewSnow)}`];
       ctx.fillText(metrics.join('   ·   '), 52, y);
       y += 38; ctx.fillStyle = '#dfeaf0'; ctx.font = '700 21px Arial'; ctx.fillText(chart.phaseSummary, 52, y);
       y += 30; ctx.fillStyle = '#8799a4'; ctx.font = '18px Arial'; ctx.fillText('New snow is a terrain-aware forecast estimate from precipitation type and wet-bulb profile; it is not total pre-existing snowpack.', 52, y);
