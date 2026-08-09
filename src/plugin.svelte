@@ -138,7 +138,7 @@
   function contoursEnabled(): boolean { return displayMode === 'contour' || displayMode === 'both'; }
   function labelsEnabled(): boolean { return displayMode === 'label' || displayMode === 'both'; }
   function contourIntervalForZoom(): number { const zoom = Number(map.getZoom?.() ?? 6); if (zoom <= 4) return 500; if (zoom <= 7) return 200; return 100; }
-  function hexToRgb(hex: string): [number, number, number] { const h = hex.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16)]; }
+  function hexToRgb(hex: string): [number, number, number] { const h = hex.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
   function rgbToHex(r: number, g: number, b: number): string { const part = (v: number) => Math.round(v).toString(16).padStart(2, '0'); return `#${part(r)}${part(g)}${part(b)}`; }
   function colorForLevel(level: number): string {
     if (level <= COLOUR_STOPS[0].value) return COLOUR_STOPS[0].color;
