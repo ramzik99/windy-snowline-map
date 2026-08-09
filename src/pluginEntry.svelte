@@ -1,11 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import { map } from '@windy/map';
   import Plugin from './plugin.svelte';
-  import { singleclick } from '@windy/singleclick';
-  import config from './pluginConfig';
 
   let unitObserver: MutationObserver | null = null;
-  let ownsSingleclick = false;
 
   function normaliseLatLon(value: any): { lat: number; lon: number } | null {
     if (!value) return null;
@@ -35,30 +33,38 @@
     }
   }
 
-  // Windy calls onopen after the plugin has mounted. When opened from the
-  // right-click context menu, params is the LatLon that was right-clicked.
-  // Re-emit that position through the plugin's existing singleclick selection
-  // path so the initial Wintry point label appears at exactly that location.
+  /**
+   * Feed a LatLon into the same permanent captured map-click handler that is
+   * used for ordinary left-clicks. There is intentionally only one point-
+   * activation path, so minimising the panel cannot disable point selection.
+   */
+  function activateWintryPoint(lat: number, lon: number) {
+    try {
+      const container = map.getContainer?.() as HTMLElement | undefined;
+      if (!container) return;
+      const pixel = map.latLngToContainerPoint([lat, lon]);
+      const rect = container.getBoundingClientRect();
+      container.dispatchEvent(new MouseEvent('click', {
+        bubbles: true,
+        cancelable: true,
+        button: 0,
+        clientX: rect.left + pixel.x,
+        clientY: rect.top + pixel.y,
+      }));
+    } catch (error) {
+      console.warn('Wintry forecast could not activate the selected point', error);
+    }
+  }
+
+  // Windy supplies the right-click/context-menu LatLon to onopen. Route it
+  // through exactly the same click path as every later left-click.
   export const onopen = (params: unknown) => {
     const position = normaliseLatLon(params);
     if (!position) return;
-
-    queueMicrotask(() => {
-      singleclick.emit(config.name, position as any);
-    });
+    requestAnimationFrame(() => activateWintryPoint(position.lat, position.lon));
   };
 
   onMount(() => {
-    // Explicitly claim Windy's high-priority single-click slot for the lifetime
-    // of the open plugin. This prevents the generic `click` topic from reaching
-    // Windy's native weather picker while Wintry forecast is active.
-    try {
-      (singleclick as any).register?.(config.name, 'high');
-      ownsSingleclick = true;
-    } catch (error) {
-      console.warn('Wintry forecast could not claim exclusive single-click handling', error);
-    }
-
     updatePrecipUnits(document.body);
     unitObserver = new MutationObserver(records => {
       for (const record of records) {
@@ -70,10 +76,6 @@
   });
 
   onDestroy(() => {
-    if (ownsSingleclick) {
-      try { (singleclick as any).release?.(config.name, 'high'); } catch {}
-      ownsSingleclick = false;
-    }
     unitObserver?.disconnect();
     unitObserver = null;
   });
