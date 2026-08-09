@@ -118,18 +118,25 @@
       <span>❄ Snow ≥ snowline</span><span>🌨 Mix 0–100 m below</span><span>🌧 Rain &gt;100 m below</span><small>shown only with ≥0.1 mm/3h</small>
     </div>
 
-    <div class:with-depth={snowDepthEnabled} class="chart-foot">
+    <div class="chart-foot with-depth">
       <span><small>Snowline</small><b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span><small>Terrain Δ</small><b class:positive={chart.currentTerrainDifference !== null && chart.currentTerrainDifference > 0} class:negative={chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0}>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
       <span><small>Precip</small><b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= 0.05}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
-      {#if snowDepthEnabled}
-        <span><small>Snow depth</small><b class="depth-value">{snowDepthLoading ? '…' : formatMapSnowDepthCm(currentSnowDepthCm)}</b></span>
-      {/if}
+      <span class="depth-card">
+        <small>Snow depth</small>
+        {#if snowDepthLayerActive}
+          <b class="depth-value">{snowDepthLoading ? '…' : formatMapSnowDepthCm(currentSnowDepthCm)}</b>
+        {:else}
+          <button class="depth-layer-button" type="button" title="Switch Windy to Snow depth" aria-label="Switch Windy to Snow depth layer" on:click={openSnowDepthLayer}>Open layer</button>
+        {/if}
+      </span>
       <span class="phase-card"><small>Type</small><b>{chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—'}</b></span>
     </div>
 
-    {#if snowDepthEnabled}
-      <div class="depth-note">Snow depth is sampled from Windy ECMWF snowcover at the selected timestep; no 144 h depth series is inferred.</div>
+    {#if snowDepthLayerActive}
+      <div class="depth-note">Snow depth is read from Windy ECMWF Snow depth at the selected timestep.</div>
+    {:else}
+      <div class="depth-note muted">Tap <b>Open layer</b> to switch Windy to Snow depth and show the modelled depth here.</div>
     {/if}
     <div class="forecast-summary">{chart.phaseSummary}</div>
     {#if crossing?.summary}<div class="forecast-note">{crossing.summary}</div>{/if}
@@ -164,7 +171,7 @@
   let snowDepthTimer: ReturnType<typeof setTimeout> | null = null;
   let snowDepthGeneration = 0;
   let currentSnowDepthCm: number | null = null;
-  let snowDepthEnabled = true;
+  let snowDepthLayerActive = false;
   let snowDepthLoading = false;
   let chartShell: HTMLDivElement | null = null;
   let svgEl: SVGSVGElement | null = null;
@@ -214,19 +221,32 @@
   function clearTooltip() { tooltip = null; }
   function safeFilename(value: string): string { const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); return cleaned || 'selected-point'; }
 
-  function updateSnowDepthState(): boolean {
+  function updateSnowDepthLayerState(): boolean {
     try {
+      const overlay = store.get('overlay');
       const product = store.get('product');
-      snowDepthEnabled = !product || product === 'ecmwf';
-    } catch { snowDepthEnabled = true; }
-    if (!snowDepthEnabled) currentSnowDepthCm = null;
-    return snowDepthEnabled;
+      snowDepthLayerActive = overlay === 'snowcover' && (!product || product === 'ecmwf');
+    } catch { snowDepthLayerActive = false; }
+    if (!snowDepthLayerActive) currentSnowDepthCm = null;
+    return snowDepthLayerActive;
+  }
+
+  function openSnowDepthLayer() {
+    try {
+      try { (store as any).set('product', 'ecmwf'); } catch {}
+      try { (store as any).set('level', 'surface'); } catch {}
+      (store as any).set('overlay', 'snowcover');
+      updateSnowDepthLayerState();
+      scheduleCurrentSnowDepth(520);
+    } catch (e) {
+      console.warn('Snow forecast could not switch to Snow depth layer', e);
+    }
   }
 
   function scheduleCurrentSnowDepth(delay = 260) {
     const myGeneration = ++snowDepthGeneration;
     if (snowDepthTimer) { clearTimeout(snowDepthTimer); snowDepthTimer = null; }
-    if (!updateSnowDepthState()) { snowDepthLoading = false; return; }
+    if (!updateSnowDepthLayerState()) { snowDepthLoading = false; return; }
     snowDepthLoading = true;
     snowDepthTimer = setTimeout(async () => {
       snowDepthTimer = null;
@@ -267,7 +287,7 @@
     if (!svgEl || !chart) return;
     try {
       let exportSnowDepth = currentSnowDepthCm;
-      if (snowDepthEnabled && exportSnowDepth === null) {
+      if (snowDepthLayerActive && exportSnowDepth === null) {
         const lat = Number(point?.lat), lon = Number(point?.lon);
         if (Number.isFinite(lat) && Number.isFinite(lon)) {
           exportSnowDepth = await currentMapSnowDepthCm(lat, lon, timestamp);
@@ -308,7 +328,7 @@
       drawCard(ctx, 44 + cardIndex * (cardW + cardGap), cardY, cardW, 'Type', chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—', '#ffffff');
 
       ctx.fillStyle = '#d8e4ec'; ctx.font = '700 20px Arial'; ctx.textAlign = 'center'; ctx.fillText(chart.phaseSummary, 540, 1222); ctx.textAlign = 'left';
-      if (hasDepth) { ctx.fillStyle = '#8de39a'; ctx.font = '16px Arial'; ctx.textAlign = 'center'; ctx.fillText('Snow depth: Windy ECMWF snowcover at the selected timestep (channel 0).', 540, 1252); ctx.textAlign = 'left'; }
+      if (hasDepth) { ctx.fillStyle = '#8de39a'; ctx.font = '16px Arial'; ctx.textAlign = 'center'; ctx.fillText('Snow depth: current Windy ECMWF Snow depth map value at the selected timestep.', 540, 1252); ctx.textAlign = 'left'; }
       if (crossing?.summary) { ctx.fillStyle = '#ffe05b'; ctx.font = '18px Arial'; ctx.textAlign = 'center'; ctx.fillText(crossing.summary, 540, hasDepth ? 1280 : 1250); ctx.textAlign = 'left'; }
       const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG export failed')), 'image/png'));
       await savePngBlob(png, `snow-forecast-${safeFilename(placeName || 'selected-point')}.png`);
@@ -378,8 +398,9 @@
       const current = store.get('timestamp'); if (typeof current === 'number' && Number.isFinite(current)) timestamp = current;
       timestampListener = store.on('timestamp', (value: any) => { const next = Number(value); if (Number.isFinite(next)) timestamp = next; scheduleCurrentSnowDepth(320); });
     } catch {}
-    try { overlayListener = store.on('overlay', () => scheduleCurrentSnowDepth(320)); } catch {}
-    try { productListener = store.on('product', () => scheduleCurrentSnowDepth(320)); } catch {}
+    try { overlayListener = store.on('overlay', () => { updateSnowDepthLayerState(); scheduleCurrentSnowDepth(420); }); } catch {}
+    try { productListener = store.on('product', () => { updateSnowDepthLayerState(); scheduleCurrentSnowDepth(420); }); } catch {}
+    updateSnowDepthLayerState();
     scheduleCurrentSnowDepth(420);
   });
 
@@ -419,8 +440,11 @@
   .phase-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin: 2px 3px 6px; color: rgba(255,255,255,.72); font-size: 7.4px; } .phase-legend span { white-space: nowrap; } .phase-legend small { color: rgba(255,255,255,.35); font-size: 6.7px; }
   .chart-foot { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 2px; } .chart-foot.with-depth { grid-template-columns: repeat(5, 1fr); }
   .chart-foot span { padding: 6px 2px 5px; border: 1px solid rgba(255,255,255,0.04); border-radius: 8px; background: rgba(255,255,255,0.043); text-align: center; min-width: 0; } .chart-foot small { display: block; color: rgba(255,255,255,0.45); font-size: 6.2px; } .chart-foot b { display: block; margin-top: 1px; color: white; font-size: 7.8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .chart-foot b.positive { color: #65d5ff; } .chart-foot b.negative { color: #ffae56; } .chart-foot b.wet { color: #65d5ff; } .chart-foot b.depth-value { color: #8de39a; } .phase-card b { font-size: 7.4px; }
-  .depth-note { margin-top: 4px; color: rgba(141,227,154,.72); font-size: 6.7px; line-height: 1.2; text-align: center; }
+  .depth-card { display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  .depth-layer-button { margin-top:2px; min-width:0; padding:2px 6px; border:1px solid rgba(141,227,154,.45); border-radius:5px; background:rgba(141,227,154,.10); color:#8de39a; font-size:6.7px; line-height:1.2; font-weight:800; cursor:pointer; white-space:nowrap; }
+  .depth-layer-button:hover { background:rgba(141,227,154,.20); border-color:rgba(141,227,154,.75); color:#b6f1bf; }
+  .depth-note { margin-top: 4px; color: rgba(141,227,154,.72); font-size: 6.7px; line-height: 1.2; text-align: center; } .depth-note.muted { color:rgba(255,255,255,.40); } .depth-note b { color:#8de39a; }
   .forecast-summary { margin-top: 6px; padding: 5px 7px; border-radius: 7px; background: rgba(98,213,255,0.065); border: 1px solid rgba(98,213,255,0.10); color: rgba(224,239,247,0.86); font-size: 7.8px; font-weight: 700; text-align: center; }
   .forecast-note { margin-top: 4px; padding: 3px 6px; border-radius: 6px; background: rgba(255,224,91,0.055); color: rgba(255,224,91,0.86); font-size: 7.4px; text-align: center; } .hint { margin-top: 4px; color: rgba(255,255,255,0.32); font-size: 6.8px; text-align: center; } .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
-  @media (max-width: 520px) { .chart-shell { width: calc(100vw - 12px); padding: 9px; border-radius: 12px; } .place-line, .meta-line { max-width: 175px; } .plot-tooltip { min-width: 142px; } .chart-head button { padding: 0 5px; } .chart-foot { gap: 3px; } .chart-foot.with-depth { grid-template-columns: repeat(5, minmax(0, 1fr)); } .chart-foot small { font-size: 5.4px; } .chart-foot b { font-size: 6.7px; } .phase-legend { gap: 4px 7px; } }
+  @media (max-width: 520px) { .chart-shell { width: calc(100vw - 12px); padding: 9px; border-radius: 12px; } .place-line, .meta-line { max-width: 175px; } .plot-tooltip { min-width: 142px; } .chart-head button { padding: 0 5px; } .chart-foot { gap: 3px; } .chart-foot.with-depth { grid-template-columns: repeat(5, minmax(0, 1fr)); } .chart-foot small { font-size: 5.4px; } .chart-foot b { font-size: 6.7px; } .depth-layer-button { font-size:5.8px; padding:2px 4px; } .phase-legend { gap: 4px 7px; } }
 </style>
