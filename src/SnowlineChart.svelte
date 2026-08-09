@@ -13,7 +13,7 @@
       <small class="meta-line">{chart?.validLabel ?? 'ECMWF forecast'}</small>
     </div>
     <div class="chart-actions">
-      <button class="png-button" type="button" aria-label="Download graph as PNG" title="Download PNG" on:click={downloadPng}>PNG</button>
+      <button class="png-button" type="button" aria-label="Download graph as PNG" title="Download PNG" disabled={pngBusy} on:click={downloadPng}>{pngBusy ? '…' : 'PNG'}</button>
       <button class="now-button" type="button" aria-label="Reset Windy timeline to now" title="Back to now" on:click={resetToNow}>Now</button>
       <button class="drag-button" type="button" aria-label="Drag snow forecast graph" title="Drag graph" on:pointerdown={startDrag}>↕</button>
       <button type="button" aria-label="Close snow forecast graph" title="Close" on:click={() => dispatch('close')}>×</button>
@@ -173,6 +173,7 @@
   let currentSnowDepthCm: number | null = null;
   let snowDepthLayerActive = false;
   let snowDepthLoading = false;
+  let pngBusy = false;
   let chartShell: HTMLDivElement | null = null;
   let svgEl: SVGSVGElement | null = null;
   let position = { x: 24, y: 68 };
@@ -265,36 +266,80 @@
     ctx.fillStyle = accent; ctx.font = '700 25px Arial'; ctx.fillText(value, x + w / 2, y + 62); ctx.textAlign = 'left';
   }
 
+  function blobToDataUrl(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('PNG data URL conversion failed'));
+      reader.onerror = () => reject(reader.error ?? new Error('PNG data URL conversion failed'));
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function clickDownloadHref(href: string, filename: string) {
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = filename;
+    link.rel = 'noopener';
+    link.target = '_self';
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    try {
+      link.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window }));
+    } finally {
+      link.remove();
+    }
+  }
+
   async function savePngBlob(png: Blob, filename: string) {
-    // PNG means download. Do not invoke the share sheet and do not open a
-    // blob URL in a new tab on mobile; both behaviours can look like a large
-    // preview instead of saving the file.
     const nav: any = navigator as any;
+    const win: any = window as any;
+
+    // Best path when the host exposes the File System Access API: hand the
+    // PNG bytes to the device's native save-file surface rather than opening
+    // an image preview or share sheet.
+    if (typeof win.showSaveFilePicker === 'function') {
+      try {
+        const handle = await win.showSaveFilePicker({
+          suggestedName: filename,
+          types: [{ description: 'PNG image', accept: { 'image/png': ['.png'] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(png);
+        await writable.close();
+        return;
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return;
+        console.warn('Snow forecast native PNG save failed; using download fallback', e);
+      }
+    }
+
     if (typeof nav.msSaveOrOpenBlob === 'function') {
       nav.msSaveOrOpenBlob(png, filename);
       return;
     }
 
+    const isMobileLike = window.innerWidth <= 520 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+
+    // Some mobile WebViews ignore download= for blob: URLs and instead open
+    // the image full-screen. A data: URL avoids that blob-navigation path and
+    // lets the host's download handler receive a normal downloadable href.
+    if (isMobileLike) {
+      const dataUrl = await blobToDataUrl(png);
+      clickDownloadHref(dataUrl, filename);
+      return;
+    }
+
     const pngUrl = URL.createObjectURL(png);
     try {
-      const link = document.createElement('a');
-      link.href = pngUrl;
-      link.download = filename;
-      link.rel = 'noopener';
-      link.target = '_self';
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      clickDownloadHref(pngUrl, filename);
     } finally {
-      // Keep the URL alive long enough for mobile browsers to hand it to the
-      // download manager, then release it. Never window.open() the PNG.
       setTimeout(() => URL.revokeObjectURL(pngUrl), 30_000);
     }
   }
 
   async function downloadPng() {
-    if (!svgEl || !chart) return;
+    if (!svgEl || !chart || pngBusy) return;
+    pngBusy = true;
     try {
       let exportSnowDepth = currentSnowDepthCm;
       if (snowDepthLayerActive && exportSnowDepth === null) {
@@ -342,7 +387,11 @@
       if (crossing?.summary) { ctx.fillStyle = '#ffe05b'; ctx.font = '18px Arial'; ctx.textAlign = 'center'; ctx.fillText(crossing.summary, 540, hasDepth ? 1280 : 1250); ctx.textAlign = 'left'; }
       const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG export failed')), 'image/png'));
       await savePngBlob(png, `snow-forecast-${safeFilename(placeName || 'selected-point')}.png`);
-    } catch (e) { console.warn('Snow forecast PNG export failed', e); }
+    } catch (e) {
+      console.warn('Snow forecast PNG export failed', e);
+    } finally {
+      pngBusy = false;
+    }
   }
 
   function handlePlotPointer(event: PointerEvent) {
@@ -432,7 +481,7 @@
   .chart-head small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .place-line { margin-top: 4px; max-width: 270px; color: rgba(255,255,255,0.78); font-size: 9px; } .meta-line { margin-top: 2px; max-width: 270px; color: rgba(120,206,241,0.82); font-size: 8px; }
   .chart-actions { display: flex; gap: 4px; flex-shrink: 0; } .chart-head button { height: 26px; min-width: 26px; padding: 0 7px; border: 1px solid rgba(255,255,255,0.07); border-radius: 7px; background: rgba(255,255,255,0.075); color: rgba(255,255,255,0.86); font-size: 14px; line-height: 24px; cursor: pointer; }
-  .chart-head button:hover { background: rgba(98,213,255,0.15); border-color: rgba(98,213,255,0.30); color: white; } .png-button, .now-button { width: auto !important; font-size: 8.5px !important; font-weight: 800; } .drag-button { cursor: grab !important; touch-action: none; }
+  .chart-head button:hover { background: rgba(98,213,255,0.15); border-color: rgba(98,213,255,0.30); color: white; } .chart-head button:disabled { opacity:.55; cursor:default; } .png-button, .now-button { width: auto !important; font-size: 8.5px !important; font-weight: 800; } .drag-button { cursor: grab !important; touch-action: none; }
   .snowline-chart-legend { display: flex; flex-wrap: wrap; gap: 8px; margin: 7px 3px 4px; padding-top: 6px; border-top: 1px solid rgba(255,255,255,0.06); color: rgba(255,255,255,0.67); font-size: 7.7px; }
   .snowline-chart-legend span { display: inline-flex; align-items: center; gap: 4px; } .snowline-chart-key-line { width: 14px; height: 0; border-top: 2px solid; display: inline-block; }
   .snowline-key { border-color: #65d5ff; } .terrain-key { border-color: #ffae56; border-top-style: dashed; } .now-key { border-color: #ff6658; } .snowline-chart-key-cross { width: 7px; height: 7px; border-radius: 50%; border: 2px solid #ffe05b; display: inline-block; } .snowline-chart-key-bar { width: 12px; height: 7px; border-radius: 2px 2px 0 0; background: #5ec8e9; display: inline-block; }
