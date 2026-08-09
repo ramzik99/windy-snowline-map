@@ -62,8 +62,6 @@
 
 <script lang="ts">
   import { createEventDispatcher, onDestroy, onMount } from 'svelte';
-  import { singleclick } from '@windy/singleclick';
-  import config from './pluginConfig';
 
   type SearchResult = {
     lat: number;
@@ -312,36 +310,12 @@
     loadFavourites();
   }
 
-  function latLonFromSingleClick(value: any): [number, number] | null {
-    if (!value) return null;
-    const lat = Number(value.lat ?? value.latitude ?? value.latlng?.lat);
-    const lon = Number(value.lon ?? value.lng ?? value.longitude ?? value.latlng?.lng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-    return [lat, lon];
-  }
-
-  function handleSingleClick(value: any) {
-    const position = latLonFromSingleClick(value);
-    if (!position) return;
-    const [lat, lon] = position;
-    clearPendingSearch();
-    query = '';
-    locationError = '';
-    open = false;
-    showFavourites = false;
-    hasSelection = true;
-    remoteResults = [];
-    dispatch('select', { lat, lon, primary: '', secondary: '' });
-  }
-
   onMount(() => {
     loadFavourites();
     window.addEventListener(FAVOURITES_CHANGED_EVENT, handleFavouritesChanged);
-    singleclick.on(config.name, handleSingleClick);
   });
 
   onDestroy(() => {
-    singleclick.off(config.name, handleSingleClick);
     clearPendingSearch();
     window.removeEventListener(FAVOURITES_CHANGED_EVENT, handleFavouritesChanged);
   });
