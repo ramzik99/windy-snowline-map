@@ -23,7 +23,12 @@
 
     {#if result.overlay === 'snowcover'}
       <section class="important">
-        <h3>Snowcover decoder</h3>
+        <div class="section-head">
+          <h3>Snowcover decoder</h3>
+          <div class="section-actions">
+            <button type="button" on:click={copySnowDecoder}>{decoderCopied ? 'Copied ✓' : 'Copy'}</button>
+          </div>
+        </div>
         <div class="decoder-note">
           Raw map values are shown exactly as Windy's interpolator returns them. Each numeric channel is also passed through Windy's official <b>snow</b> metric converter.
         </div>
@@ -31,7 +36,7 @@
       </section>
     {:else}
       <section class="important">
-        <h3>Snowcover decoder</h3>
+        <div class="section-head"><h3>Snowcover decoder</h3></div>
         <div class="empty">Current overlay is <b>{result.overlay ?? 'unknown'}</b>. Switch Windy to <b>Snow depth</b> and click the point again.</div>
       </section>
     {/if}
@@ -123,6 +128,7 @@
   let loading = false;
   let result: InspectorResult | null = null;
   let copied = false;
+  let decoderCopied = false;
   let generation = 0;
 
   function safeStore(name: string): any {
@@ -258,7 +264,7 @@
   }
 
   async function inspect(lat: number, lon: number) {
-    const mine = ++generation; loading = true; copied = false;
+    const mine = ++generation; loading = true; copied = false; decoderCopied = false;
     try {
       const [pointPayload, elevation, interp] = await Promise.all([
         getMeteogramForecastData('ecmwf', { lat, lon, step: 1, days: 6 }),
@@ -319,9 +325,38 @@
     ].join('\n');
   }
 
+  async function writeClipboard(text: string): Promise<void> {
+    if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; }
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const ok = document.execCommand('copy');
+    textarea.remove();
+    if (!ok) throw new Error('Clipboard copy failed');
+  }
+
+  async function copySnowDecoder() {
+    if (!result?.snowDecodeText) return;
+    const text = [
+      'SNOWCOVER DECODER',
+      `Location: ${result.lat}, ${result.lon}`,
+      `Elevation: ${result.elevation ?? 'unavailable'} m`,
+      result.snowDecodeText,
+    ].join('\n');
+    try {
+      await writeClipboard(text);
+      decoderCopied = true;
+      setTimeout(() => decoderCopied = false, 1600);
+    } catch { decoderCopied = false; }
+  }
+
   async function copyReport() {
     const text = reportText(); if (!text) return;
-    try { await navigator.clipboard.writeText(text); copied = true; setTimeout(() => copied = false, 1600); } catch { copied = false; }
+    try { await writeClipboard(text); copied = true; setTimeout(() => copied = false, 1600); } catch { copied = false; }
   }
 
   function downloadReport() {
@@ -331,7 +366,7 @@
     const a = document.createElement('a'); a.href = url; a.download = 'windy-data-inspector.txt'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1500);
   }
 
-  function clear() { generation += 1; loading = false; result = null; copied = false; }
+  function clear() { generation += 1; loading = false; result = null; copied = false; decoderCopied = false; }
 
   onMount(() => singleclick.on(config.name, handleClick));
   onDestroy(() => { generation += 1; singleclick.off(config.name, handleClick); });
@@ -344,6 +379,7 @@
   .instructions,.status,.empty,.decoder-note { margin-top:8px; padding:7px; border-radius:7px; background:rgba(255,255,255,.045); color:rgba(255,255,255,.72); font-size:9px; line-height:1.25; }.hero{padding:20px 7px;text-align:center}.decoder-note{margin-top:0;margin-bottom:5px;color:rgba(255,255,255,.8)}
   .summary { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; margin-top:7px; }.summary span{min-width:0;padding:5px;border-radius:7px;background:rgba(255,255,255,.045);text-align:center}.summary small{display:block;color:rgba(255,255,255,.45);font-size:6.5px}.summary b{display:block;margin-top:2px;font-size:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   section { margin-top:9px; min-width:0; } section.important{padding:7px;border:1px solid rgba(142,223,255,.22);border-radius:8px;background:rgba(80,190,255,.045)} h3{margin:0 0 4px;color:#8edfff;font-size:9px;text-transform:uppercase;letter-spacing:.3px}
+  .section-head{display:flex;align-items:center;justify-content:space-between;gap:6px;margin-bottom:4px}.section-head h3{margin:0}.section-actions{display:flex;gap:4px;flex-shrink:0}.section-actions button{padding:3px 6px;font-size:8px}
   .table-wrap { width:100%; overflow-x:auto; -webkit-overflow-scrolling:touch; } table{width:100%;min-width:300px;border-collapse:collapse;table-layout:fixed;font-size:7px}th,td{padding:4px 3px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;vertical-align:top;word-break:break-all}th:nth-child(1),td:nth-child(1){width:32%}th:nth-child(2),td:nth-child(2){width:13%}
   pre { box-sizing:border-box; width:100%; max-width:100%; margin:0; padding:6px; border-radius:7px; background:#0d1217; color:#d5e2e9; white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; font-size:7px; line-height:1.3; }
   .actions { position:sticky; bottom:0; display:flex; align-items:center; flex-wrap:wrap; gap:5px; margin-top:9px; padding:7px 0 2px; background:linear-gradient(180deg,rgba(20,24,29,0),rgba(20,24,29,.98) 30%); }.actions span{font-size:8px;color:#8de39a}
