@@ -118,18 +118,18 @@
       <span>❄ Snow ≥ snowline</span><span>🌨 Mix 0–100 m below</span><span>🌧 Rain &gt;100 m below</span><small>shown only with ≥0.1 mm/3h</small>
     </div>
 
-    <div class:with-depth={snowDepthOverlayActive} class="chart-foot">
+    <div class:with-depth={snowDepthEnabled} class="chart-foot">
       <span><small>Snowline</small><b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
       <span><small>Terrain Δ</small><b class:positive={chart.currentTerrainDifference !== null && chart.currentTerrainDifference > 0} class:negative={chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0}>{chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—'}</b></span>
       <span><small>Precip</small><b class:wet={chart.currentPrecip !== null && chart.currentPrecip >= 0.05}>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
-      {#if snowDepthOverlayActive}
+      {#if snowDepthEnabled}
         <span><small>Snow depth</small><b class="depth-value">{snowDepthLoading ? '…' : formatMapSnowDepthCm(currentSnowDepthCm)}</b></span>
       {/if}
       <span class="phase-card"><small>Type</small><b>{chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—'}</b></span>
     </div>
 
-    {#if snowDepthOverlayActive}
-      <div class="depth-note">Snow depth is the current Windy Snow depth map value only; no 144 h depth series is inferred.</div>
+    {#if snowDepthEnabled}
+      <div class="depth-note">Snow depth is sampled from Windy ECMWF snowcover at the selected timestep; no 144 h depth series is inferred.</div>
     {/if}
     <div class="forecast-summary">{chart.phaseSummary}</div>
     {#if crossing?.summary}<div class="forecast-note">{crossing.summary}</div>{/if}
@@ -164,7 +164,7 @@
   let snowDepthTimer: ReturnType<typeof setTimeout> | null = null;
   let snowDepthGeneration = 0;
   let currentSnowDepthCm: number | null = null;
-  let snowDepthOverlayActive = false;
+  let snowDepthEnabled = true;
   let snowDepthLoading = false;
   let chartShell: HTMLDivElement | null = null;
   let svgEl: SVGSVGElement | null = null;
@@ -214,26 +214,25 @@
   function clearTooltip() { tooltip = null; }
   function safeFilename(value: string): string { const cleaned = value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''); return cleaned || 'selected-point'; }
 
-  function updateSnowDepthOverlayState(): boolean {
+  function updateSnowDepthState(): boolean {
     try {
-      const overlay = store.get('overlay');
       const product = store.get('product');
-      snowDepthOverlayActive = overlay === 'snowcover' && (!product || product === 'ecmwf');
-    } catch { snowDepthOverlayActive = false; }
-    if (!snowDepthOverlayActive) currentSnowDepthCm = null;
-    return snowDepthOverlayActive;
+      snowDepthEnabled = !product || product === 'ecmwf';
+    } catch { snowDepthEnabled = true; }
+    if (!snowDepthEnabled) currentSnowDepthCm = null;
+    return snowDepthEnabled;
   }
 
   function scheduleCurrentSnowDepth(delay = 260) {
     const myGeneration = ++snowDepthGeneration;
     if (snowDepthTimer) { clearTimeout(snowDepthTimer); snowDepthTimer = null; }
-    if (!updateSnowDepthOverlayState()) { snowDepthLoading = false; return; }
+    if (!updateSnowDepthState()) { snowDepthLoading = false; return; }
     snowDepthLoading = true;
     snowDepthTimer = setTimeout(async () => {
       snowDepthTimer = null;
       const lat = Number(point?.lat), lon = Number(point?.lon);
       if (!Number.isFinite(lat) || !Number.isFinite(lon)) { if (myGeneration === snowDepthGeneration) snowDepthLoading = false; return; }
-      const value = await currentMapSnowDepthCm(lat, lon);
+      const value = await currentMapSnowDepthCm(lat, lon, timestamp);
       if (myGeneration !== snowDepthGeneration) return;
       currentSnowDepthCm = value;
       snowDepthLoading = false;
@@ -267,6 +266,15 @@
   async function downloadPng() {
     if (!svgEl || !chart) return;
     try {
+      let exportSnowDepth = currentSnowDepthCm;
+      if (snowDepthEnabled && exportSnowDepth === null) {
+        const lat = Number(point?.lat), lon = Number(point?.lon);
+        if (Number.isFinite(lat) && Number.isFinite(lon)) {
+          exportSnowDepth = await currentMapSnowDepthCm(lat, lon, timestamp);
+          if (exportSnowDepth !== null) currentSnowDepthCm = exportSnowDepth;
+        }
+      }
+
       const clone = svgEl.cloneNode(true) as SVGSVGElement;
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg'); clone.setAttribute('width', '1080'); clone.setAttribute('height', '810');
       clone.querySelectorAll('.inspect-line,.inspect-dot').forEach(node => node.remove());
@@ -288,7 +296,7 @@
       ctx.font = '19px Arial'; ctx.fillText('❄ Snow ≥ snowline   ·   🌨 Mix 0–100 m below   ·   🌧 Rain >100 m below', 44, 1054);
       ctx.fillStyle = '#7f909b'; ctx.font = '16px Arial'; ctx.fillText('Shown only when precipitation is ≥0.1 mm/3h', 44, 1081);
 
-      const hasDepth = snowDepthOverlayActive && currentSnowDepthCm !== null;
+      const hasDepth = exportSnowDepth !== null;
       const cards = hasDepth ? 5 : 4;
       const cardGap = 10, cardW = (992 - (cards - 1) * cardGap) / cards, cardY = 1104;
       const delta = chart.currentTerrainDifference !== null ? `${chart.currentTerrainDifference >= 0 ? '+' : ''}${chart.currentTerrainDifference} m` : '—';
@@ -296,11 +304,11 @@
       drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Snowline', chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—', '#65d5ff');
       drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Terrain Δ', delta, chart.currentTerrainDifference !== null && chart.currentTerrainDifference < 0 ? '#ffae56' : '#65d5ff');
       drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Precip', chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—', '#65d5ff');
-      if (hasDepth) drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Snow depth', formatMapSnowDepthCm(currentSnowDepthCm), '#8de39a');
+      if (hasDepth) drawCard(ctx, 44 + cardIndex++ * (cardW + cardGap), cardY, cardW, 'Snow depth', formatMapSnowDepthCm(exportSnowDepth), '#8de39a');
       drawCard(ctx, 44 + cardIndex * (cardW + cardGap), cardY, cardW, 'Type', chart.currentPhase ? `${chart.currentPhase.icon} ${chart.currentPhase.label}` : '—', '#ffffff');
 
       ctx.fillStyle = '#d8e4ec'; ctx.font = '700 20px Arial'; ctx.textAlign = 'center'; ctx.fillText(chart.phaseSummary, 540, 1222); ctx.textAlign = 'left';
-      if (hasDepth) { ctx.fillStyle = '#8de39a'; ctx.font = '16px Arial'; ctx.textAlign = 'center'; ctx.fillText('Snow depth: current Windy Snow depth map timestep (channel 0), not a generated time series.', 540, 1252); ctx.textAlign = 'left'; }
+      if (hasDepth) { ctx.fillStyle = '#8de39a'; ctx.font = '16px Arial'; ctx.textAlign = 'center'; ctx.fillText('Snow depth: Windy ECMWF snowcover at the selected timestep (channel 0).', 540, 1252); ctx.textAlign = 'left'; }
       if (crossing?.summary) { ctx.fillStyle = '#ffe05b'; ctx.font = '18px Arial'; ctx.textAlign = 'center'; ctx.fillText(crossing.summary, 540, hasDepth ? 1280 : 1250); ctx.textAlign = 'left'; }
       const png = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('PNG export failed')), 'image/png'));
       await savePngBlob(png, `snow-forecast-${safeFilename(placeName || 'selected-point')}.png`);
