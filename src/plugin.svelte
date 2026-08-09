@@ -49,9 +49,9 @@
       </div>
       <div class="info-body">
         <div><b>Snow forecast</b> uses ECMWF temperature, dew point and geopotential height to estimate the wet-bulb-zero snowline. Runs up to 144 hours only.</div>
-        <div>Map contours show the approximate rain–snow thermal boundary. When measurable precipitation is present, the point label shows snow at or above the snowline, mix up to 100 m below it, and rain farther below. Without precipitation it simply shows above, near (±100 m), or below the snowline.</div>
-        <div>The point graph shows snowline through time together with precipitation and modelled snow depth when available. Tap the graph for exact values or download it as PNG.</div>
-        <div class="info-caveat">This is a thermal forecast aid. Snowline, precipitation and modelled snow depth do not guarantee local snowfall or accumulation.</div>
+        <div>Map contours show the approximate rain–snow thermal boundary. With precipitation ≥0.1 mm/3h, the point label shows snow at or above the snowline, mix up to 100 m below it, and rain farther below. Without measurable precipitation it shows above, near (±100 m), or below the snowline.</div>
+        <div>The point graph shows snowline and precipitation through time. Snow depth is available only for the selected timestep after opening Windy’s ECMWF Snow depth layer. Desktop users can export the graph as PNG.</div>
+        <div class="info-caveat">This is a thermal forecast aid. A favourable snowline does not guarantee snowfall or accumulation, and snow depth is model output for the selected timestep.</div>
       </div>
     </div>
   </div>
@@ -138,7 +138,7 @@
   function contoursEnabled(): boolean { return displayMode === 'contour' || displayMode === 'both'; }
   function labelsEnabled(): boolean { return displayMode === 'label' || displayMode === 'both'; }
   function contourIntervalForZoom(): number { const zoom = Number(map.getZoom?.() ?? 6); if (zoom <= 4) return 500; if (zoom <= 7) return 200; return 100; }
-  function hexToRgb(hex: string): [number, number, number] { const h = hex.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+  function hexToRgb(hex: string): [number, number, number] { const h = hex.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16)]; }
   function rgbToHex(r: number, g: number, b: number): string { const part = (v: number) => Math.round(v).toString(16).padStart(2, '0'); return `#${part(r)}${part(g)}${part(b)}`; }
   function colorForLevel(level: number): string {
     if (level <= COLOUR_STOPS[0].value) return COLOUR_STOPS[0].color;
