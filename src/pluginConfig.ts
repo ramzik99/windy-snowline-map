@@ -2,7 +2,7 @@ import type { ExternalPluginConfig } from '@windy/interfaces';
 
 const config: ExternalPluginConfig = {
   name: 'windy-plugin-snowline-map-100m',
-  version: '12.2.12',
+  version: '12.2.13',
   icon: '❄️',
   title: 'Wintry forecast',
   description: 'Terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. Shows adaptive snowline contours and point forecasts for precipitation type, estimated new snow, a 144-hour graph, and forecast soundings.',
@@ -11,7 +11,7 @@ const config: ExternalPluginConfig = {
   desktopUI: 'embedded',
   mobileUI: 'small',
   addToContextmenu: true,
-  listenToSingleclick: false,
+  listenToSingleclick: true,
 };
 
 export default config;
