@@ -266,11 +266,14 @@
     dispatch('select', result);
   }
 
-  onMount(loadFavourites);
+  function handleFavouritesChanged() { loadFavourites(); }
+
+  onMount(() => { loadFavourites(); window.addEventListener('wintry:favourites-changed', handleFavouritesChanged); });
 
   onDestroy(() => {
     if (timer) clearTimeout(timer);
     controller?.abort();
+    window.removeEventListener('wintry:favourites-changed', handleFavouritesChanged);
   });
 </script>
 

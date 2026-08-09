@@ -1,17 +1,17 @@
-<div class="sounding-shell" role="dialog" aria-modal="false" aria-label="Forecast sounding" bind:this={shell} style={`left:${position.x}px;top:${position.y}px;`}>
-  <div class="head">
-    <div>
+<div class:sounding-embedded={embedded} class="sounding-shell" role="group" aria-label="Forecast sounding" bind:this={shell} style={embedded ? undefined : `left:${position.x}px;top:${position.y}px;`}>
+  <div class="head" class:embedded-head={embedded}>
+    {#if !embedded}<div>
       <b>Forecast sounding</b>
       <small>{placeName || 'Selected point'}</small>
       <em>{validLabel}</em>
-    </div>
+    </div>{/if}
     <div class="actions">
       <button class="png" type="button" title="Download sounding PNG" aria-label="Download sounding PNG" disabled={pngBusy} on:click={downloadPng}>{pngBusy ? '…' : 'PNG'}</button>
       <button type="button" title="Zoom out" aria-label="Zoom out" on:click={() => zoomAtCentre(zoom / 1.25)}>−</button>
       <button class="zoom-readout" type="button" title="Fit sounding" aria-label="Fit sounding" on:click={resetZoom}>{Math.round(zoom * 100)}%</button>
       <button type="button" title="Zoom in" aria-label="Zoom in" on:click={() => zoomAtCentre(zoom * 1.25)}>+</button>
-      <button class="drag" type="button" title="Drag sounding window" aria-label="Drag sounding window" on:pointerdown={startDrag}>↕</button>
-      <button type="button" title="Close" aria-label="Close sounding" on:click={() => dispatch('close')}>×</button>
+      {#if !embedded}<button class="drag" type="button" title="Drag sounding window" aria-label="Drag sounding window" on:pointerdown={startDrag}>↕</button>
+      <button type="button" title="Close" aria-label="Close sounding" on:click={() => dispatch('close')}>×</button>{/if}
     </div>
   </div>
 
@@ -72,6 +72,7 @@
   export let point: any;
   export let terrainM: number | null = null;
   export let placeName = '';
+  export let embedded = false;
 
   const dispatch = createEventDispatcher<{ close: void }>();
   let timestamp = Date.now();
@@ -254,7 +255,7 @@
   }
 
   onMount(() => {
-    const width = Math.min(390, window.innerWidth - 12); position = { x: Math.max(6, window.innerWidth - width - 16), y: window.innerWidth <= 520 ? 38 : 66 };
+    if (!embedded) { const width = Math.min(390, window.innerWidth - 12); position = { x: Math.max(6, window.innerWidth - width - 16), y: window.innerWidth <= 520 ? 38 : 66 }; }
     try { const t = store.get('timestamp'); if (typeof t === 'number') timestamp = t; timestampListener = store.on('timestamp', (v: any) => { const n = Number(v); if (Number.isFinite(n)) timestamp = n; }); } catch {}
   });
   onDestroy(() => {
@@ -266,6 +267,8 @@
 
 <style lang="less">
   .sounding-shell{position:fixed;z-index:10025;width:min(390px,calc(100vw - 12px));padding:10px 11px;border:1px solid rgba(139,213,244,.34);border-radius:13px;background:linear-gradient(180deg,rgba(14,23,30,.995),rgba(8,15,20,.995));color:#fff;box-shadow:0 16px 42px rgba(0,0,0,.56)}
+  .sounding-shell.sounding-embedded{position:relative;left:auto!important;top:auto!important;z-index:auto;width:100%;box-sizing:border-box;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
+  .sounding-embedded .embedded-head{justify-content:flex-end;margin-bottom:4px}
   .head{display:flex;justify-content:space-between;gap:8px}.head>div:first-child{min-width:0;flex:1}.head b{display:block;font-size:14px}.head small,.head em{display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal}.head small{margin-top:2px;color:#a8b7c0;font-size:8px}.head em{margin-top:2px;color:#6ecdf2;font-size:7.5px}.actions{display:flex;gap:3px;align-items:flex-start}.actions button{min-width:25px;height:27px;padding:0 5px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.07);color:#fff;font-size:13px;font-weight:800;cursor:pointer}.actions button:hover{background:rgba(105,212,255,.14)}.actions .png{font-size:7px;padding:0 6px}.actions .zoom-readout{min-width:43px;font-size:7px}.drag{cursor:grab!important;touch-action:none}
   .sounding-viewport{max-height:430px;overflow:auto;margin-top:6px;border-radius:9px;overscroll-behavior:contain;touch-action:none;cursor:grab;scrollbar-width:thin}.sounding-viewport:active{cursor:grabbing}.sounding-viewport:focus-visible{outline:1px solid rgba(105,212,255,.55);outline-offset:2px}.sounding-viewport svg{display:block;min-width:100%;height:auto;margin:0;transform-origin:top left;user-select:none;-webkit-user-select:none}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:rgba(255,174,86,.08)}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.temp-grid{stroke:rgba(154,181,196,.10)}.temp-grid.zero{stroke:rgba(117,202,239,.5);stroke-width:1.3}.pressure-grid{stroke:rgba(154,181,196,.12)}.axis{fill:#758995;font-size:7px;font-family:sans-serif}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}
   .key{display:flex;flex-wrap:wrap;gap:5px 10px;margin:4px 2px 6px;color:#a0b0ba;font-size:7px}.key span{display:flex;align-items:center;gap:4px}.key i{display:inline-block;width:13px;border-top:2px solid}.key .t{border-color:#ff765f}.key .d{border-color:#72d98b}.key .w{border-color:#69d4ff;border-top-style:dashed}.key .z{border-color:#75caef}

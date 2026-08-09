@@ -26,11 +26,7 @@
 {/if}
 
 {#if chartOpen && clickedPoint}
-  <SnowlineChart point={clickedPoint} terrainM={clickedMapElevationM} placeName={clickedPlaceName || 'Selected point'} on:close={() => chartOpen = false} />
-{/if}
-
-{#if soundingOpen && clickedPoint}
-  <SoundingChart point={clickedPoint} terrainM={clickedMapElevationM} placeName={clickedPlaceName || 'Selected point'} on:close={() => soundingOpen = false} />
+  <SnowlineChart point={clickedPoint} terrainM={clickedMapElevationM} placeName={clickedPlaceName || 'Selected point'} bind:tab={forecastTab} on:close={() => chartOpen = false} />
 {/if}
 
 {#if infoOpen}
@@ -40,8 +36,8 @@
       <div class="info-body">
         <div><b>Wintry forecast</b> builds a wet-bulb vertical profile from ECMWF temperature, dew point and geopotential height, then intersects it with <b>Windy local terrain</b>. Runs up to 144 hours only.</div>
         <div>With precipitation ≥0.1 mm/h it diagnoses snow, wet snow, rain/snow mix, rain, ice pellets or freezing rain. The graph also estimates <b>new snow created during the forecast</b> from precipitation type and wet-bulb conditions; this is not pre-existing snowpack.</div>
-        <div>The point card gives a fast snapshot. Use <b>📊</b> for the 144 h graph or <b>SND</b> for a forecast sounding showing temperature, dew point and wet-bulb profiles at the selected time.</div>
-        <div>While active, map clicks — including named/labeled places — open the Wintry forecast point card instead of Windy’s detail forecast. Open graph and sounding windows follow map clicks and panel searches without closing.</div>
+        <div>The point card is intentionally quick: save the location, open the forecast window, share, or close. The forecast window switches between <b>Graph</b> and <b>Sounding</b> tabs.</div>
+        <div>While active, map clicks — including named/labeled places — open the Wintry forecast point card instead of Windy’s detail forecast. An open forecast window follows map clicks and panel searches without closing.</div>
         <div class="info-caveat">Precipitation type and new-snow accumulation are terrain-aware profile diagnoses, not ECMWF precipitation-type or snow-depth fields. Marginal profiles have lower confidence.</div>
       </div>
     </div>
@@ -58,7 +54,6 @@
   import config from './pluginConfig';
   import PlaceSearch from './PlaceSearch.svelte';
   import SnowlineChart from './SnowlineChart.svelte';
-  import SoundingChart from './SoundingChart.svelte';
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
   import { precipMmAt, formatPrecipMm, PRECIP_THRESHOLD_MM_H } from './precip';
   import { terrainPrecipitationType, type TerrainPrecipType } from './precipType';
@@ -79,7 +74,7 @@
   let panelHidden = false;
   let infoOpen = false;
   let chartOpen = false;
-  let soundingOpen = false;
+  let forecastTab: 'graph' | 'sounding' = 'graph';
   let displayMode: DisplayMode = 'both';
   let viewportLoading = false;
   let refreshQueued = false;
@@ -188,7 +183,7 @@
 
   function clearContours() { if (contourLayer) { try { map.removeLayer(contourLayer); } catch {} contourLayer = null; } }
   function clearClickLayer() { if (clickLayer) { try { map.removeLayer(clickLayer); } catch {} clickLayer = null; } }
-  function clearPointState(closeWindows = true) { clickGeneration += 1; probeLoading = false; if (closeWindows) { chartOpen = false; soundingOpen = false; } clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null; clickedPlaceName = null; pointSource = null; clearClickLayer(); }
+  function clearPointState(closeWindows = true) { clickGeneration += 1; probeLoading = false; if (closeWindows) chartOpen = false; clickedPoint = null; clickedLatLon = null; clickedMapElevationM = null; clickedPlaceName = null; pointSource = null; clearClickLayer(); }
   function dismissPointLabel() { if (pointSource === 'desktop-picker' && clickedLatLon) dismissedPickerKey = `${clickedLatLon[0].toFixed(5)},${clickedLatLon[1].toFixed(5)}`; if (pickerTimer) { clearTimeout(pickerTimer); pickerTimer = null; } clearPointState(true); }
   function statusColor(status: ProbeStatus): string { if (status === 'above') return '#46d9ff'; if (status === 'below') return '#ff9d3d'; if (status === 'near') return '#ffe45c'; return '#ffffff'; }
   function statusForPhase(phase: TerrainPrecipType): ProbeStatus { if (phase.key === 'snow' || phase.key === 'wet-snow') return 'above'; if (phase.key === 'rain') return 'below'; return 'near'; }
@@ -204,6 +199,22 @@
     return 'Selected point';
   }
   async function copyText(text: string): Promise<void> { if (navigator.clipboard?.writeText) { await navigator.clipboard.writeText(text); return; } const textarea = document.createElement('textarea'); textarea.value = text; textarea.style.position = 'fixed'; textarea.style.opacity = '0'; document.body.appendChild(textarea); textarea.focus(); textarea.select(); document.execCommand('copy'); textarea.remove(); }
+  const FAVOURITES_STORAGE_KEY = 'snowline:favourites:v1';
+  const FAVOURITES_CHANGED_EVENT = 'wintry:favourites-changed';
+  function favouriteKey(lat: number, lon: number): string { return `${lat.toFixed(5)},${lon.toFixed(5)}`; }
+  function readFavourites(): any[] { try { const raw = localStorage.getItem(FAVOURITES_STORAGE_KEY); const parsed = raw ? JSON.parse(raw) : []; return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
+  function isCurrentFavourite(): boolean { if (!clickedLatLon) return false; const key = favouriteKey(clickedLatLon[0], clickedLatLon[1]); return readFavourites().some(item => Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lon)) && favouriteKey(Number(item.lat), Number(item.lon)) === key); }
+  async function toggleCurrentFavourite(button: HTMLButtonElement) {
+    if (!clickedLatLon) return;
+    const [lat, lon] = clickedLatLon, key = favouriteKey(lat, lon); let items = readFavourites();
+    const exists = items.some(item => Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lon)) && favouriteKey(Number(item.lat), Number(item.lon)) === key);
+    if (exists) items = items.filter(item => !(Number.isFinite(Number(item?.lat)) && Number.isFinite(Number(item?.lon)) && favouriteKey(Number(item.lat), Number(item.lon)) === key));
+    else { const name = await resolvePlaceName(lat, lon), parts = name.split(',').map(v => v.trim()).filter(Boolean); items = [{ lat, lon, primary: parts[0] || 'Saved point', secondary: parts.slice(1).join(', ') }, ...items].slice(0, 30); }
+    try { localStorage.setItem(FAVOURITES_STORAGE_KEY, JSON.stringify(items)); } catch {}
+    window.dispatchEvent(new CustomEvent(FAVOURITES_CHANGED_EVENT));
+    button.textContent = exists ? '☆' : '★'; button.classList.toggle('saved', !exists); button.title = exists ? 'Save location' : 'Remove saved location';
+  }
+
   async function shareCurrentPoint(button: HTMLButtonElement) {
     if (!clickedPoint || !clickedLatLon || !clickedPoint.times.length) return;
     const point = clickedPoint, [lat, lon] = clickedLatLon, idx = nearestIndex(point.times, getStoreTimestamp()), validTime = point.times[idx];
@@ -221,14 +232,15 @@
     L.circleMarker([lat, lon], { radius: status === 'neutral' ? 4 : 5, weight: 2, color: '#ffffff', fillColor: accent, fillOpacity: 1, interactive: false }).addTo(clickLayer);
     const detail = detailHtml ? `<div class="snowline-label-detail">${detailHtml}</div>` : '';
     const outlook = outlookText ? `<em>${outlookText}</em>` : '';
-    const actions = clickedPoint && clickedLatLon ? '<button class="snowline-label-chart" type="button" aria-label="Open Wintry forecast graph" title="Open Wintry forecast graph">📊</button><button class="snowline-label-sounding" type="button" aria-label="Open forecast sounding" title="Open forecast sounding">SND</button><button class="snowline-label-share" type="button" aria-label="Copy Wintry forecast details" title="Copy Wintry forecast details">share</button>' : '';
+    const saved = isCurrentFavourite();
+    const actions = clickedPoint && clickedLatLon ? `<button class="snowline-label-chart" type="button" aria-label="Open forecast" title="Open forecast">📊</button><button class="snowline-label-favourite${saved ? ' saved' : ''}" type="button" aria-label="${saved ? 'Remove saved location' : 'Save location'}" title="${saved ? 'Remove saved location' : 'Save location'}">${saved ? '★' : '☆'}</button><button class="snowline-label-share" type="button" aria-label="Copy Wintry forecast details" title="Copy Wintry forecast details">share</button>` : '';
     const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${actions}<button class="snowline-label-close" type="button" aria-label="Close Wintry forecast label" title="Close">×</button><b>${mainText}</b>${detail}${outlook}</span>`, iconSize: [248, 196], iconAnchor: [124, 204] }) }).addTo(clickLayer);
     marker.on('click', (event: any) => {
       const original = event?.originalEvent, target = original?.target as HTMLElement | undefined;
-      const graph = target?.closest?.('.snowline-label-chart'), sounding = target?.closest?.('.snowline-label-sounding'), share = target?.closest?.('.snowline-label-share') as HTMLButtonElement | null, close = target?.closest?.('.snowline-label-close');
-      if (!graph && !sounding && !share && !close) return; try { L.DomEvent.stop(original); } catch {}
-      if (graph) { if (clickedPoint) chartOpen = true; return; }
-      if (sounding) { if (clickedPoint) soundingOpen = true; return; }
+      const graph = target?.closest?.('.snowline-label-chart'), favourite = target?.closest?.('.snowline-label-favourite') as HTMLButtonElement | null, share = target?.closest?.('.snowline-label-share') as HTMLButtonElement | null, close = target?.closest?.('.snowline-label-close');
+      if (!graph && !favourite && !share && !close) return; try { L.DomEvent.stop(original); } catch {}
+      if (graph) { if (clickedPoint) { forecastTab = 'graph'; chartOpen = true; } return; }
+      if (favourite) { void toggleCurrentFavourite(favourite); return; }
       if (share) { void shareCurrentPoint(share); return; }
       dismissPointLabel();
     });
@@ -269,13 +281,13 @@
 
   async function probeLocation(lat: number, lon: number, source: PointSource, placeName: string | null = null) {
     if (!enabled || !labelsEnabled() || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
-    const keepChartOpen = chartOpen, keepSoundingOpen = soundingOpen, myClick = ++clickGeneration; clickedLatLon = [lat, lon]; clickedPlaceName = placeName; pointSource = source; probeLoading = true;
+    const keepChartOpen = chartOpen, myClick = ++clickGeneration; clickedLatLon = [lat, lon]; clickedPlaceName = placeName; pointSource = source; probeLoading = true;
     showClickLabel(lat, lon, 'Snowline …', '<div class="snowline-loading">Reading profile</div>');
     try {
       const [cp, mapElevation, precipFields] = await Promise.all([loadPoint(lat, lon, 1), loadMapElevation(lat, lon), loadSelectedPrecipFields(lat, lon, FORECAST_DAYS)]);
       if (myClick !== clickGeneration || pointSource !== source || !enabled || !labelsEnabled()) return;
       if (!cp || !cp.times.length) { showClickLabel(lat, lon, 'No data'); return; }
-      clickedPoint = Object.keys(precipFields).length ? { ...cp, forecast: { ...cp.forecast, ...precipFields } } : cp; clickedMapElevationM = mapElevation; if (keepChartOpen) chartOpen = true; if (keepSoundingOpen) soundingOpen = true; updatePersistentClickLabel();
+      clickedPoint = Object.keys(precipFields).length ? { ...cp, forecast: { ...cp.forecast, ...precipFields } } : cp; clickedMapElevationM = mapElevation; if (keepChartOpen) chartOpen = true; updatePersistentClickLabel();
     } finally { if (myClick === clickGeneration) probeLoading = false; }
   }
 
@@ -285,7 +297,7 @@
   function handleCapturedMapClick(event: MouseEvent) {
     if (!enabled || !labelsEnabled()) return;
     const target = event.target as HTMLElement | null;
-    if (target?.closest?.('.snowline-panel,.show-panel,.snowline-click-label,.chart-shell,.sounding-shell,.leaflet-control,button,input,a')) return;
+    if (target?.closest?.('.snowline-panel,.show-panel,.snowline-click-label,.chart-shell,.leaflet-control,button,input,a')) return;
     try {
       const rect = mapContainer?.getBoundingClientRect(); if (!rect) return;
       const point = L.point(event.clientX - rect.left, event.clientY - rect.top), ll = map.containerPointToLatLng(point); if (!ll || !Number.isFinite(ll.lat) || !Number.isFinite(ll.lng)) return;
@@ -295,7 +307,7 @@
   }
 
   function handlePlaceSelect(event: CustomEvent<PlaceSelection>) { if (!enabled || !event?.detail) return; const { lat, lon, primary, secondary } = event.detail; if (!Number.isFinite(lat) || !Number.isFinite(lon)) return; const placeName = [primary, secondary].map(value => String(value ?? '').trim()).filter(Boolean).join(', '); ignorePickerUntil = Date.now() + SEARCH_PICKER_GUARD_MS; lastPickerKey = ''; dismissedPickerKey = ''; if (pickerTimer) clearTimeout(pickerTimer); pointSource = 'search'; map.panTo([lat, lon], { animate: true }); setTimeout(() => { if (pointSource === 'search') void probeLocation(lat, lon, 'search', placeName || null); }, 120); }
-  function handleSearchClear() { const wasSearch = pointSource === 'search'; ignorePickerUntil = 0; if (wasSearch && !chartOpen && !soundingOpen) clearPointState(true); lastPickerKey = ''; dismissedPickerKey = ''; }
+  function handleSearchClear() { const wasSearch = pointSource === 'search'; ignorePickerUntil = 0; if (wasSearch && !chartOpen) clearPointState(true); lastPickerKey = ''; dismissedPickerKey = ''; }
 
   function pickerLatLon(value: any): [number, number] | null { if (!value) return null; const lat = Number(value.lat ?? value.latitude), lon = Number(value.lon ?? value.lng ?? value.longitude); if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null; return [lat, lon]; }
   function schedulePickerProbe(value: any, force = false) { if (isMobile || !enabled || !labelsEnabled() || Date.now() - lastCapturedClick < 500) return; const position = pickerLatLon(value); if (!position || pointSource === 'search' || Date.now() < ignorePickerUntil) return; const [lat, lon] = position, key = `${lat.toFixed(5)},${lon.toFixed(5)}`; if (key === dismissedPickerKey) return; const activeKey = clickedLatLon ? `${clickedLatLon[0].toFixed(5)},${clickedLatLon[1].toFixed(5)}` : ''; if (key === activeKey && pointSource === 'desktop-picker') { lastPickerKey = key; return; } if (!force && key === lastPickerKey && pointSource === 'desktop-picker') return; lastPickerKey = key; if (pickerTimer) clearTimeout(pickerTimer); pickerTimer = setTimeout(() => { pickerTimer = null; if (key === dismissedPickerKey || pointSource === 'search') return; void probeLocation(lat, lon, 'desktop-picker'); }, PICKER_PROBE_DELAY_MS); }
@@ -345,7 +357,7 @@
   .info-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(0,0,0,.30)}.info-window{width:min(350px,calc(100vw - 24px));max-height:min(74vh,540px);overflow:hidden;border:1px solid rgba(80,190,255,.48);border-radius:10px;background:rgba(24,28,32,.99);color:white;box-shadow:0 8px 30px rgba(0,0,0,.48)}.info-head{display:flex;justify-content:space-between;align-items:center;padding:9px 10px 7px;border-bottom:1px solid rgba(255,255,255,.10);font-size:12px}.info-head button{width:22px;height:22px;border:0;border-radius:6px;background:rgba(255,255,255,.08);color:white;font-size:17px;cursor:pointer}.info-body{max-height:calc(min(74vh,540px) - 40px);overflow-y:auto;padding:9px 10px 10px;font-size:10px;line-height:1.35;color:rgba(255,255,255,.84)}.info-body>div+div{margin-top:7px}.info-caveat{padding-top:7px;border-top:1px solid rgba(255,255,255,.10);color:rgba(255,228,92,.90)}
   :global(.snowline-label),:global(.snowline-click-label){background:transparent!important;border:0!important}:global(.snowline-label span){display:inline-block;padding:1px 4px 1px 6px;border-radius:3px;border-left:4px solid var(--snowline-color,white);background:rgba(15,17,20,.86);color:white;font-size:10px;font-weight:800;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.8);box-shadow:0 0 0 1px rgba(255,255,255,.12)}
   :global(.snowline-click-label){pointer-events:auto!important}:global(.snowline-click-label>span){position:relative;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:7px;width:248px;min-height:190px;box-sizing:border-box;padding:37px 12px 10px;border-radius:8px;border:2px solid var(--probe-accent,rgba(255,255,255,.4));border-bottom:5px solid var(--snowline-color,white);background:rgba(9,14,18,.985);color:white;text-align:center;white-space:normal;text-shadow:none;box-shadow:0 7px 20px rgba(0,0,0,.52)}
-  :global(.snowline-label-close),:global(.snowline-label-share),:global(.snowline-label-chart),:global(.snowline-label-sounding){position:absolute;top:7px;height:26px;padding:0;border:1px solid rgba(255,255,255,.10);border-radius:6px;background:rgba(255,255,255,.075);color:#eaf2f6;font-size:12px;line-height:24px;font-weight:800;text-shadow:none;cursor:pointer;pointer-events:auto}:global(.snowline-label-close){right:7px;width:26px;font-size:17px}:global(.snowline-label-share){right:39px;width:26px;font-size:0;background-repeat:no-repeat;background-position:center;background-size:14px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3Ccircle cx='6' cy='12' r='3'/%3E%3Ccircle cx='18' cy='19' r='3'/%3E%3Cpath d='M8.6 10.5l6.8-4M8.6 13.5l6.8 4'/%3E%3C/svg%3E")}:global(.snowline-label-chart){left:7px;width:28px;font-size:15px}:global(.snowline-label-sounding){left:41px;width:34px;font-size:7px;letter-spacing:.2px}:global(.snowline-click-label b){color:var(--probe-accent,white);font-size:15px;line-height:1.1;font-weight:900;letter-spacing:.25px}:global(.snowline-label-detail){width:100%}:global(.snowline-label-grid){display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%}:global(.snowline-label-grid span){min-width:0;padding:5px 4px;border-radius:6px;background:rgba(255,255,255,.045);text-align:center}:global(.snowline-label-grid span.wide){grid-column:1 / -1}:global(.snowline-label-grid small){display:block;color:#83949e;font-size:7px;line-height:1}:global(.snowline-label-grid strong){display:block;margin-top:3px;color:#eef5f8;font-size:9px;line-height:1.05;font-weight:800;white-space:normal;overflow:visible;text-overflow:clip}:global(.snowline-loading){padding:18px 0;color:#9fb0ba;font-size:10px}:global(.snowline-click-label em){display:block;width:100%;box-sizing:border-box;padding-top:6px;border-top:1px solid rgba(255,255,255,.09);color:#d5bd55;font-size:8px;line-height:1.15;font-style:normal;font-weight:800;white-space:normal}
+  :global(.snowline-label-close),:global(.snowline-label-share),:global(.snowline-label-chart),:global(.snowline-label-favourite){position:absolute;top:7px;height:26px;padding:0;border:1px solid rgba(255,255,255,.10);border-radius:6px;background:rgba(255,255,255,.075);color:#eaf2f6;font-size:12px;line-height:24px;font-weight:800;text-shadow:none;cursor:pointer;pointer-events:auto}:global(.snowline-label-close){right:7px;width:26px;font-size:17px}:global(.snowline-label-share){right:39px;width:26px;font-size:0;background-repeat:no-repeat;background-position:center;background-size:14px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3Ccircle cx='6' cy='12' r='3'/%3E%3Ccircle cx='18' cy='19' r='3'/%3E%3Cpath d='M8.6 10.5l6.8-4M8.6 13.5l6.8 4'/%3E%3C/svg%3E")}:global(.snowline-label-chart){left:7px;width:28px;font-size:15px}:global(.snowline-label-favourite){left:41px;width:28px;font-size:16px;color:#aab6bd}:global(.snowline-label-favourite.saved){color:#ffe45c;border-color:rgba(255,228,92,.42);background:rgba(255,228,92,.08)}:global(.snowline-click-label b){color:var(--probe-accent,white);font-size:15px;line-height:1.1;font-weight:900;letter-spacing:.25px}:global(.snowline-label-detail){width:100%}:global(.snowline-label-grid){display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%}:global(.snowline-label-grid span){min-width:0;padding:5px 4px;border-radius:6px;background:rgba(255,255,255,.045);text-align:center}:global(.snowline-label-grid span.wide){grid-column:1 / -1}:global(.snowline-label-grid small){display:block;color:#83949e;font-size:7px;line-height:1}:global(.snowline-label-grid strong){display:block;margin-top:3px;color:#eef5f8;font-size:9px;line-height:1.05;font-weight:800;white-space:normal;overflow:visible;text-overflow:clip}:global(.snowline-loading){padding:18px 0;color:#9fb0ba;font-size:10px}:global(.snowline-click-label em){display:block;width:100%;box-sizing:border-box;padding-top:6px;border-top:1px solid rgba(255,255,255,.09);color:#d5bd55;font-size:8px;line-height:1.15;font-style:normal;font-weight:800;white-space:normal}
   :global(.snowline-probe-above>span){background:linear-gradient(180deg,rgba(8,27,38,.99),rgba(8,15,20,.99))}:global(.snowline-probe-below>span){background:linear-gradient(180deg,rgba(38,23,11,.99),rgba(19,14,10,.99))}:global(.snowline-probe-near>span){background:linear-gradient(180deg,rgba(36,32,10,.99),rgba(19,17,9,.99))}
-  @media(max-width:520px){.snowline-panel{width:235px;max-width:calc(100vw - 28px);padding:8px 9px}.mode-row button{font-size:8.5px}.info-overlay{align-items:flex-start;padding-top:54px}:global(.snowline-click-label>span){width:226px;min-height:184px;padding:36px 10px 9px}:global(.snowline-click-label b){font-size:14px}:global(.snowline-label-grid strong){font-size:8.5px}:global(.snowline-label-close),:global(.snowline-label-share),:global(.snowline-label-chart),:global(.snowline-label-sounding){height:27px;line-height:25px}}
+  @media(max-width:520px){.snowline-panel{width:235px;max-width:calc(100vw - 28px);padding:8px 9px}.mode-row button{font-size:8.5px}.info-overlay{align-items:flex-start;padding-top:54px}:global(.snowline-click-label>span){width:226px;min-height:184px;padding:36px 10px 9px}:global(.snowline-click-label b){font-size:14px}:global(.snowline-label-grid strong){font-size:8.5px}:global(.snowline-label-close),:global(.snowline-label-share),:global(.snowline-label-chart),:global(.snowline-label-favourite){height:27px;line-height:25px}}
 </style>
