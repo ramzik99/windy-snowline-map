@@ -1,0 +1,29 @@
+name: Run forecast refactor
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  refactor:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Apply refactor
+        run: python tools/unify_forecast_window.py
+      - name: Clean helper files
+        run: rm -f tools/unify_forecast_window.py .github/workflows/run-unify-forecast.yml .github/forecast-refactor-trigger.txt
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && exit 0
+          git commit -m "Unify graph and sounding window with point favourites"
+          git push
