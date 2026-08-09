@@ -2,10 +2,10 @@ import type { ExternalPluginConfig } from '@windy/interfaces';
 
 const config: ExternalPluginConfig = {
   name: 'windy-plugin-data-inspector',
-  version: '0.1.0',
+  version: '0.2.0',
   icon: '🔎',
   title: 'Windy data inspector',
-  description: 'Standalone diagnostic plugin for inspecting raw Windy ECMWF point-forecast fields, values, timestamps, overlay metadata and map interpolator output.',
+  description: 'Standalone ECMWF diagnostic that compares getPointForecastData(), getMeteogramForecastData() and the active renderer, recursively scanning returned payloads for snow-depth fields.',
   author: 'Ramzi Kandah',
   repository: 'https://github.com/ramzik99/windy-snowline-map',
   desktopUI: 'embedded',
