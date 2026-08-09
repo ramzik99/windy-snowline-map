@@ -55,16 +55,16 @@ export function terrainCrossingState(point: any, terrainM: number | null, target
       const leadHours = (crossingTime - point.times[startIndex]) / 3600_000;
       if (below) {
         return {
-          summary: `SL below terrain in ${formatLead(leadHours)}`,
-          detail: `Snowline falls below local terrain around ${formatUtc(crossingTime)}`,
+          summary: `Snowline below terrain in ${formatLead(leadHours)}`,
+          detail: `Thermal snowline falls below local terrain around ${formatUtc(crossingTime)}; precipitation is still required for snowfall`,
           crossingIndex: i,
           crossingTime,
           direction: 'below',
         };
       }
       return {
-        summary: `SL above terrain in ${formatLead(leadHours)}`,
-        detail: `Snowline rises above local terrain around ${formatUtc(crossingTime)}`,
+        summary: `Snowline above terrain in ${formatLead(leadHours)}`,
+        detail: `Thermal snowline rises above local terrain around ${formatUtc(crossingTime)}`,
         crossingIndex: i,
         crossingTime,
         direction: 'above',
@@ -74,15 +74,15 @@ export function terrainCrossingState(point: any, terrainM: number | null, target
 
   return currentBelowTerrain
     ? {
-        summary: 'SL below terrain through +144 h',
-        detail: 'Snowline remains below local terrain through the available +144 h forecast',
+        summary: 'Snowline below terrain through +144 h',
+        detail: 'Thermal snowline remains below local terrain through the available +144 h forecast; precipitation is still required for snowfall',
         crossingIndex: null,
         crossingTime: null,
         direction: 'none',
       }
     : {
-        summary: 'SL above terrain through +144 h',
-        detail: 'Snowline remains above local terrain through the available +144 h forecast',
+        summary: 'Snowline above terrain through +144 h',
+        detail: 'Thermal snowline remains above local terrain through the available +144 h forecast',
         crossingIndex: null,
         crossingTime: null,
         direction: 'none',
