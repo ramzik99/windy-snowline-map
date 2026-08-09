@@ -1,5 +1,5 @@
 <div class="place-search">
-  <form on:submit|preventDefault={submitSearch} on:keydown|stopPropagation on:keyup|stopPropagation>
+  <form on:submit|preventDefault={submitSearch} on:keydown={handleKeydown} on:keyup|stopPropagation>
     <div class="search-line">
       <input
         bind:value={query}
@@ -20,10 +20,10 @@
         <span class="location-icon">⌖</span>
         <span>{locating ? 'Locating…' : 'My location'}</span>
       </button>
-      <button class="fav-button" class:active={showFavourites} type="button" aria-label="Show favourites" title="Favourites" on:click={toggleFavourites}>
+      <button class="fav-button" class:active={showFavourites} type="button" aria-label="Show saved places" title="Saved places" on:click={toggleFavourites}>
         <span>★</span><span>Saved</span>
       </button>
-      <button class="clear-button" type="button" aria-label="Clear search" title="Clear" on:click={clearSearch} disabled={!query && !open}>
+      <button class="clear-button" type="button" aria-label="Clear search and selected place" title="Clear" on:click={clearSearch} disabled={!query && !open && !hasSelection}>
         <span>×</span><span>Clear</span>
       </button>
     </div>
@@ -46,14 +46,15 @@
               class="star"
               class:saved={isFavourite(result)}
               type="button"
-              aria-label={isFavourite(result) ? 'Remove favourite' : 'Add favourite'}
+              aria-label={isFavourite(result) ? 'Remove saved place' : 'Save place'}
+              title={isFavourite(result) ? 'Remove saved place' : 'Save place'}
               on:click={() => toggleFavourite(result)}
             >{isFavourite(result) ? '★' : '☆'}</button>
           </div>
         {/each}
         {#if !showFavourites && remoteResults.length}<div class="credit">Search © OpenStreetMap contributors</div>{/if}
       {:else if !searching}
-        <div class="empty">{showFavourites ? 'No saved favourites' : 'No places found'}</div>
+        <div class="empty">{showFavourites ? 'No saved places' : 'No places found'}</div>
       {/if}
     </div>
   {/if}
@@ -71,6 +72,8 @@
 
   const dispatch = createEventDispatcher<{ select: SearchResult; clear: void }>();
   const STORAGE_KEY = 'snowline:favourites:v1';
+  const FAVOURITES_CHANGED_EVENT = 'wintry:favourites-changed';
+  const SEARCH_DELAY_MS = 350;
 
   let query = '';
   let searching = false;
@@ -78,6 +81,7 @@
   let locationError = '';
   let open = false;
   let showFavourites = false;
+  let hasSelection = false;
   let remoteResults: SearchResult[] = [];
   let favourites: SearchResult[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -115,8 +119,9 @@
       if (!Array.isArray(parsed)) { favourites = []; return; }
       favourites = parsed
         .map((item: any) => ({
-          lat: Number(item?.lat), lon: Number(item?.lon),
-          primary: String(item?.primary ?? 'Favourite'),
+          lat: Number(item?.lat),
+          lon: Number(item?.lon),
+          primary: String(item?.primary ?? 'Saved place'),
           secondary: String(item?.secondary ?? ''),
         }))
         .filter((item: SearchResult) => Number.isFinite(item.lat) && Number.isFinite(item.lon));
@@ -126,8 +131,12 @@
   }
 
   function saveFavourites() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(favourites)); }
-    catch (e) { console.warn('Snow forecast could not save favourites', e); }
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(favourites));
+      window.dispatchEvent(new CustomEvent(FAVOURITES_CHANGED_EVENT));
+    } catch (error) {
+      console.warn('Wintry forecast could not save places', error);
+    }
   }
 
   function isFavourite(result: SearchResult): boolean {
@@ -143,25 +152,36 @@
     open = true;
   }
 
-  function clearSearch() {
-    if (timer) { clearTimeout(timer); timer = null; }
+  function clearPendingSearch() {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
     controller?.abort();
+    controller = null;
     requestId += 1;
-    query = '';
     searching = false;
+  }
+
+  function clearSearch() {
+    clearPendingSearch();
+    query = '';
     locationError = '';
     open = false;
     showFavourites = false;
+    hasSelection = false;
     remoteResults = [];
     dispatch('clear');
   }
 
   function useCurrentLocation() {
+    clearPendingSearch();
     query = '';
     locationError = '';
     open = false;
     showFavourites = false;
     remoteResults = [];
+
     if (!navigator.geolocation) {
       locationError = 'Location is not available on this device.';
       return;
@@ -177,8 +197,7 @@
           locationError = 'Could not read your location.';
           return;
         }
-        query = '';
-        remoteResults = [];
+        hasSelection = true;
         dispatch('select', {
           lat,
           lon,
@@ -199,40 +218,50 @@
   function scheduleSearch() {
     locationError = '';
     showFavourites = false;
+    hasSelection = false;
     if (timer) clearTimeout(timer);
     controller?.abort();
     remoteResults = [];
-    const q = query.trim();
-    open = q.length >= 1 || favourites.length > 0;
-    if (q.length < 2) { searching = false; return; }
-    timer = setTimeout(() => runSearch(), 550);
+    const searchText = query.trim();
+    open = searchText.length >= 1 || favourites.length > 0;
+    if (searchText.length < 2) {
+      searching = false;
+      return;
+    }
+    timer = setTimeout(runSearch, SEARCH_DELAY_MS);
   }
 
   async function runSearch() {
-    const q = query.trim();
-    if (q.length < 2) return;
+    const searchText = query.trim();
+    if (searchText.length < 2) return;
+
     const id = ++requestId;
     controller?.abort();
     controller = new AbortController();
     searching = true;
     open = true;
+
     try {
-      const params = new URLSearchParams({ q, format: 'jsonv2', limit: '5', addressdetails: '0' });
+      const params = new URLSearchParams({ q: searchText, format: 'jsonv2', limit: '5', addressdetails: '0' });
       const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
         signal: controller.signal,
         headers: { Accept: 'application/json' },
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
       const data = await response.json();
       if (id === requestId) {
-        remoteResults = Array.isArray(data) ? data.map((item: any) => {
-          const lat = Number(item.lat), lon = Number(item.lon);
-          const { primary, secondary } = splitName(String(item.display_name ?? 'Place'));
-          return { lat, lon, primary, secondary };
-        }).filter((item: SearchResult) => Number.isFinite(item.lat) && Number.isFinite(item.lon)) : [];
+        remoteResults = Array.isArray(data)
+          ? data.map((item: any) => {
+              const lat = Number(item.lat);
+              const lon = Number(item.lon);
+              const { primary, secondary } = splitName(String(item.display_name ?? 'Place'));
+              return { lat, lon, primary, secondary };
+            }).filter((item: SearchResult) => Number.isFinite(item.lat) && Number.isFinite(item.lon))
+          : [];
       }
-    } catch (e: any) {
-      if (e?.name !== 'AbortError') console.warn('Snow forecast place search failed', e);
+    } catch (error: any) {
+      if (error?.name !== 'AbortError') console.warn('Wintry forecast place search failed', error);
       if (id === requestId) remoteResults = [];
     } finally {
       if (id === requestId) searching = false;
@@ -240,40 +269,55 @@
   }
 
   function submitSearch() {
-    if (timer) clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
     if (visibleResults.length === 1) chooseResult(visibleResults[0]);
-    else runSearch();
+    else void runSearch();
   }
 
   function toggleFavourites() {
+    clearPendingSearch();
     query = '';
     locationError = '';
     showFavourites = !showFavourites;
-    open = showFavourites || visibleResults.length > 0;
-    if (showFavourites) {
-      controller?.abort();
-      remoteResults = [];
-      searching = false;
-    }
+    open = showFavourites;
+    remoteResults = [];
   }
 
   function chooseResult(result: SearchResult) {
+    clearPendingSearch();
     query = '';
     locationError = '';
     open = false;
     showFavourites = false;
+    hasSelection = true;
     remoteResults = [];
     dispatch('select', result);
   }
 
-  function handleFavouritesChanged() { loadFavourites(); }
+  function handleKeydown(event: KeyboardEvent) {
+    event.stopPropagation();
+    if (event.key === 'Escape' && open) {
+      event.preventDefault();
+      open = false;
+      showFavourites = false;
+    }
+  }
 
-  onMount(() => { loadFavourites(); window.addEventListener('wintry:favourites-changed', handleFavouritesChanged); });
+  function handleFavouritesChanged() {
+    loadFavourites();
+  }
+
+  onMount(() => {
+    loadFavourites();
+    window.addEventListener(FAVOURITES_CHANGED_EVENT, handleFavouritesChanged);
+  });
 
   onDestroy(() => {
-    if (timer) clearTimeout(timer);
-    controller?.abort();
-    window.removeEventListener('wintry:favourites-changed', handleFavouritesChanged);
+    clearPendingSearch();
+    window.removeEventListener(FAVOURITES_CHANGED_EVENT, handleFavouritesChanged);
   });
 </script>
 
