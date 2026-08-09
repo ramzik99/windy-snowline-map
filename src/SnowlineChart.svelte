@@ -318,10 +318,6 @@
     const isMobileLike = window.innerWidth <= 520 || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
 
     if (isMobileLike) {
-      // Some mobile WebViews preview image/png even when download= is set.
-      // Present identical PNG bytes as an attachment-like octet stream so the
-      // host is more likely to hand them to its download manager. The .png
-      // filename remains unchanged.
       const attachmentBlob = new Blob([png], { type: 'application/octet-stream' });
       const dataUrl = await blobToDataUrl(attachmentBlob);
       clickDownloadHref(dataUrl, filename);
@@ -519,5 +515,5 @@
   .depth-note { margin-top: 4px; color: rgba(141,227,154,.72); font-size: 6.7px; line-height: 1.2; text-align: center; } .depth-note.muted { color:rgba(255,255,255,.40); } .depth-note b { color:#8de39a; }
   .forecast-summary { margin-top: 6px; padding: 5px 7px; border-radius: 7px; background: rgba(98,213,255,0.065); border: 1px solid rgba(98,213,255,0.10); color: rgba(224,239,247,0.86); font-size: 7.8px; font-weight: 700; text-align: center; }
   .forecast-note { margin-top: 4px; padding: 3px 6px; border-radius: 6px; background: rgba(255,224,91,0.055); color: rgba(255,224,91,0.86); font-size: 7.4px; text-align: center; } .hint { margin-top: 4px; color: rgba(255,255,255,0.32); font-size: 6.8px; text-align: center; } .empty { padding: 22px 8px 16px; text-align: center; color: rgba(255,255,255,0.62); font-size: 10px; }
-  @media (max-width: 520px) { .chart-shell { width: calc(100vw - 12px); padding: 9px; border-radius: 12px; } .place-line, .meta-line { max-width: 175px; } .plot-tooltip { min-width: 142px; } .chart-head button { padding: 0 5px; } .chart-foot { gap: 3px; } .chart-foot.with-depth { grid-template-columns: repeat(5, minmax(0, 1fr)); } .chart-foot small { font-size: 5.4px; } .chart-foot b { font-size: 6.7px; } .depth-layer-button { font-size:5.8px; padding:2px 4px; } .phase-legend { gap: 4px 7px; } }
+  @media (max-width: 520px) { .chart-shell { width: calc(100vw - 12px); padding: 9px; border-radius: 12px; } .place-line, .meta-line { max-width: 175px; } .plot-tooltip { min-width: 142px; } .chart-head button { padding: 0 5px; } .png-button { display:none !important; } .chart-foot { gap: 3px; } .chart-foot.with-depth { grid-template-columns: repeat(5, minmax(0, 1fr)); } .chart-foot small { font-size: 5.4px; } .chart-foot b { font-size: 6.7px; } .depth-layer-button { font-size:5.8px; padding:2px 4px; } .phase-legend { gap: 4px 7px; } }
 </style>
