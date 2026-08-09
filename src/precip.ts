@@ -24,8 +24,8 @@ const METRE_WATER_KEYS = new Set([
   'past3hprecip-surface',
 ]);
 
-/** Equivalent of the former 0.1 mm/3h measurable-precipitation threshold. */
-export const PRECIP_THRESHOLD_MM_H = 0.1 / 3;
+/** Minimum hourly precipitation rate used for precipitation-type diagnosis. */
+export const PRECIP_THRESHOLD_MM_H = 0.1;
 
 function normalizedKey(key: string): string {
   return key.toLowerCase().replace(/[_\s]/g, '-');
