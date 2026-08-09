@@ -1,12 +1,12 @@
 {#if panelHidden}
-  <button class="show-panel" type="button" aria-label="Show Snow forecast panel" on:click={() => panelHidden = false}>❄ Snow forecast</button>
+  <button class="show-panel" type="button" aria-label="Show Wintry forecast panel" on:click={() => panelHidden = false}>❄ Wintry forecast</button>
 {:else}
   <div class="snowline-panel">
     <div class="top-row">
-      <div class="title">Snow forecast</div>
+      <div class="title">Wintry forecast</div>
       <div class="top-controls">
-        <button class="info-button" class:active={infoOpen} type="button" aria-label="How Snow forecast works" title="How it works" on:click={() => infoOpen = true}>i</button>
-        <button class="hide-button" type="button" aria-label="Hide Snow forecast panel" title="Hide" on:click={() => panelHidden = true}>−</button>
+        <button class="info-button" class:active={infoOpen} type="button" aria-label="How Wintry forecast works" title="How it works" on:click={() => infoOpen = true}>i</button>
+        <button class="hide-button" type="button" aria-label="Hide Wintry forecast panel" title="Hide" on:click={() => panelHidden = true}>−</button>
         <label class="switch"><input type="checkbox" bind:checked={enabled} on:change={toggleEnabled} /><span>{enabled ? 'On' : 'Off'}</span></label>
       </div>
     </div>
@@ -35,13 +35,13 @@
 
 {#if infoOpen}
   <div class="info-overlay" role="presentation" on:click={() => infoOpen = false}>
-    <div class="info-window" role="dialog" aria-modal="true" aria-label="How Snow forecast works" on:click|stopPropagation>
-      <div class="info-head"><b>How Snow forecast works</b><button type="button" aria-label="Close information" title="Close" on:click={() => infoOpen = false}>×</button></div>
+    <div class="info-window" role="dialog" aria-modal="true" aria-label="How Wintry forecast works" on:click|stopPropagation>
+      <div class="info-head"><b>How Wintry forecast works</b><button type="button" aria-label="Close information" title="Close" on:click={() => infoOpen = false}>×</button></div>
       <div class="info-body">
-        <div><b>Snow forecast</b> builds a wet-bulb vertical profile from ECMWF temperature, dew point and geopotential height, then intersects it with <b>Windy local terrain</b>. Runs up to 144 hours only.</div>
+        <div><b>Wintry forecast</b> builds a wet-bulb vertical profile from ECMWF temperature, dew point and geopotential height, then intersects it with <b>Windy local terrain</b>. Runs up to 144 hours only.</div>
         <div>With precipitation ≥0.1 mm/h it diagnoses snow, wet snow, rain/snow mix, rain, ice pellets or freezing rain. The graph also estimates <b>new snow created during the forecast</b> from precipitation type and wet-bulb conditions; this is not pre-existing snowpack.</div>
         <div>The point card gives a fast snapshot. Use <b>📊</b> for the 144 h graph or <b>SND</b> for a forecast sounding showing temperature, dew point and wet-bulb profiles at the selected time.</div>
-        <div>While active, map clicks — including named/labeled places — open the Snow forecast point card instead of Windy’s detail forecast. Open graph and sounding windows follow map clicks and panel searches without closing.</div>
+        <div>While active, map clicks — including named/labeled places — open the Wintry forecast point card instead of Windy’s detail forecast. Open graph and sounding windows follow map clicks and panel searches without closing.</div>
         <div class="info-caveat">Precipitation type and new-snow accumulation are terrain-aware profile diagnoses, not ECMWF precipitation-type or snow-depth fields. Marginal profiles have lower confidence.</div>
       </div>
     </div>
@@ -159,7 +159,7 @@
   function nearestIndex(times: number[], target: number): number { let bestIndex = 0, best = Infinity; times.forEach((t, i) => { const d = Math.abs(t - target); if (d < best) { best = d; bestIndex = i; } }); return bestIndex; }
   function extractPayload(payload: unknown): { forecast: Record<string, unknown>; header: Record<string, unknown> } { const p = payload as any; return { forecast: p?.data?.data && typeof p.data.data === 'object' ? p.data.data as Record<string, unknown> : {}, header: p?.data?.header && typeof p.data.header === 'object' ? p.data.header as Record<string, unknown> : {} }; }
 
-  async function loadMapElevation(lat: number, lon: number): Promise<number | null> { try { const p = await getElevation(lat, lon) as any; for (const candidate of [p?.data, p?.data?.data, p?.value]) { const elevation = scalarNumber(candidate); if (elevation !== null) return elevation; } } catch (e) { console.warn('Snow forecast map elevation failed', lat, lon, e); } return null; }
+  async function loadMapElevation(lat: number, lon: number): Promise<number | null> { try { const p = await getElevation(lat, lon) as any; for (const candidate of [p?.data, p?.data?.data, p?.value]) { const elevation = scalarNumber(candidate); if (elevation !== null) return elevation; } } catch (e) { console.warn('Wintry forecast map elevation failed', lat, lon, e); } return null; }
   function profileKey(lat: number, lon: number, step: number): string { return `${step}:${lat.toFixed(4)},${lon.toFixed(4)}`; }
   function invalidateForNewRun(runTime: number | null) { if (runTime === null) return; if (activeRunTime === null) { activeRunTime = runTime; return; } if (Math.abs(runTime - activeRunTime) < 60_000) return; activeRunTime = runTime; profileCache.clear(); cache = []; }
   function rememberProfile(point: CachedPoint) { const key = profileKey(point.lat, point.lon, point.step); profileCache.delete(key); profileCache.set(key, point); while (profileCache.size > PROFILE_CACHE_MAX) { const oldest = profileCache.keys().next().value; if (oldest === undefined) break; profileCache.delete(oldest); } }
@@ -169,7 +169,7 @@
     try {
       const response = await getMeteogramForecastData(MODEL, { lat, lon, step, days: FORECAST_DAYS }); const { forecast, header } = extractPayload(response); if (!Object.keys(forecast).length) return null;
       const runTime = parseTime(header.refTime); invalidateForNewRun(runTime); const point: CachedPoint = { lat, lon, forecast, header, times: buildForecastTimes(forecast, header), runTime, step }; rememberProfile(point); return point;
-    } catch (e) { console.warn('Snow forecast point failed', lat, lon, e); return null; }
+    } catch (e) { console.warn('Wintry forecast point failed', lat, lon, e); return null; }
   }
   async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> { const out = new Array<R>(items.length); let next = 0; async function worker() { while (true) { const i = next++; if (i >= items.length) return; out[i] = await fn(items[i]); } } await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker())); return out; }
   function gridShapeForZoom(): { rows: number; cols: number } { const zoom = Number(map.getZoom?.() ?? 6); if (zoom <= 4) return { rows: 9, cols: 15 }; if (zoom <= 6) return { rows: 13, cols: 21 }; if (zoom <= 8) return { rows: 17, cols: 27 }; return { rows: 19, cols: 31 }; }
@@ -211,7 +211,7 @@
     button.textContent = '…';
     try {
       const placeName = await resolvePlaceName(lat, lon);
-      const text = ['Snow forecast · terrain-aware', `Place: ${placeName}`, `Coordinates: ${formatCoordinate(lat, lon)}`, `Valid: ${formatUtc(validTime)}`, `Snowline: ${snowline !== null ? `${Math.round(snowline / 10) * 10} m` : 'Unavailable'}`, `Terrain: ${clickedMapElevationM !== null ? `${Math.round(clickedMapElevationM / 10) * 10} m` : 'Unavailable'}`, `Precipitation: ${precip !== null ? `${formatPrecipMm(precip)} mm/h` : 'Unavailable'}`, `Type: ${phase ? phase.label : 'Not classified'}`, phase ? `Profile: ${phase.detail}` : '', 'Atmospheric profile: ECMWF · local elevation: Windy terrain.'].filter(Boolean).join('\n');
+      const text = ['Wintry forecast · terrain-aware', `Place: ${placeName}`, `Coordinates: ${formatCoordinate(lat, lon)}`, `Valid: ${formatUtc(validTime)}`, `Snowline: ${snowline !== null ? `${Math.round(snowline / 10) * 10} m` : 'Unavailable'}`, `Terrain: ${clickedMapElevationM !== null ? `${Math.round(clickedMapElevationM / 10) * 10} m` : 'Unavailable'}`, `Precipitation: ${precip !== null ? `${formatPrecipMm(precip)} mm/h` : 'Unavailable'}`, `Type: ${phase ? phase.label : 'Not classified'}`, phase ? `Profile: ${phase.detail}` : '', 'Atmospheric profile: ECMWF · local elevation: Windy terrain.'].filter(Boolean).join('\n');
       await copyText(text); button.textContent = '✓'; setTimeout(() => { if (button.isConnected) button.textContent = 'share'; }, 1200);
     } catch { button.textContent = '!'; setTimeout(() => { if (button.isConnected) button.textContent = 'share'; }, 1200); }
   }
@@ -221,8 +221,8 @@
     L.circleMarker([lat, lon], { radius: status === 'neutral' ? 4 : 5, weight: 2, color: '#ffffff', fillColor: accent, fillOpacity: 1, interactive: false }).addTo(clickLayer);
     const detail = detailHtml ? `<div class="snowline-label-detail">${detailHtml}</div>` : '';
     const outlook = outlookText ? `<em>${outlookText}</em>` : '';
-    const actions = clickedPoint && clickedLatLon ? '<button class="snowline-label-chart" type="button" aria-label="Open Snow forecast graph" title="Open Snow forecast graph">📊</button><button class="snowline-label-sounding" type="button" aria-label="Open forecast sounding" title="Open forecast sounding">SND</button><button class="snowline-label-share" type="button" aria-label="Copy Snow forecast details" title="Copy Snow forecast details">share</button>' : '';
-    const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${actions}<button class="snowline-label-close" type="button" aria-label="Close Snow forecast label" title="Close">×</button><b>${mainText}</b>${detail}${outlook}</span>`, iconSize: [248, 196], iconAnchor: [124, 204] }) }).addTo(clickLayer);
+    const actions = clickedPoint && clickedLatLon ? '<button class="snowline-label-chart" type="button" aria-label="Open Wintry forecast graph" title="Open Wintry forecast graph">📊</button><button class="snowline-label-sounding" type="button" aria-label="Open forecast sounding" title="Open forecast sounding">SND</button><button class="snowline-label-share" type="button" aria-label="Copy Wintry forecast details" title="Copy Wintry forecast details">share</button>' : '';
+    const marker = L.marker([lat, lon], { interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000, icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${actions}<button class="snowline-label-close" type="button" aria-label="Close Wintry forecast label" title="Close">×</button><b>${mainText}</b>${detail}${outlook}</span>`, iconSize: [248, 196], iconAnchor: [124, 204] }) }).addTo(clickLayer);
     marker.on('click', (event: any) => {
       const original = event?.originalEvent, target = original?.target as HTMLElement | undefined;
       const graph = target?.closest?.('.snowline-label-chart'), sounding = target?.closest?.('.snowline-label-sounding'), share = target?.closest?.('.snowline-label-share') as HTMLButtonElement | null, close = target?.closest?.('.snowline-label-close');
