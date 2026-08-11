@@ -2,11 +2,9 @@
   import { onDestroy, onMount } from 'svelte';
   import { singleclick } from '@windy/singleclick';
   import Plugin from './plugin.svelte';
-  import PointLabelDiagnostics from './PointLabelDiagnostics.svelte';
   import config from './pluginConfig';
 
   let plugin: any = null;
-  let selected: { lat: number; lon: number } | null = null;
 
   function normaliseLatLon(value: any): { lat: number; lon: number } | null {
     if (!value) return null;
@@ -19,7 +17,6 @@
   function selectLocation(value: unknown) {
     const position = normaliseLatLon(value);
     if (!position) return;
-    selected = position;
     plugin?.selectMapPoint?.(position.lat, position.lon);
   }
 
@@ -37,4 +34,3 @@
 </script>
 
 <Plugin bind:this={plugin} />
-<PointLabelDiagnostics {selected} />
