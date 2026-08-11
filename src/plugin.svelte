@@ -38,10 +38,11 @@
       </div>
       <div class="info-body">
         <div><b>Snowline:</b> ECMWF temperature, dew point and geopotential height are converted to a wet-bulb profile. The lowest 0°C wet-bulb crossing is used as a thermal snowline proxy, out to +144 h.</div>
-        <div><b>Local point:</b> the profile is intersected with Windy terrain. With precipitation ≥0.1 mm/3h, the plugin also diagnoses precipitation type and estimates forecast-created new snow.</div>
+        <div><b>Local point:</b> the profile is intersected with Windy terrain. The point card shows terrain temperature, wet-bulb temperature and RH. With precipitation ≥0.1 mm/3h, the plugin also diagnoses precipitation type and estimates forecast-created new snow.</div>
+        <div><b>Convective snow:</b> ⚡❄ marks a profile-based convective-snow environment when snow or wet snow coincides with a steep low/mid-level lapse rate and a moist dendritic-growth layer. It is not a lightning forecast.</div>
         <div><b>Map controls:</b> while Wintry forecast is open, a left-click moves the Wintry point. Minimising the panel does not disable point selection.</div>
         <div><b>Forecast:</b> use the chart button on a point card for the 144-hour graph and forecast sounding.</div>
-        <div class="info-caveat">Snowline, precipitation type and new snow are profile-based diagnostics. New snow is not existing snow depth, and a displayed snowline does not imply precipitation.</div>
+        <div class="info-caveat">Snowline, precipitation type, convective-snow potential and new snow are profile-based diagnostics. New snow is not existing snow depth, and a displayed snowline does not imply precipitation.</div>
       </div>
     </div>
   </div>
@@ -57,6 +58,8 @@
   import { buildProfile, wetBulbZeroHeight, valueAt } from './snowLevel';
   import { formatPrecipMm, precipMmAt, PRECIP_THRESHOLD_MM_H } from './precip';
   import { terrainPrecipitationType, type TerrainPrecipType } from './precipType';
+  import { terrainDiagnostics } from './terrainDiagnostics';
+  import { estimateNewSnowStep, formatNewSnowCm } from './snowAccum';
   import { loadSelectedPrecipFields } from './selectedPrecip';
   import { contourPolylines, type ContourPolyline, type GridPoint } from './contours';
 
@@ -75,6 +78,19 @@
   type ProbeStatus = 'above' | 'below' | 'near' | 'neutral';
   type PointSource = 'search' | 'map-click';
   type PlaceSelection = { lat: number; lon: number; primary: string; secondary: string };
+  type LabelGridArgs = {
+    valid: string;
+    terrain: number;
+    snowline: number;
+    difference: number;
+    precip: number | null;
+    tendency: string;
+    confidence: string;
+    tempC: number | null;
+    wetBulbC: number | null;
+    rhPct: number | null;
+    newSnowCm: number | null;
+  };
 
   const MODEL = 'ecmwf' as const;
   const MAX_CONCURRENT = 12;
@@ -370,6 +386,12 @@
     if (differenceM < -POSITION_NEAR_SNOWLINE_METRES) return 'below';
     return 'near';
   }
+  function positionText(differenceM: number): string {
+    const rounded = Math.round(Math.abs(differenceM) / 10) * 10;
+    if (differenceM > POSITION_NEAR_SNOWLINE_METRES) return `${rounded} m above snowline`;
+    if (differenceM < -POSITION_NEAR_SNOWLINE_METRES) return `${rounded} m below snowline`;
+    return `Within ${POSITION_NEAR_SNOWLINE_METRES} m of snowline`;
+  }
   function shortValid(time: number): string {
     const date = new Date(time);
     return `${date.toLocaleDateString(undefined, { weekday: 'short' })} ${String(date.getUTCHours()).padStart(2, '0')}Z`;
@@ -377,7 +399,7 @@
   function confidenceLabel(phase: TerrainPrecipType | null): string {
     if (!phase) return '—';
     if (phase.confidence === 'high') return 'High';
-    if (phase.confidence === 'medium') return 'Med';
+    if (phase.confidence === 'medium') return 'Medium';
     return 'Low';
   }
   function formatCoordinate(lat: number, lon: number): string {
@@ -408,8 +430,14 @@
     const future = snowlineAt(point, futureIndex);
     if (future === null) return '';
     const delta = Math.round((future - now) / 10) * 10;
-    if (Math.abs(delta) < 20) return 'Steady';
-    return `${delta > 0 ? '↑' : '↓'}${Math.abs(delta)} m/3h`;
+    if (Math.abs(delta) < 20) return '→ Steady';
+    return `${delta > 0 ? '↑' : '↓'} ${Math.abs(delta)} m/3h`;
+  }
+
+  function currentNewSnowCm(precip: number | null, phase: TerrainPrecipType | null): number | null {
+    if (!phase || precip === null) return null;
+    if (phase.key !== 'snow' && phase.key !== 'wet-snow' && phase.key !== 'mix') return null;
+    return estimateNewSnowStep(precip, phase, 0, 3).cumulativeCm;
   }
 
   async function resolvePlaceName(lat: number, lon: number): Promise<string> {
@@ -475,9 +503,12 @@
     const [lat, lon] = clickedLatLon;
     const index = nearestIndex(point.times, getStoreTimestamp());
     const validTime = point.times[index];
+    const profile = buildProfile(point.forecast, index);
     const snowline = snowlineAt(point, index);
     const precip = precipMmAt(point.forecast, index);
-    const phase = clickedMapElevationM !== null && precip !== null && precip >= PRECIP_THRESHOLD_MM_H ? terrainPrecipitationType(buildProfile(point.forecast, index), clickedMapElevationM) : null;
+    const diagnostics = clickedMapElevationM !== null ? terrainDiagnostics(profile, clickedMapElevationM) : null;
+    const phase = clickedMapElevationM !== null && precip !== null && precip >= PRECIP_THRESHOLD_MM_H ? terrainPrecipitationType(profile, clickedMapElevationM) : null;
+    const newSnow = currentNewSnowCm(precip, phase);
     button.textContent = '…';
     try {
       const placeName = await resolvePlaceName(lat, lon);
@@ -486,8 +517,11 @@
         `Valid: ${formatUtc(validTime)}`, `Lead: ${formatLead(point.runTime, validTime)}`,
         `Snowline: ${snowline !== null ? `${Math.round(snowline / 10) * 10} m` : 'Unavailable'}`,
         `Terrain: ${clickedMapElevationM !== null ? `${Math.round(clickedMapElevationM / 10) * 10} m` : 'Unavailable'}`,
+        diagnostics ? `Terrain T / Tw / RH: ${diagnostics.tempC.toFixed(1)}°C / ${diagnostics.wetBulbC.toFixed(1)}°C / ${Math.round(diagnostics.rhPct)}%` : '',
         `Precipitation: ${precip !== null ? `${formatPrecipMm(precip)} mm/3h` : 'Unavailable'}`,
-        `Type: ${phase ? phase.label : 'Not classified'}`, phase ? `Profile: ${phase.detail}` : '',
+        `Type: ${phase ? phase.label : 'Not classified'}`,
+        newSnow !== null ? `Estimated new snow (3h): ${formatNewSnowCm(newSnow)}` : '',
+        phase ? `Profile: ${phase.detail}` : '',
         'Atmospheric profile: ECMWF · local elevation: Windy terrain.',
       ].filter(Boolean).join('\n');
       await copyText(text);
@@ -499,15 +533,24 @@
     }
   }
 
-  function labelGrid(valid: string, terrain: number, snowline: number, difference: number, precip: number | null, tendency: string, confidence: string): string {
-    return `<div class="snowline-label-grid">
-      <span><small>Valid</small><strong>${valid}</strong></span>
-      <span><small>Precip</small><strong>${precip !== null ? `${formatPrecipMm(precip)} mm/3h` : '—'}</strong></span>
-      <span><small>Terrain</small><strong>${terrain} m</strong></span>
-      <span><small>Snowline</small><strong>${snowline} m</strong></span>
-      <span><small>Terrain Δ</small><strong>${difference >= 0 ? '+' : ''}${Math.round(difference / 10) * 10} m</strong></span>
-      <span><small>Trend</small><strong>${tendency || '—'}${confidence !== '—' ? ` · ${confidence}` : ''}</strong></span>
-    </div>`;
+  function labelGrid(args: LabelGridArgs): string {
+    const thermo = [
+      args.tempC !== null ? `<span class="metric-temp"><small>Terrain T</small><strong>${args.tempC.toFixed(1)}°C</strong></span>` : '',
+      args.wetBulbC !== null ? `<span class="metric-tw"><small>Wet bulb</small><strong>${args.wetBulbC.toFixed(1)}°C</strong></span>` : '',
+      args.rhPct !== null ? `<span class="metric-rh"><small>RH</small><strong>${Math.round(args.rhPct)}%</strong></span>` : '',
+    ].filter(Boolean).join('');
+    const newSnow = args.newSnowCm !== null ? `<span class="metric-snow"><small>New snow · est.</small><strong>${formatNewSnowCm(args.newSnowCm)}</strong></span>` : '';
+    return `<div class="snowline-position">${positionText(args.difference)}</div>
+      <div class="snowline-thermo">${thermo}</div>
+      <div class="snowline-label-grid">
+        <span><small>Terrain</small><strong>${args.terrain} m</strong></span>
+        <span class="metric-snowline"><small>Snowline</small><strong>${args.snowline} m</strong></span>
+        <span class="metric-precip"><small>Precip</small><strong>${args.precip !== null ? `${formatPrecipMm(args.precip)} mm/3h` : '—'}</strong></span>
+        ${newSnow}
+        <span><small>Snowline trend</small><strong>${args.tendency || '—'}</strong></span>
+        <span><small>Confidence</small><strong>${args.confidence}</strong></span>
+      </div>
+      <div class="snowline-valid">Valid ${args.valid}</div>`;
   }
 
   function showClickLabel(lat: number, lon: number, mainText: string, detailHtml = '', snowlineColor = '#ffffff', status: ProbeStatus = 'neutral') {
@@ -523,7 +566,7 @@
          <button class="snowline-label-share" type="button" aria-label="Copy Wintry forecast details" title="Copy Wintry forecast details">share</button>` : '';
     const marker = L.marker([lat, lon], {
       interactive: true, bubblingMouseEvents: false, zIndexOffset: 2000,
-      icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${actions}<button class="snowline-label-close" type="button" aria-label="Close Wintry forecast label" title="Close">×</button><b>${mainText}</b>${detail}</span>`, iconSize: [232, 176], iconAnchor: [116, 184] }),
+      icon: L.divIcon({ className: `snowline-click-label snowline-probe-${status}`, html: `<span style="--snowline-color:${snowlineColor};--probe-accent:${accent}">${actions}<button class="snowline-label-close" type="button" aria-label="Close Wintry forecast label" title="Close">×</button><div class="snowline-card-kicker">WINTRY FORECAST</div><b>${mainText}</b>${detail}</span>`, iconSize: [248, 238], iconAnchor: [124, 246] }),
     }).addTo(clickLayer);
     marker.on('click', (event: any) => {
       const original = event?.originalEvent;
@@ -551,7 +594,9 @@
     if (target < firstTime - 30 * 60_000 || target > effectiveEnd + 30 * 60_000) { showClickLabel(lat, lon, 'Outside +144 h'); return; }
     const index = nearestIndex(clickedPoint.times, target);
     const validTime = clickedPoint.times[index];
-    const snowline = snowlineAt(clickedPoint, index);
+    const profile = buildProfile(clickedPoint.forecast, index);
+    const snowlineResult = wetBulbZeroHeight(profile);
+    const snowline = snowlineResult.snowLevelM !== null && Number.isFinite(snowlineResult.snowLevelM) ? snowlineResult.snowLevelM : null;
     if (snowline === null) { showClickLabel(lat, lon, 'No snowline'); return; }
     const roundedSnowline = Math.round(snowline / 10) * 10;
     const tendency = tendencyText(clickedPoint, index);
@@ -561,16 +606,22 @@
       const terrainRounded = Math.round(clickedMapElevationM / 10) * 10;
       const difference = clickedMapElevationM - snowline;
       const status = statusForDifference(difference);
-      if (hasPrecip) {
-        const phase = terrainPrecipitationType(buildProfile(clickedPoint.forecast, index), clickedMapElevationM);
-        if (phase) {
-          const confidenceMark = phase.confidence === 'low' ? ' ~' : '';
-          showClickLabel(lat, lon, `${phase.icon} ${phase.label.toUpperCase()}${confidenceMark}`, labelGrid(shortValid(validTime), terrainRounded, roundedSnowline, difference, precip, tendency, confidenceLabel(phase)), colorForLevel(snowline), status);
-          return;
-        }
+      const diagnostics = terrainDiagnostics(profile, clickedMapElevationM);
+      const phase = hasPrecip ? terrainPrecipitationType(profile, clickedMapElevationM) : null;
+      const newSnow = currentNewSnowCm(precip, phase);
+      const grid = labelGrid({
+        valid: shortValid(validTime), terrain: terrainRounded, snowline: roundedSnowline,
+        difference, precip, tendency, confidence: phase ? confidenceLabel(phase) : '—',
+        tempC: diagnostics?.tempC ?? null, wetBulbC: diagnostics?.wetBulbC ?? null,
+        rhPct: diagnostics?.rhPct ?? null, newSnowCm: newSnow,
+      });
+      if (phase) {
+        const confidenceMark = phase.confidence === 'low' ? ' ~' : '';
+        showClickLabel(lat, lon, `${phase.icon} ${phase.label.toUpperCase()}${confidenceMark}`, grid, colorForLevel(snowline), status);
+        return;
       }
-      const headline = status === 'above' ? '↑ ABOVE SNOWLINE' : status === 'below' ? '↓ BELOW SNOWLINE' : '≈ NEAR SNOWLINE';
-      showClickLabel(lat, lon, headline, labelGrid(shortValid(validTime), terrainRounded, roundedSnowline, difference, precip, tendency, '—'), colorForLevel(snowline), status);
+      const headline = status === 'above' ? '❄ ABOVE SNOWLINE' : status === 'below' ? '↓ BELOW SNOWLINE' : '≈ NEAR SNOWLINE';
+      showClickLabel(lat, lon, headline, grid, colorForLevel(snowline), status);
       return;
     }
     showClickLabel(lat, lon, `${roundedSnowline} m`, `<div class="snowline-label-grid"><span><small>Valid</small><strong>${shortValid(validTime)}</strong></span><span><small>Trend</small><strong>${tendency || '—'}</strong></span></div>`, colorForLevel(snowline), 'neutral');
@@ -596,8 +647,6 @@
     } finally { if (myClick === clickGeneration) probeLoading = false; }
   }
 
-  // The only map-point entry used by the wrapper. Windy's configured native
-  // singleclick handler and context-menu onopen both call this same method.
   export function selectMapPoint(lat: number, lon: number) {
     if (!enabled || !Number.isFinite(lat) || !Number.isFinite(lon)) return;
     void probeLocation(lat, lon, 'map-click');
@@ -765,9 +814,14 @@
   .status-pill{display:flex;align-items:center;justify-content:center;gap:6px;margin-top:6px;padding:4px 7px;border-radius:6px;background:rgba(10,14,18,.72);color:rgba(255,255,255,.92);font-size:10px;font-weight:700}.status-dot{width:7px;height:7px;border-radius:50%;background:#70d7ff;animation:snowline-pulse 1s ease-in-out infinite}@keyframes snowline-pulse{0%,100%{opacity:.45;transform:scale(.85)}50%{opacity:1;transform:scale(1)}}
   .info-overlay{position:fixed;inset:0;z-index:10000;display:flex;align-items:center;justify-content:center;padding:12px;background:rgba(0,0,0,.30)}.info-window{width:min(360px,calc(100vw - 24px));max-height:min(74vh,540px);overflow:hidden;border:1px solid rgba(80,190,255,.48);border-radius:10px;background:rgba(24,28,32,.99);color:white;box-shadow:0 8px 30px rgba(0,0,0,.48)}.info-head{display:flex;justify-content:space-between;align-items:center;padding:9px 10px 7px;border-bottom:1px solid rgba(255,255,255,.10);font-size:12px}.info-head button{width:22px;height:22px;border:0;border-radius:6px;background:rgba(255,255,255,.08);color:white;font-size:17px;cursor:pointer}.info-body{max-height:calc(min(74vh,540px) - 40px);overflow-y:auto;padding:9px 10px 10px;font-size:10px;line-height:1.4;color:rgba(255,255,255,.84)}.info-body>div+div{margin-top:8px}.info-caveat{padding-top:8px;border-top:1px solid rgba(255,255,255,.10);color:rgba(255,228,92,.90)}
   :global(.snowline-label),:global(.snowline-click-label){background:transparent!important;border:0!important}:global(.snowline-label span){display:inline-block;padding:1px 4px 1px 6px;border-radius:3px;border-left:4px solid var(--snowline-color,white);background:rgba(15,17,20,.86);color:white;font-size:10px;font-weight:800;white-space:nowrap;text-shadow:0 1px 2px rgba(0,0,0,.8);box-shadow:0 0 0 1px rgba(255,255,255,.12)}
-  :global(.snowline-click-label){pointer-events:auto!important}:global(.snowline-click-label>span){position:relative;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:7px;width:232px;min-height:168px;box-sizing:border-box;padding:37px 12px 10px;border-radius:8px;border:2px solid var(--probe-accent,rgba(255,255,255,.4));border-bottom:5px solid var(--snowline-color,white);background:rgba(9,14,18,.985);color:white;text-align:center;white-space:normal;text-shadow:none;box-shadow:0 7px 20px rgba(0,0,0,.52)}
-  :global(.snowline-label-close),:global(.snowline-label-share),:global(.snowline-label-chart),:global(.snowline-label-favourite){position:absolute;top:7px;height:26px;padding:0;border:1px solid rgba(255,255,255,.10);border-radius:6px;background:rgba(255,255,255,.075);color:#eaf2f6;font-size:12px;line-height:24px;font-weight:800;text-shadow:none;cursor:pointer;pointer-events:auto}:global(.snowline-label-close){right:7px;width:26px;font-size:17px}:global(.snowline-label-share){right:39px;width:26px;font-size:0;background-repeat:no-repeat;background-position:center;background-size:14px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3Ccircle cx='6' cy='12' r='3'/%3E%3Ccircle cx='18' cy='19' r='3'/%3E%3Cpath d='M8.6 10.5l6.8-4M8.6 13.5l6.8 4'/%3E%3C/svg%3E")}:global(.snowline-label-chart){left:7px;width:28px;font-size:15px}:global(.snowline-label-favourite){left:41px;width:28px;font-size:16px;color:#aab6bd}:global(.snowline-label-favourite.saved){color:#ffe45c;border-color:rgba(255,228,92,.42);background:rgba(255,228,92,.08)}
-  :global(.snowline-click-label b){color:var(--probe-accent,white);font-size:15px;line-height:1.1;font-weight:900;letter-spacing:.25px}:global(.snowline-label-detail){width:100%}:global(.snowline-label-grid){display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%}:global(.snowline-label-grid span){min-width:0;padding:5px 4px;border-radius:6px;background:rgba(255,255,255,.045);text-align:center}:global(.snowline-label-grid small){display:block;color:#83949e;font-size:7px;line-height:1}:global(.snowline-label-grid strong){display:block;margin-top:3px;color:#eef5f8;font-size:8.8px;line-height:1.1;font-weight:800;white-space:normal;overflow:visible}:global(.snowline-loading){padding:18px 0;color:#9fb0ba;font-size:10px}
-  :global(.snowline-probe-above>span){background:linear-gradient(180deg,rgba(8,27,38,.99),rgba(8,15,20,.99))}:global(.snowline-probe-below>span){background:linear-gradient(180deg,rgba(38,23,11,.99),rgba(19,14,10,.99))}:global(.snowline-probe-near>span){background:linear-gradient(180deg,rgba(36,32,10,.99),rgba(19,17,9,.99))}
-  @media(max-width:520px){.snowline-panel{width:235px;max-width:calc(100vw - 28px);padding:8px 9px}.info-overlay{align-items:flex-start;padding-top:54px}:global(.snowline-click-label>span){width:218px;min-height:164px;padding:36px 10px 9px}:global(.snowline-click-label b){font-size:14px}:global(.snowline-label-grid strong){font-size:8.3px}:global(.snowline-label-close),:global(.snowline-label-share),:global(.snowline-label-chart),:global(.snowline-label-favourite){height:27px;line-height:25px}}
+  :global(.snowline-click-label){pointer-events:auto!important}:global(.snowline-click-label>span){position:relative;display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:7px;width:248px;min-height:218px;box-sizing:border-box;padding:38px 11px 10px;border-radius:12px;border:1px solid rgba(255,255,255,.16);border-top:3px solid var(--probe-accent,rgba(255,255,255,.4));border-bottom:5px solid var(--snowline-color,white);background:rgba(9,14,18,.985);color:white;text-align:center;white-space:normal;text-shadow:none;box-shadow:0 9px 26px rgba(0,0,0,.58)}
+  :global(.snowline-card-kicker){position:absolute;top:12px;left:74px;right:74px;color:#71838e;font-size:6.5px;line-height:1;font-weight:900;letter-spacing:1px;text-align:center;pointer-events:none}
+  :global(.snowline-label-close),:global(.snowline-label-share),:global(.snowline-label-chart),:global(.snowline-label-favourite){position:absolute;top:7px;height:27px;padding:0;border:1px solid rgba(255,255,255,.10);border-radius:7px;background:rgba(255,255,255,.065);color:#eaf2f6;font-size:12px;line-height:25px;font-weight:800;text-shadow:none;cursor:pointer;pointer-events:auto}:global(.snowline-label-close){right:7px;width:27px;font-size:17px}:global(.snowline-label-share){right:40px;width:27px;font-size:0;background-repeat:no-repeat;background-position:center;background-size:14px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='18' cy='5' r='3'/%3E%3Ccircle cx='6' cy='12' r='3'/%3E%3Ccircle cx='18' cy='19' r='3'/%3E%3Cpath d='M8.6 10.5l6.8-4M8.6 13.5l6.8 4'/%3E%3C/svg%3E")}:global(.snowline-label-chart){left:7px;width:29px;font-size:15px}:global(.snowline-label-favourite){left:42px;width:29px;font-size:16px;color:#aab6bd}:global(.snowline-label-favourite.saved){color:#ffe45c;border-color:rgba(255,228,92,.42);background:rgba(255,228,92,.08)}
+  :global(.snowline-click-label b){display:block;margin:0 0 1px;padding:6px 7px;border-radius:7px;background:rgba(255,255,255,.035);color:var(--probe-accent,white);font-size:15px;line-height:1.1;font-weight:900;letter-spacing:.25px}:global(.snowline-label-detail){width:100%}
+  :global(.snowline-position){padding:5px 7px;border-radius:7px;background:rgba(255,255,255,.055);color:var(--probe-accent,white);font-size:9.5px;line-height:1.1;font-weight:850}
+  :global(.snowline-thermo){display:grid;grid-template-columns:repeat(3,1fr);gap:5px;width:100%}:global(.snowline-thermo span){min-width:0;padding:5px 3px;border-radius:7px;background:rgba(255,255,255,.04)}:global(.snowline-thermo small),:global(.snowline-label-grid small){display:block;color:#83949e;font-size:6.7px;line-height:1;text-transform:uppercase;letter-spacing:.2px}:global(.snowline-thermo strong){display:block;margin-top:3px;color:#eef5f8;font-size:10.2px;line-height:1;font-weight:850}:global(.snowline-thermo .metric-temp strong){color:#ffb09f}:global(.snowline-thermo .metric-tw strong){color:#b7e9ff}:global(.snowline-thermo .metric-rh strong){color:#9fdcff}
+  :global(.snowline-label-grid){display:grid;grid-template-columns:1fr 1fr;gap:5px;width:100%}:global(.snowline-label-grid span){min-width:0;padding:5px 4px;border-radius:7px;background:rgba(255,255,255,.04);text-align:center}:global(.snowline-label-grid strong){display:block;margin-top:3px;color:#eef5f8;font-size:9px;line-height:1.08;font-weight:800;white-space:normal;overflow:visible}:global(.snowline-label-grid .metric-snowline strong){color:#dff6ff}:global(.snowline-label-grid .metric-precip strong){color:#9fe5ff}:global(.snowline-label-grid .metric-snow strong){color:#d8f5ff;font-size:10px}
+  :global(.snowline-valid){margin-top:0;color:#71838e;font-size:7px;line-height:1;font-weight:750;letter-spacing:.15px}:global(.snowline-loading){padding:24px 0 18px;color:#9fb0ba;font-size:10px}
+  :global(.snowline-probe-above>span){background:linear-gradient(180deg,rgba(8,25,34,.99),rgba(8,14,18,.99))}:global(.snowline-probe-below>span){background:linear-gradient(180deg,rgba(32,21,12,.99),rgba(18,13,10,.99))}:global(.snowline-probe-near>span){background:linear-gradient(180deg,rgba(29,27,11,.99),rgba(17,16,9,.99))}
+  @media(max-width:520px){.snowline-panel{width:235px;max-width:calc(100vw - 28px);padding:8px 9px}.info-overlay{align-items:flex-start;padding-top:54px}:global(.snowline-click-label>span){width:232px;min-height:210px;padding:37px 9px 9px}:global(.snowline-card-kicker){left:70px;right:70px}:global(.snowline-click-label b){font-size:14px}:global(.snowline-label-grid strong){font-size:8.5px}:global(.snowline-thermo strong){font-size:9.6px}:global(.snowline-label-close),:global(.snowline-label-share),:global(.snowline-label-chart),:global(.snowline-label-favourite){height:27px;line-height:25px}}
 </style>
