@@ -16,6 +16,10 @@
   </div>
 
   {#if sounding}
+    <div class="phase-banner" class:dry={!sounding.phaseKey} class:snow={sounding.phaseKey === 'snow'} class:wet-snow={sounding.phaseKey === 'wet-snow'} class:mix={sounding.phaseKey === 'mix'} class:rain={sounding.phaseKey === 'rain'} class:ice={sounding.phaseKey === 'ice-pellets'} class:freezing-rain={sounding.phaseKey === 'freezing-rain'}>
+      <small>At terrain</small><b>{sounding.phaseLabel}</b><em>{sounding.phaseDetail}</em>
+    </div>
+
     <div class="sounding-viewport" bind:this={viewport} tabindex="0" role="group" aria-label="Zoomable forecast sounding" on:wheel|preventDefault={handleWheel} on:pointerdown={startPlotPointer} on:pointermove={movePlotPointer} on:pointerup={endPlotPointer} on:pointercancel={endPlotPointer} on:dblclick={resetZoom} on:keydown={handleViewportKey}>
       <svg bind:this={svgEl} viewBox="0 0 330 390" role="img" aria-label="Temperature, dew point and wet-bulb vertical profile" style={`width:${zoom * 100}%;`}>
         <rect x="48" y="22" width="262" height="320" rx="9" class="plot-bg" />
@@ -32,6 +36,11 @@
           <rect x="48" y={sounding.terrainY} width="262" height={Math.max(0, 342 - sounding.terrainY)} class="terrain-zone" />
           <line x1="48" x2="310" y1={sounding.terrainY} y2={sounding.terrainY} class="terrain-line" />
           <text x="306" y={Math.max(31, sounding.terrainY - 4)} text-anchor="end" class="terrain-text">terrain</text>
+        {/if}
+        {#if sounding.snowlineY !== null}
+          <line x1="48" x2="310" y1={sounding.snowlineY} y2={sounding.snowlineY} class="snowline-marker" />
+          <rect x="222" y={Math.max(24, sounding.snowlineY - 10)} width="84" height="12" rx="3" class="snowline-tag-bg" />
+          <text x="302" y={Math.max(33, sounding.snowlineY - 1)} text-anchor="end" class="snowline-tag">Snowline {sounding.snowline}</text>
         {/if}
 
         <polyline points={sounding.tempPoints} class="temp-line" />
@@ -57,7 +66,7 @@
       <span><small>Warm energy</small><b>{sounding.warmEnergy}</b></span>
       <span><small>Cold energy</small><b>{sounding.coldEnergy}</b></span>
     </div>
-    <div class="hint">Wheel / pinch / +/- to zoom · drag to pan · double-click or tap % to fit</div>
+    <div class="hint">Sounding explains the current phase · wheel / pinch / +/- to zoom · drag to pan</div>
   {:else}
     <div class="empty">Sounding unavailable for this forecast time.</div>
   {/if}
@@ -68,6 +77,7 @@
   import store from '@windy/store';
   import { buildProfile, wetBulbZeroHeight, type ProfilePoint } from './snowLevel';
   import { terrainPrecipitationType } from './precipType';
+  import { precipMmAt, PRECIP_THRESHOLD_MM_H } from './precip';
 
   export let point: any;
   export let terrainM: number | null = null;
@@ -97,8 +107,9 @@
     nodes: { tx: number; dx: number; y: number }[];
     tempGrid: { x: number; value: number }[];
     pressureGrid: { y: number; label: string }[];
-    terrainY: number | null;
+    terrainY: number | null; snowlineY: number | null;
     surfaceTw: string; snowline: string; warmEnergy: string; coldEnergy: string;
+    phaseLabel: string; phaseDetail: string; phaseKey: string | null;
   };
 
   $: sounding = buildSounding(point, terrainM, timestamp);
@@ -203,7 +214,7 @@
       clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
       clone.setAttribute('width', '1320'); clone.setAttribute('height', '1560');
       const style = document.createElementNS('http://www.w3.org/2000/svg', 'style');
-      style.textContent = 'text{font-family:Arial,sans-serif}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:#392716;opacity:.32}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.temp-grid{stroke:#2a3c46}.temp-grid.zero{stroke:#75caef;stroke-width:1.3}.pressure-grid{stroke:#2a3c46}.axis{fill:#94a7b1;font-size:7px}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}';
+      style.textContent = 'text{font-family:Arial,sans-serif}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:#392716;opacity:.32}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.snowline-marker{stroke:#69d4ff;stroke-width:1.5;stroke-dasharray:4 3}.snowline-tag-bg{fill:#102b36}.snowline-tag{fill:#aeeaff;font-size:7px;font-weight:700}.temp-grid{stroke:#2a3c46}.temp-grid.zero{stroke:#75caef;stroke-width:1.3}.pressure-grid{stroke:#2a3c46}.axis{fill:#94a7b1;font-size:7px}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}';
       clone.insertBefore(style, clone.firstChild);
       const blob = new Blob([new XMLSerializer().serializeToString(clone)], { type: 'image/svg+xml' });
       const url = URL.createObjectURL(blob), img = new Image();
@@ -244,13 +255,20 @@
     });
     const terrainY = terrain !== null && Number.isFinite(terrain) && terrain >= bottomH && terrain <= topH ? y(terrain) : null;
     const wbz = wetBulbZeroHeight(profile);
-    const phase = terrain !== null && Number.isFinite(terrain) ? terrainPrecipitationType(profile, terrain) : null;
+    const snowlineM = wbz.snowLevelM !== null && Number.isFinite(wbz.snowLevelM) ? wbz.snowLevelM : null;
+    const snowlineY = snowlineM !== null && snowlineM >= bottomH && snowlineM <= topH ? y(snowlineM) : null;
+    const precip = precipMmAt(p.forecast, idx);
+    const hasPrecip = precip !== null && precip >= PRECIP_THRESHOLD_MM_H;
+    const phase = hasPrecip && terrain !== null && Number.isFinite(terrain) ? terrainPrecipitationType(profile, terrain) : null;
     return {
-      tempPoints, dewPoints, wetBulbPoints, nodes, tempGrid, pressureGrid, terrainY,
+      tempPoints, dewPoints, wetBulbPoints, nodes, tempGrid, pressureGrid, terrainY, snowlineY,
       surfaceTw: phase ? `${phase.surfaceWetBulbC.toFixed(1)}°C` : '—',
-      snowline: wbz.snowLevelM !== null ? `${Math.round(wbz.snowLevelM / 10) * 10} m` : '—',
+      snowline: snowlineM !== null ? `${Math.round(snowlineM / 10) * 10} m` : '—',
       warmEnergy: phase ? `${Math.round(phase.meltingDegreeMetres)} °C·m` : '—',
       coldEnergy: phase ? `${Math.round(phase.refreezingDegreeMetres)} °C·m` : '—',
+      phaseLabel: phase ? `${phase.icon} ${phase.label}` : 'Dry',
+      phaseDetail: phase ? phase.detail : 'No meaningful precipitation at this time',
+      phaseKey: phase?.key ?? null,
     };
   }
 
@@ -270,8 +288,9 @@
   .sounding-shell.sounding-embedded{position:relative;left:auto!important;top:auto!important;z-index:auto;width:100%;box-sizing:border-box;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}
   .sounding-embedded .embedded-head{justify-content:flex-end;margin-bottom:4px}
   .head{display:flex;justify-content:space-between;gap:8px}.head>div:first-child{min-width:0;flex:1}.head b{display:block;font-size:14px}.head small,.head em{display:block;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-style:normal}.head small{margin-top:2px;color:#a8b7c0;font-size:8px}.head em{margin-top:2px;color:#6ecdf2;font-size:7.5px}.actions{display:flex;gap:3px;align-items:flex-start}.actions button{min-width:25px;height:27px;padding:0 5px;border:1px solid rgba(255,255,255,.09);border-radius:7px;background:rgba(255,255,255,.07);color:#fff;font-size:13px;font-weight:800;cursor:pointer}.actions button:hover{background:rgba(105,212,255,.14)}.actions .png{font-size:7px;padding:0 6px}.actions .zoom-readout{min-width:43px;font-size:7px}.drag{cursor:grab!important;touch-action:none}
-  .sounding-viewport{max-height:430px;overflow:auto;margin-top:6px;border-radius:9px;overscroll-behavior:contain;touch-action:none;cursor:grab;scrollbar-width:thin}.sounding-viewport:active{cursor:grabbing}.sounding-viewport:focus-visible{outline:1px solid rgba(105,212,255,.55);outline-offset:2px}.sounding-viewport svg{display:block;min-width:100%;height:auto;margin:0;transform-origin:top left;user-select:none;-webkit-user-select:none}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:rgba(255,174,86,.08)}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.temp-grid{stroke:rgba(154,181,196,.10)}.temp-grid.zero{stroke:rgba(117,202,239,.5);stroke-width:1.3}.pressure-grid{stroke:rgba(154,181,196,.12)}.axis{fill:#758995;font-size:7px;font-family:sans-serif}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}
+  .phase-banner{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:2px 8px;margin-top:5px;padding:7px 9px;border:1px solid rgba(255,255,255,.08);border-left:3px solid #82939d;border-radius:8px;background:rgba(255,255,255,.035)}.phase-banner small{grid-row:1/3;color:#7e8f99;font-size:6px;text-transform:uppercase;letter-spacing:.3px}.phase-banner b{font-size:10px}.phase-banner em{color:#a9b7bf;font-size:6.7px;font-style:normal}.phase-banner.snow{border-left-color:#f4f7fb}.phase-banner.wet-snow{border-left-color:#6bd47f}.phase-banner.mix{border-left-color:#f2d84f}.phase-banner.rain{border-left-color:#4f82ff}.phase-banner.ice{border-left-color:#a8753e}.phase-banner.freezing-rain{border-left-color:#a867e8}.phase-banner.dry{opacity:.82}
+  .sounding-viewport{max-height:430px;overflow:auto;margin-top:6px;border-radius:9px;overscroll-behavior:contain;touch-action:none;cursor:grab;scrollbar-width:thin}.sounding-viewport:active{cursor:grabbing}.sounding-viewport:focus-visible{outline:1px solid rgba(105,212,255,.55);outline-offset:2px}.sounding-viewport svg{display:block;min-width:100%;height:auto;margin:0;transform-origin:top left;user-select:none;-webkit-user-select:none}.plot-bg{fill:#0d171d;stroke:#263a46}.terrain-zone{fill:rgba(255,174,86,.08)}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-text{fill:#ffbd75;font-size:7px}.snowline-marker{stroke:#69d4ff;stroke-width:1.5;stroke-dasharray:4 3}.snowline-tag-bg{fill:rgba(16,43,54,.94)}.snowline-tag{fill:#aeeaff;font-size:7px;font-weight:800}.temp-grid{stroke:rgba(154,181,196,.10)}.temp-grid.zero{stroke:rgba(117,202,239,.5);stroke-width:1.3}.pressure-grid{stroke:rgba(154,181,196,.12)}.axis{fill:#758995;font-size:7px;font-family:sans-serif}.temp-line{fill:none;stroke:#ff765f;stroke-width:2.4}.dew-line{fill:none;stroke:#72d98b;stroke-width:2.1}.wetbulb-line{fill:none;stroke:#69d4ff;stroke-width:1.7;stroke-dasharray:4 3}.temp-dot{fill:#ff765f}.dew-dot{fill:#72d98b}
   .key{display:flex;flex-wrap:wrap;gap:5px 10px;margin:4px 2px 6px;color:#a0b0ba;font-size:7px}.key span{display:flex;align-items:center;gap:4px}.key i{display:inline-block;width:13px;border-top:2px solid}.key .t{border-color:#ff765f}.key .d{border-color:#72d98b}.key .w{border-color:#69d4ff;border-top-style:dashed}.key .z{border-color:#75caef}
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}.stats span{padding:5px 2px;border-radius:7px;background:rgba(255,255,255,.04);text-align:center}.stats small{display:block;color:#71838e;font-size:5.6px}.stats b{display:block;margin-top:2px;font-size:6.7px;white-space:nowrap}.hint{margin-top:6px;color:#60717b;font-size:6.4px;text-align:center}.empty{padding:30px 8px;text-align:center;color:#82939d;font-size:9px}
-  @media(max-width:520px){.sounding-shell{width:calc(100vw - 12px);padding:9px}.head small,.head em{max-width:125px}.stats b{font-size:6.3px}.sounding-viewport{max-height:55vh}.actions{gap:2px}.actions button{min-width:24px;height:26px}.actions .zoom-readout{min-width:38px}}
+  @media(max-width:520px){.sounding-shell{width:calc(100vw - 12px);padding:9px}.head small,.head em{max-width:125px}.stats b{font-size:6.3px}.sounding-viewport{max-height:55vh}.actions{gap:2px}.actions button{min-width:24px;height:26px}.actions .zoom-readout{min-width:38px}.phase-banner em{font-size:6.2px}}
 </style>
