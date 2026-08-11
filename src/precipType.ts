@@ -52,7 +52,6 @@ function terrainProfile(profile: ProfilePoint[], terrainM: number): { points: Pr
     .filter(v => Number.isFinite(v.heightM) && Number.isFinite(v.wetBulbC))
     .sort((a, b) => a.heightM - b.heightM);
   if (p.length < 2 || !Number.isFinite(terrainM)) return null;
-
   if (terrainM > p[p.length - 1].heightM) return null;
 
   let surface: ProfilePoint;
@@ -62,7 +61,6 @@ function terrainProfile(profile: ProfilePoint[], terrainM: number): { points: Pr
   if (terrainM <= p[0].heightM) {
     surface = { ...p[0], heightM: terrainM };
     extrapolated = true;
-    start = 0;
   } else {
     let bracket = -1;
     for (let i = 0; i < p.length - 1; i++) {
@@ -133,15 +131,17 @@ function result(
   const convectiveSnow = !!diagnostics?.convectiveEnvironment && (key === 'snow' || key === 'wet-snow');
 
   const terrainText = terrainTempC !== null && terrainRhPct !== null
-    ? ` · T ${terrainTempC.toFixed(1)}°C · RH ${Math.round(terrainRhPct)}%`
+    ? `T ${terrainTempC.toFixed(1)}°C · RH ${Math.round(terrainRhPct)}%`
     : '';
-  const convectiveText = convectiveSnow ? '⚡ Convective snow potential · ' : '';
+  const displayLabel = convectiveSnow ? 'Convective snow' : label;
+  const displayIcon = convectiveSnow ? '⚡❄' : icon;
+  const detailParts = [baseDetail, terrainText].filter(Boolean);
 
   return {
     key,
-    label,
-    icon,
-    detail: `${convectiveText}${baseDetail}${terrainText}`,
+    label: displayLabel,
+    icon: displayIcon,
+    detail: detailParts.join(' · '),
     confidence,
     surfaceWetBulbC,
     meltingDegreeMetres,
@@ -154,16 +154,9 @@ function result(
 
 /**
  * Terrain-aware precipitation type from the wet-bulb vertical profile.
- *
- * This deliberately does not use ECMWF precipitation-type output. The atmospheric
- * profile is intersected with Windy's local terrain height, then positive wet-bulb
- * energy (melting) and sub-zero wet-bulb energy below the warm layer (refreezing)
- * are evaluated. Degree-metres are used as a stable profile-energy proxy rather
- * than pretending the sparse pressure-level profile resolves microphysics exactly.
- *
- * A convective-snow flag is added only for diagnosed snow/wet snow when the same
- * profile has both a steep terrain-to-3-km lapse rate and a moist dendritic-growth
- * zone. It is a convective-snow potential flag, not a lightning forecast.
+ * Convective snow is a profile-only potential flag: diagnosed snow/wet snow,
+ * a terrain-to-3-km lapse rate >= 6.5 C/km, and mean RH >= 80% in the
+ * dendritic-growth zone (-18 to -12 C). It is not a lightning forecast.
  */
 export function terrainPrecipitationType(profile: ProfilePoint[], terrainM: number): TerrainPrecipType | null {
   const prepared = terrainProfile(profile, terrainM);
@@ -193,9 +186,7 @@ export function terrainPrecipitationType(profile: ProfilePoint[], terrainM: numb
     if (coldDM >= ICE_PELLET_REFREEZE_DM) {
       return result('ice-pellets', 'Ice pellets', '🧊', `${approximate}Warm layer aloft · refreezing below`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
     }
-    if (warmDM >= FULL_MELTING_DM || coldDM < ICE_PELLET_REFREEZE_DM) {
-      return result('freezing-rain', 'Freezing rain', '⚠', `${approximate}Melted aloft · shallow surface cold layer`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
-    }
+    return result('freezing-rain', 'Freezing rain', '⚠', `${approximate}Melted aloft · shallow surface cold layer`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
   }
 
   if (warmDM < FULL_MELTING_DM && surfaceTw <= 1.2) {
