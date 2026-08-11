@@ -22,7 +22,6 @@ export interface TerrainPrecipType {
   refreezingDegreeMetres: number;
   terrainTempC: number | null;
   terrainRhPct: number | null;
-  convectiveSnow: boolean;
 }
 
 const WARM_NODE_C = 0.2;
@@ -128,36 +127,25 @@ function result(
   const diagnostics = terrainDiagnostics(profile, terrainM);
   const terrainTempC = diagnostics?.tempC ?? null;
   const terrainRhPct = diagnostics?.rhPct ?? null;
-  const convectiveSnow = !!diagnostics?.convectiveEnvironment && (key === 'snow' || key === 'wet-snow');
-
   const terrainText = terrainTempC !== null && terrainRhPct !== null
     ? `T ${terrainTempC.toFixed(1)}°C · RH ${Math.round(terrainRhPct)}%`
     : '';
-  const displayLabel = convectiveSnow ? 'Convective snow' : label;
-  const displayIcon = convectiveSnow ? '⚡❄' : icon;
-  const detailParts = [baseDetail, terrainText].filter(Boolean);
 
   return {
     key,
-    label: displayLabel,
-    icon: displayIcon,
-    detail: detailParts.join(' · '),
+    label,
+    icon,
+    detail: [baseDetail, terrainText].filter(Boolean).join(' · '),
     confidence,
     surfaceWetBulbC,
     meltingDegreeMetres,
     refreezingDegreeMetres,
     terrainTempC,
     terrainRhPct,
-    convectiveSnow,
   };
 }
 
-/**
- * Terrain-aware precipitation type from the wet-bulb vertical profile.
- * Convective snow is a profile-only potential flag: diagnosed snow/wet snow,
- * a terrain-to-3-km lapse rate >= 6.5 C/km, and mean RH >= 80% in the
- * dendritic-growth zone (-18 to -12 C). It is not a lightning forecast.
- */
+/** Terrain-aware precipitation type from the wet-bulb vertical profile. */
 export function terrainPrecipitationType(profile: ProfilePoint[], terrainM: number): TerrainPrecipType | null {
   const prepared = terrainProfile(profile, terrainM);
   if (!prepared) return null;
