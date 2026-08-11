@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "13.0.4",
-  "description": "Terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. Shows adaptive snowline contours, terrain temperature and RH in the point label, precipitation type including convective-snow potential, estimated new snow, a 144-hour graph, and forecast soundings.",
+  "version": "13.1.0",
+  "description": "Terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. Shows adaptive snowline contours, an upgraded terrain-aware point forecast card with temperature and RH, precipitation type including convective-snow potential, estimated new snow, a 144-hour graph, and forecast soundings.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
