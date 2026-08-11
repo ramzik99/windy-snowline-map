@@ -1,5 +1,4 @@
 import type { ProfilePoint } from './snowLevel';
-import { terrainDiagnostics } from './terrainDiagnostics';
 
 export type TerrainPrecipTypeKey =
   | 'snow'
@@ -20,8 +19,6 @@ export interface TerrainPrecipType {
   surfaceWetBulbC: number;
   meltingDegreeMetres: number;
   refreezingDegreeMetres: number;
-  terrainTempC: number | null;
-  terrainRhPct: number | null;
 }
 
 const WARM_NODE_C = 0.2;
@@ -116,32 +113,21 @@ function result(
   key: TerrainPrecipTypeKey,
   label: string,
   icon: string,
-  baseDetail: string,
+  detail: string,
   confidence: TerrainPrecipConfidence,
   surfaceWetBulbC: number,
   meltingDegreeMetres: number,
   refreezingDegreeMetres: number,
-  profile: ProfilePoint[],
-  terrainM: number,
 ): TerrainPrecipType {
-  const diagnostics = terrainDiagnostics(profile, terrainM);
-  const terrainTempC = diagnostics?.tempC ?? null;
-  const terrainRhPct = diagnostics?.rhPct ?? null;
-  const terrainText = terrainTempC !== null && terrainRhPct !== null
-    ? `T ${terrainTempC.toFixed(1)}°C · RH ${Math.round(terrainRhPct)}%`
-    : '';
-
   return {
     key,
     label,
     icon,
-    detail: [baseDetail, terrainText].filter(Boolean).join(' · '),
+    detail,
     confidence,
     surfaceWetBulbC,
     meltingDegreeMetres,
     refreezingDegreeMetres,
-    terrainTempC,
-    terrainRhPct,
   };
 }
 
@@ -160,26 +146,26 @@ export function terrainPrecipitationType(profile: ProfilePoint[], terrainM: numb
   const approximate = confidence === 'low' ? '~ ' : '';
 
   if (warmDM < MIN_MELTING_DM) {
-    if (surfaceTw <= -0.7) return result('snow', 'Snow', '❄', `${approximate}Cold column`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
-    if (surfaceTw <= 0.6) return result('wet-snow', 'Wet snow', '❄', `${approximate}Near-melting snow`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
-    return result('mix', 'Rain / snow mix', '🌨', `${approximate}Marginal melting near terrain`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
+    if (surfaceTw <= -0.7) return result('snow', 'Snow', '❄', `${approximate}Cold column`, confidence, surfaceTw, warmDM, coldDM);
+    if (surfaceTw <= 0.6) return result('wet-snow', 'Wet snow', '❄', `${approximate}Near-melting snow`, confidence, surfaceTw, warmDM, coldDM);
+    return result('mix', 'Rain / snow mix', '🌨', `${approximate}Marginal melting near terrain`, confidence, surfaceTw, warmDM, coldDM);
   }
 
   if (warmDM < PARTIAL_MELTING_DM) {
-    if (surfaceTw <= 0.3) return result('wet-snow', 'Wet snow', '❄', `${approximate}Partial melting`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
-    return result('mix', 'Rain / snow mix', '🌨', `${approximate}Partial melting`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
+    if (surfaceTw <= 0.3) return result('wet-snow', 'Wet snow', '❄', `${approximate}Partial melting`, confidence, surfaceTw, warmDM, coldDM);
+    return result('mix', 'Rain / snow mix', '🌨', `${approximate}Partial melting`, confidence, surfaceTw, warmDM, coldDM);
   }
 
   if (surfaceTw <= 0 && warmDM >= PARTIAL_MELTING_DM) {
     if (coldDM >= ICE_PELLET_REFREEZE_DM) {
-      return result('ice-pellets', 'Ice pellets', '🧊', `${approximate}Warm layer aloft · refreezing below`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
+      return result('ice-pellets', 'Ice pellets', '🧊', `${approximate}Warm layer aloft · refreezing below`, confidence, surfaceTw, warmDM, coldDM);
     }
-    return result('freezing-rain', 'Freezing rain', '⚠', `${approximate}Melted aloft · shallow surface cold layer`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
+    return result('freezing-rain', 'Freezing rain', '⚠', `${approximate}Melted aloft · shallow surface cold layer`, confidence, surfaceTw, warmDM, coldDM);
   }
 
   if (warmDM < FULL_MELTING_DM && surfaceTw <= 1.2) {
-    return result('mix', 'Rain / snow mix', '🌨', `${approximate}Incomplete melting`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
+    return result('mix', 'Rain / snow mix', '🌨', `${approximate}Incomplete melting`, confidence, surfaceTw, warmDM, coldDM);
   }
 
-  return result('rain', 'Rain', '🌧', `${approximate}Melted before reaching terrain`, confidence, surfaceTw, warmDM, coldDM, profile, terrainM);
+  return result('rain', 'Rain', '🌧', `${approximate}Melted before reaching terrain`, confidence, surfaceTw, warmDM, coldDM);
 }
