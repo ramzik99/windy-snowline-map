@@ -61,12 +61,12 @@
       <span><i class="z"></i>0°C</span>
     </div>
     <div class="stats">
-      <span><small>Surface Tw</small><b>{sounding.surfaceTw}</b></span>
+      <span><small>Terrain Tw</small><b>{sounding.surfaceTw}</b></span>
       <span><small>Snowline</small><b>{sounding.snowline}</b></span>
-      <span><small>Warm energy</small><b>{sounding.warmEnergy}</b></span>
-      <span><small>Cold energy</small><b>{sounding.coldEnergy}</b></span>
+      <span><small>Warm layer</small><b>{sounding.warmEnergy}</b></span>
+      <span><small>Cold layer</small><b>{sounding.coldEnergy}</b></span>
     </div>
-    <div class="hint">Sounding explains the current phase · wheel / pinch / +/- to zoom · drag to pan</div>
+    <div class="hint">Phase diagnosis uses the selected time · wheel / pinch / +/- to zoom · drag to pan</div>
   {:else}
     <div class="empty">Sounding unavailable for this forecast time.</div>
   {/if}
@@ -77,6 +77,7 @@
   import store from '@windy/store';
   import { buildProfile, wetBulbZeroHeight, type ProfilePoint } from './snowLevel';
   import { terrainPrecipitationType } from './precipType';
+  import { terrainDiagnostics } from './terrainDiagnostics';
   import { precipMmAt, PRECIP_THRESHOLD_MM_H } from './precip';
 
   export let point: any;
@@ -259,10 +260,11 @@
     const snowlineY = snowlineM !== null && snowlineM >= bottomH && snowlineM <= topH ? y(snowlineM) : null;
     const precip = precipMmAt(p.forecast, idx);
     const hasPrecip = precip !== null && precip >= PRECIP_THRESHOLD_MM_H;
+    const diagnostics = terrain !== null && Number.isFinite(terrain) ? terrainDiagnostics(profile, terrain) : null;
     const phase = hasPrecip && terrain !== null && Number.isFinite(terrain) ? terrainPrecipitationType(profile, terrain) : null;
     return {
       tempPoints, dewPoints, wetBulbPoints, nodes, tempGrid, pressureGrid, terrainY, snowlineY,
-      surfaceTw: phase ? `${phase.surfaceWetBulbC.toFixed(1)}°C` : '—',
+      surfaceTw: diagnostics ? `${diagnostics.extrapolated ? '~' : ''}${diagnostics.wetBulbC.toFixed(1)}°C` : '—',
       snowline: snowlineM !== null ? `${Math.round(snowlineM / 10) * 10} m` : '—',
       warmEnergy: phase ? `${Math.round(phase.meltingDegreeMetres)} °C·m` : '—',
       coldEnergy: phase ? `${Math.round(phase.refreezingDegreeMetres)} °C·m` : '—',
