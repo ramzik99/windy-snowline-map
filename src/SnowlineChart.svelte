@@ -119,7 +119,7 @@
     <div class="outlook24">
       <b>Next 24 h</b>
       <span>{chart.min24Snowline !== null ? `Min snowline ${chart.min24Snowline} m` : 'Snowline unavailable'} · New snow {formatNewSnowCm(chart.newSnow24h)}</span>
-      {#if chart.nextChangeLabel && chart.nextChangeTime !== null}<button type="button" title="Jump to this change" on:click={() => setTimeline(chart!.nextChangeTime!)}>{chart.nextChangeLabel} →</button>{/if}
+      {#if chart.nextChangeLabel && chart.nextChangeTime !== null}<button type="button" title="Jump to this change" on:click={jumpToNextChange}>{chart.nextChangeLabel} →</button>{/if}
     </div>
     {#if crossing?.summary}<div class="note">{crossing.summary}</div>{/if}
     <div class="hint">Tap graph for values · use Sounding to explain the selected time</div>
@@ -188,6 +188,7 @@
   function stopDrag(event: PointerEvent) { if (event.pointerId === dragPointerId) dragPointerId = null; window.removeEventListener('pointermove', dragMove); }
   function setTimeline(time: number) { if (!Number.isFinite(time)) return; try { (store as any).set('timestamp', time); timestamp = time; tooltip = null; } catch {} }
   function jumpToCrossing(time: number) { setTimeline(time); }
+  function jumpToNextChange() { const time = chart?.nextChangeTime; if (time !== null && time !== undefined) setTimeline(time); }
   function resetToNow() { if (!point?.times?.length) return; realNow = Date.now(); setTimeline(point.times[nearestIndex(point.times, realNow)]); }
 
   function buildBlocks(p: any, phases: (TerrainPrecipType | null)[], x: (t: number) => number, spacing: number): Block[] {
