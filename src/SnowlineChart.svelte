@@ -50,9 +50,7 @@
 
         <text x="42" y="205" class="section-label phase-title">PRECIPITATION TYPE</text>
         <rect x="42" y="211" width="306" height="25" rx="7" class="band-bg phase-base" />
-        {#each chart.phaseBlocks as block}
-          <rect x={block.x} y="212" width={block.width} height="23" rx="2.8" class={`phase-block phase-${block.key}`} />
-        {/each}
+        {#each chart.phaseBlocks as block}<rect x={block.x} y="212" width={block.width} height="23" rx="2.8" class={`phase-block phase-${block.key}`} />{/each}
 
         <g class="phase-legend-svg">
           <rect x="42" y="244" width="7" height="7" rx="1.5" class="phase-snow"/><text x="52" y="250">Snow</text>
@@ -118,9 +116,13 @@
       </div>
     </div>
 
-    <div class="outlook24"><b>Next 24 h</b><span>{chart.min24Snowline !== null ? `Min snowline ${chart.min24Snowline} m` : 'Snowline unavailable'} · New snow {formatNewSnowCm(chart.newSnow24h)}</span>{#if chart.nextChangeLabel}<em>{chart.nextChangeLabel}</em>{/if}</div>
+    <div class="outlook24">
+      <b>Next 24 h</b>
+      <span>{chart.min24Snowline !== null ? `Min snowline ${chart.min24Snowline} m` : 'Snowline unavailable'} · New snow {formatNewSnowCm(chart.newSnow24h)}</span>
+      {#if chart.nextChangeLabel && chart.nextChangeTime !== null}<button type="button" title="Jump to this change" on:click={() => setTimeline(chart!.nextChangeTime!)}>{chart.nextChangeLabel} →</button>{/if}
+    </div>
     {#if crossing?.summary}<div class="note">{crossing.summary}</div>{/if}
-    <div class="hint">Tap graph for values · sounding explains the selected forecast time</div>
+    <div class="hint">Tap graph for values · use Sounding to explain the selected time</div>
   {:else}
     <div class="empty">Wintry forecast unavailable.</div>
   {/if}
@@ -165,7 +167,7 @@
     minLabel: string; midLabel: string; maxLabel: string; startLabel: string; currentSnowline: number | null; currentTerrainDifference: number | null; currentPosition: string;
     currentPrecip: number | null; currentPhase: TerrainPrecipType | null; currentNewSnow: number; precipBars: Bar[]; hasPrecip: boolean; precipMaxLabel: string;
     minScale: number; maxScale: number; validLabel: string; phaseBlocks: Block[]; phaseSummary: string; newSnowPoints: string; newSnowArea: string; newSnowMax: number; newSnowMaxLabel: string; cumulativeNewSnow: number[];
-    min24Snowline: number | null; newSnow24h: number; nextChangeLabel: string;
+    min24Snowline: number | null; newSnow24h: number; nextChangeLabel: string; nextChangeTime: number | null;
   };
 
   $: crossing = terrainCrossingState(point, terrainM, timestamp);
@@ -248,12 +250,14 @@
     }
     const currentKey = phases[currentIndex]?.key ?? null;
     let nextChangeLabel = '';
+    let nextChangeTime:number|null = null;
     for (let i = currentIndex + 1; i < p.times.length && p.times[i] <= end24; i++) {
       const candidate = phases[i]?.key ?? null;
       if (candidate === currentKey) continue;
       const check = [i, i + 1, i + 2].filter(j => j < p.times.length && p.times[j] <= end24);
       if (!check.length || !check.every(j => (phases[j]?.key ?? null) === candidate)) continue;
       nextChangeLabel = `${phaseName(currentKey)} → ${phaseName(candidate)} · ${formatShortTime(p.times[i])}`;
+      nextChangeTime = p.times[i];
       break;
     }
 
@@ -266,7 +270,7 @@
       currentPhase: phases[currentIndex], currentNewSnow: cumulativeNewSnow[currentIndex] ?? 0, precipBars, hasPrecip: validPrecip.some(v => v >= PRECIP_THRESHOLD_MM_H),
       precipMaxLabel: precipMax ? formatPrecipMm(precipMax) : '—', minScale: min, maxScale: max, validLabel: `Valid ${formatTooltipTime(currentTime)} · ${formatRun(p.runTime)}`,
       phaseBlocks: buildBlocks(p, phases, x, spacing), phaseSummary: phaseSummary(phases, precipValues, cumulativeNewSnow), newSnowPoints, newSnowArea, newSnowMax, newSnowMaxLabel: formatNewSnowCm(newSnowMax).replace(' cm', ''), cumulativeNewSnow,
-      min24Snowline, newSnow24h: Math.max(0, newSnow24h), nextChangeLabel,
+      min24Snowline, newSnow24h: Math.max(0, newSnow24h), nextChangeLabel, nextChangeTime,
     };
   }
 
@@ -320,7 +324,7 @@
   .plot-wrap{position:relative;margin-top:5px}svg{display:block;width:100%;height:auto;overflow:visible;touch-action:none}.plot-bg,.band-bg{fill:rgba(255,255,255,.022);stroke:rgba(104,151,177,.22);stroke-width:1}.terrain-zone{fill:rgba(55,190,232,.085)}.grid{stroke:rgba(160,196,216,.13)}.axis{fill:#8fa1ac;font-size:8px;font-family:sans-serif}.section-label{fill:#cbd8df;font-size:6.8px;font-family:sans-serif;font-weight:800;letter-spacing:.35px}.section-label tspan{fill:#657681;font-weight:500}.snowline-title{fill:#cfeefb}.precip-title,.precip-axis{fill:#64d4f5}.phase-title{fill:#d9c75e}.snow-title,.snow-axis{fill:#82e398}.terrain-line{stroke:#ffae56;stroke-width:1.5;stroke-dasharray:5 4}.terrain-tag{fill:#ffbd75;font-size:6px;font-family:sans-serif}.snowline-line{fill:none;stroke:#65d5ff;stroke-width:2.7;stroke-linecap:round;stroke-linejoin:round}.min24-line{stroke:#9fe9ff;stroke-width:1;stroke-dasharray:2 3}.min24-dot{fill:#0d151b;stroke:#9fe9ff;stroke-width:2}.min24-tag{fill:#bdefff;font-size:5.8px;font-family:sans-serif;font-weight:800}.now-line{stroke:#ff6658;stroke-width:1.25}.now-tag-bg{fill:#ff6658}.now-tag{fill:#fff;font-size:7px;font-family:sans-serif;font-weight:800}.cursor{stroke:#b9c6cd;stroke-width:1;stroke-dasharray:2 3}.current-dot{fill:#fff;stroke:#65d5ff;stroke-width:2.3}.crossing-line{stroke:#ffe05b;stroke-width:1.3;stroke-dasharray:3 3;cursor:pointer}.crossing-dot{fill:#12191f;stroke:#ffe05b;stroke-width:2.1;cursor:pointer}.inspect-line{stroke:#83939d}.precip-bar{fill:#3f9fbe;opacity:.72}.precip-bar.wet{fill:#67d6f5;opacity:.96}.phase-base{fill:#0b1419}.phase-block{opacity:.94}.phase-snow{fill:#f4f7fb}.phase-wet-snow{fill:#6bd47f}.phase-mix{fill:#f2d84f}.phase-rain{fill:#4f82ff}.phase-ice-pellets{fill:#a8753e}.phase-freezing-rain{fill:#a867e8}.phase-legend-svg text{fill:#aebcc4;font-size:5.5px;font-family:sans-serif}.new-snow-area{fill:#82e398;opacity:.16}.new-snow-line{fill:none;stroke:#82e398;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.empty-band{fill:#778993;font-size:7px;font-family:sans-serif}
   .tooltip{position:absolute;z-index:4;min-width:176px;transform:translateX(-50%);padding:7px 9px;border-radius:9px;background:rgba(5,12,17,.99);border:1px solid rgba(98,213,255,.25);box-shadow:0 7px 20px rgba(0,0,0,.44);pointer-events:none}.tooltip>b{display:block;font-size:8.8px}.tooltip>strong{display:flex;align-items:center;gap:5px;margin:4px 0 5px;font-size:9.2px}.tip-phase-dot,.current-phase-dot{display:inline-block;width:8px;height:8px;border-radius:2px;flex:0 0 auto}.tip-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px 9px}.tip-grid span{font-size:7.3px;color:#8fa0aa}.tip-grid b{color:#eaf3f7;font-weight:800}.text-snow{color:#f4f7fb}.text-wet-snow{color:#6bd47f}.text-mix{color:#f2d84f}.text-rain{color:#4f82ff}.text-ice-pellets{color:#c08a50}.text-freezing-rain{color:#bf83f4}
   .current-card{margin-top:3px;padding:7px;border:1px solid rgba(255,255,255,.07);border-left:3px solid rgba(255,255,255,.28);border-radius:9px;background:rgba(255,255,255,.028)}.active-snow{border-left-color:#f4f7fb}.active-wet-snow{border-left-color:#6bd47f}.active-mix{border-left-color:#f2d84f}.active-rain{border-left-color:#4f82ff}.active-ice-pellets{border-left-color:#a8753e}.active-freezing-rain{border-left-color:#a867e8}.current-type{text-align:center}.current-type b{display:flex;align-items:center;justify-content:center;gap:6px;font-size:11px}.current-type strong{display:block;margin-top:3px;color:#81dfff;font-size:7.3px}.metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:4px;margin-top:6px}.metrics span{padding:5px 2px;border-radius:7px;background:rgba(255,255,255,.035);text-align:center;min-width:0}.metrics small{display:block;color:#7f909a;font-size:5.8px}.metrics b{display:block;margin-top:1px;font-size:7px;white-space:nowrap}
-  .outlook24{display:grid;grid-template-columns:auto 1fr;gap:2px 8px;margin-top:6px;padding:6px 8px;border-radius:8px;background:rgba(98,213,255,.06);border:1px solid rgba(98,213,255,.11)}.outlook24>b{grid-row:1/3;color:#8fdfff;font-size:7px;text-transform:uppercase;letter-spacing:.3px}.outlook24 span{color:#dceaf0;font-size:7.5px;font-weight:700}.outlook24 em{color:#f1d67d;font-size:7px;font-style:normal;font-weight:700}
+  .outlook24{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;margin-top:6px;padding:6px 8px;border-radius:8px;background:rgba(98,213,255,.06);border:1px solid rgba(98,213,255,.11)}.outlook24>b{grid-row:1/3;color:#8fdfff;font-size:7px;text-transform:uppercase;letter-spacing:.3px}.outlook24 span{color:#dceaf0;font-size:7.5px;font-weight:700}.outlook24 button{justify-self:start;padding:2px 0;border:0;background:transparent;color:#f1d67d;font-size:7px;font-weight:800;cursor:pointer}.outlook24 button:hover{color:#fff2ae;text-decoration:underline}
   .note{margin-top:4px;color:#d7bc4e;font-size:7.2px;text-align:center}.hint{margin-top:5px;color:#66757e;font-size:6.7px;text-align:center}.empty{padding:25px 8px;text-align:center;color:#8a9aa4;font-size:10px}
-  @media(max-width:520px){.chart-shell{width:calc(100vw - 12px);padding:9px;border-radius:12px}.png-button{display:none!important}.chart-title small,.chart-title em{max-width:180px}.metrics{gap:3px}.metrics small{font-size:5.3px}.metrics b{font-size:6.4px}.tooltip{min-width:158px}.outlook24 span,.outlook24 em{font-size:6.6px}}
+  @media(max-width:520px){.chart-shell{width:calc(100vw - 12px);padding:9px;border-radius:12px}.png-button{display:none!important}.chart-title small,.chart-title em{max-width:180px}.metrics{gap:3px}.metrics small{font-size:5.3px}.metrics b{font-size:6.4px}.tooltip{min-width:158px}.outlook24 span,.outlook24 button{font-size:6.6px}}
 </style>
