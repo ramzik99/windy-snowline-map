@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "13.1.1",
-  "description": "Terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. Shows adaptive snowline contours, terrain temperature and RH in the point label, precipitation type including convective-snow potential, estimated new snow, a 144-hour graph, and forecast soundings.",
+  "version": "13.2.0",
+  "description": "Stable terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. Shows adaptive snowline contours, terrain-aware precipitation type with convective-snow potential, estimated new snow, a 144-hour graph, forecast soundings, search, favourites, and sharing.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
@@ -9,7 +9,24 @@
     "build:win": "rmdir /s /q dist && mkdir dist && set SERVE=false && rollup -c && copy package.json dist\\",
     "start": "rollup -w -c"
   },
-  "keywords": ["windy","meteorology","snow","wet-bulb","snow-line","snowline","wintry forecast","mountain weather","freezing rain","ice pellets","sleet","new snow","forecast sounding","convective snow","terrain temperature","relative humidity"],
+  "keywords": [
+    "windy",
+    "meteorology",
+    "snow",
+    "wet-bulb",
+    "snow-line",
+    "snowline",
+    "wintry forecast",
+    "mountain weather",
+    "freezing rain",
+    "ice pellets",
+    "sleet",
+    "new snow",
+    "forecast sounding",
+    "convective snow",
+    "terrain temperature",
+    "relative humidity"
+  ],
   "license": "MIT",
   "dependencies": {
     "@windycom/plugin-devtools": "^3.0.3"
