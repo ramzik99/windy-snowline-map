@@ -75,7 +75,7 @@ export function estimateNewSnowStep(
 
 export function formatNewSnowCm(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return '—';
-  if (value < 0.05) return '0 cm';
+  if (value < 0.05) return 'None';
   if (value < 10) return `${value.toFixed(1).replace(/\.0$/, '')} cm`;
   return `${Math.round(value)} cm`;
 }
