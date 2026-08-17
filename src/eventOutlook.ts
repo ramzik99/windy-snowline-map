@@ -1,7 +1,9 @@
 import { buildProfile, wetBulbZeroHeight } from './snowLevel';
 import { precipMmAt, PRECIP_THRESHOLD_MM_H } from './precip';
-import { terrainPrecipitationType, type TerrainPrecipType, type TerrainPrecipTypeKey } from './precipType';
+import { terrainPrecipitationType, type TerrainPrecipConfidence, type TerrainPrecipType, type TerrainPrecipTypeKey } from './precipType';
 import { estimateNewSnowStep } from './snowAccum';
+
+export type EventConfidence = 'high' | 'medium' | 'low';
 
 export interface WintryEventSummary {
   startTime: number;
@@ -11,11 +13,13 @@ export interface WintryEventSummary {
   minSnowlineM: number | null;
   newSnowCm: number;
   dominantPhase: TerrainPrecipType;
+  confidence: EventConfidence;
   activeNow: boolean;
 }
 
 const MAX_EVENT_GAP_HOURS = 3;
 const WINTRY_KEYS = new Set<TerrainPrecipTypeKey>(['snow', 'wet-snow', 'mix', 'ice-pellets', 'freezing-rain']);
+const CONFIDENCE_SCORE: Record<TerrainPrecipConfidence, number> = { low: 1, medium: 2, high: 3 };
 
 function nearestIndex(times: number[], target: number): number {
   let best = 0;
@@ -36,13 +40,24 @@ function diagnosedPhase(point: any, index: number, terrainM: number): TerrainPre
   return terrainPrecipitationType(buildProfile(point.forecast, index), terrainM);
 }
 
-/**
- * Summarise the next terrain-relevant wintry precipitation event.
- *
- * This deliberately reuses the plugin's existing profile precipitation-type,
- * snowline and new-snow diagnostics. It does not introduce a new forecast
- * model or an arbitrary uncertainty layer.
- */
+function aggregateConfidence(event: Array<{ precip: number; phase: TerrainPrecipType }>): EventConfidence {
+  let weight = 0;
+  let score = 0;
+  let lowWeight = 0;
+  for (const step of event) {
+    const w = Math.max(step.precip, PRECIP_THRESHOLD_MM_H);
+    weight += w;
+    score += CONFIDENCE_SCORE[step.phase.confidence] * w;
+    if (step.phase.confidence === 'low') lowWeight += w;
+  }
+  if (!weight) return 'low';
+  const mean = score / weight;
+  if (lowWeight / weight >= 0.35 || mean < 1.65) return 'low';
+  if (mean >= 2.55) return 'high';
+  return 'medium';
+}
+
+/** Summarise the next terrain-relevant wintry precipitation event. */
 export function nextWintryEvent(
   point: any,
   terrainM: number | null,
@@ -83,14 +98,9 @@ export function nextWintryEvent(
   for (const step of event) {
     if (step.precip > peak.precip) peak = step;
     const snowline = wetBulbZeroHeight(buildProfile(point.forecast, step.index)).snowLevelM;
-    if (snowline !== null && Number.isFinite(snowline)) {
-      minSnowlineM = minSnowlineM === null ? snowline : Math.min(minSnowlineM, snowline);
-    }
+    if (snowline !== null && Number.isFinite(snowline)) minSnowlineM = minSnowlineM === null ? snowline : Math.min(minSnowlineM, snowline);
     const current = phaseWeights.get(step.phase.key);
-    phaseWeights.set(step.phase.key, {
-      weight: (current?.weight ?? 0) + Math.max(step.precip, PRECIP_THRESHOLD_MM_H),
-      phase: current?.phase ?? step.phase,
-    });
+    phaseWeights.set(step.phase.key, { weight: (current?.weight ?? 0) + Math.max(step.precip, PRECIP_THRESHOLD_MM_H), phase: current?.phase ?? step.phase });
   }
 
   let dominant = event[0].phase;
@@ -120,6 +130,7 @@ export function nextWintryEvent(
     minSnowlineM: minSnowlineM === null ? null : Math.round(minSnowlineM / 10) * 10,
     newSnowCm: snowpack,
     dominantPhase: dominant,
+    confidence: aggregateConfidence(event),
     activeNow: fromTime >= startTime - 90 * 60_000 && fromTime <= endTime + 90 * 60_000,
   };
 }
