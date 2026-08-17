@@ -4,6 +4,7 @@ on:
   push:
     paths:
       - 'scripts/apply_v20.py'
+      - '.github/workflows/apply-v20.yml'
 
 permissions:
   contents: write
