@@ -46,8 +46,8 @@ t = replace_once(
     'hover position calculation',
 )
 # Replace the old fixed browser-level tooltip with an in-card overlay.
-old_css = '.sounding-hover{position:fixed;z-index:10060;display:grid;grid-template-columns:repeat(3,auto);gap:4px 8px;min-width:145px;padding:7px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(5,10,14,.96);box-shadow:0 8px 22px rgba(0,0,0,.48);pointer-events:none}'
-new_css = '.sounding-hover{position:absolute;z-index:6;top:78px;right:14px;display:grid;grid-template-columns:repeat(3,auto);gap:4px 8px;min-width:145px;max-width:calc(100% - 28px);box-sizing:border-box;padding:7px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(5,10,14,.96);box-shadow:0 8px 22px rgba(0,0,0,.48);pointer-events:none}'
+old_css = '.sounding-hover{position:fixed;z-index:10060;display:grid;grid-template-columns:repeat(3,auto);gap:4px 8px;width:160px;box-sizing:border-box;padding:7px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(5,10,14,.96);box-shadow:0 8px 22px rgba(0,0,0,.48);pointer-events:none}'
+new_css = '.sounding-hover{position:absolute;z-index:6;top:78px;right:14px;display:grid;grid-template-columns:repeat(3,auto);gap:4px 8px;width:160px;max-width:calc(100% - 28px);box-sizing:border-box;padding:7px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(5,10,14,.96);box-shadow:0 8px 22px rgba(0,0,0,.48);pointer-events:none}'
 t = replace_once(t, old_css, new_css, 'hover css')
 # Embedded sounding has no normal header, so place the pinned tooltip a little higher.
 style_anchor = '  .sounding-shell.sounding-embedded{position:relative;left:auto!important;top:auto!important;z-index:auto;width:100%;box-sizing:border-box;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}'
