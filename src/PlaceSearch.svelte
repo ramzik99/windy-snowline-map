@@ -1,9 +1,11 @@
 <div class="place-search">
-  <form on:submit|preventDefault={submitSearch} on:keydown={handleKeydown} on:keyup|stopPropagation>
+  <form on:submit|preventDefault={submitSearch}>
     <div class="search-line">
       <input
         bind:value={query}
         on:input={scheduleSearch}
+        on:keydown={handleKeydown}
+        on:keyup|stopPropagation
         on:focus={() => { if (visibleResults.length || favourites.length) open = true; }}
         aria-label="Search places"
         placeholder="Search place…"

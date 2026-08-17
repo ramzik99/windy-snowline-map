@@ -32,8 +32,8 @@
 {/if}
 
 {#if infoOpen}
-  <div class="info-overlay" role="presentation" on:click={() => infoOpen = false}>
-    <div class="info-window" role="dialog" aria-modal="true" aria-label="How Wintry forecast works" on:click|stopPropagation>
+  <div class="info-overlay" role="presentation" on:click|self={() => infoOpen = false}>
+    <div class="info-window" role="dialog" aria-modal="true" aria-label="How Wintry forecast works">
       <div class="info-head">
         <b>How Wintry forecast works</b>
         <button type="button" aria-label="Close information" title="Close" on:click={() => infoOpen = false}>×</button>

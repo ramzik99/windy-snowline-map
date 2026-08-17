@@ -81,8 +81,8 @@
           <circle cx={chart.currentX} cy={chart.currentY} r="4.2" class="current-dot" />
         {/if}
         {#if chart.crossingX !== null && chart.terrainY !== null && crossing?.crossingTime}
-          <line x1={chart.crossingX} x2={chart.crossingX} y1="34" y2="130" class="crossing-line" on:click|stopPropagation={() => jumpToCrossing(crossing.crossingTime)} />
-          <circle cx={chart.crossingX} cy={chart.terrainY} r="4.8" class="crossing-dot" on:click|stopPropagation={() => jumpToCrossing(crossing.crossingTime)} />
+          <line x1={chart.crossingX} x2={chart.crossingX} y1="34" y2="130" class="crossing-line" />
+          <circle cx={chart.crossingX} cy={chart.terrainY} r="4.8" class="crossing-dot" />
         {/if}
         {#if tooltip}<line x1={tooltip.x} x2={tooltip.x} y1="18" y2="312" class="inspect-line" />{/if}
 
