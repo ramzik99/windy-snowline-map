@@ -5,7 +5,7 @@ const config: ExternalPluginConfig = {
   version: '20.0.0',
   icon: '❄️',
   title: 'Wintry forecast',
-  description: 'Terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. Adaptive snowline contours use a clear major/minor hierarchy, while the concise point card prioritises terrain versus snowline, current precipitation type and a compact next-24-hour outlook. The 144-hour graph shows timing and evolution with clickable phase changes, and the sounding explains the selected phase with terrain wet-bulb and a marked snowline. Includes search, favourites, sharing and desktop PNG export.',
+  description: 'Terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. v20 adds next-event intelligence through +144 h, summarising timing, dominant precipitation type, minimum snowline, peak precipitation and estimated new snow. The simplified point label focuses on current terrain impact and one clear next-event line, with full graph and sounding detail one tap away.',
   author: 'Ramzi Kandah',
   repository: 'https://github.com/ramzik99/wintry-forecast',
   desktopUI: 'embedded',
