@@ -119,8 +119,8 @@
   function nearestIndex(times: number[], target: number): number { let best = 0, dist = Infinity; times.forEach((t, i) => { const d = Math.abs(t - target); if (d < dist) { dist = d; best = i; } }); return best; }
   function formatValid(p: any, target: number): string {
     if (!p?.times?.length) return 'Selected forecast time';
-    const t = p.times[nearestIndex(p.times, target)], d = new Date(t);
-    return `${d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' })} · ${String(d.getUTCHours()).padStart(2, '0')} UTC`;
+    const t = p.times[nearestIndex(p.times, target)];
+    return new Date(t).toLocaleString(undefined, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   }
   function clampPosition(x: number, y: number) { const rect = shell?.getBoundingClientRect(); const w = rect?.width ?? 390, h = rect?.height ?? 520; return { x: Math.max(6, Math.min(window.innerWidth - w - 6, x)), y: Math.max(6, Math.min(window.innerHeight - h - 6, y)) }; }
   function startDrag(event: PointerEvent) { if (!shell) return; dragPointerId = event.pointerId; const rect = shell.getBoundingClientRect(); dragOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top }; window.addEventListener('pointermove', dragMove); window.addEventListener('pointerup', stopDrag, { once: true }); event.preventDefault(); }
