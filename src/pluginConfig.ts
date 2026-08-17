@@ -5,7 +5,7 @@ const config: ExternalPluginConfig = {
   version: '21.0.1',
   icon: '❄️',
   title: 'Wintry forecast',
-  description: 'v21 terrain-aware winter forecast: event confidence and timing, elevation impacts and snow by elevation, saved-place outlooks, Metric/Imperial units, ECMWF freshness, persistent preferences, hazard emphasis, graph and detailed hover/touch sounding inspection.',
+  description: 'Simple terrain-aware winter forecast: snowline, local terrain, precipitation type and amount, next wintry period, forecast graph and detailed hover/touch sounding.',
   author: 'Ramzi Kandah',
   repository: 'https://github.com/ramzik99/wintry-forecast',
   desktopUI: 'embedded',
