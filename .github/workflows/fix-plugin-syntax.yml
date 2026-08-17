@@ -1,0 +1,40 @@
+name: Fix plugin syntax
+
+on:
+  push:
+    paths:
+      - '.github/workflows/fix-plugin-syntax.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Repair Leaflet icon option
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('src/plugin.svelte')
+          text = path.read_text(encoding='utf-8')
+          old = 'zIndexOffset:2000,icon=L.divIcon('
+          new = 'zIndexOffset:2000,icon:L.divIcon('
+          if old not in text:
+              raise SystemExit('Expected malformed icon assignment not found')
+          text = text.replace(old, new, 1)
+          path.write_text(text, encoding='utf-8')
+      - name: Install dependencies
+        run: npm install
+      - name: Build plugin
+        run: npm run build
+      - name: Commit verified fix
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/plugin.svelte
+          git diff --cached --quiet && exit 0
+          git commit -m "Fix Leaflet marker icon syntax"
+          git push
