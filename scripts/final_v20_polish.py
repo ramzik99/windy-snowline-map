@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Trigger final v20 polish workflow.
 p = Path('src/plugin.svelte')
 text = p.read_text(encoding='utf-8')
 
@@ -47,7 +48,6 @@ for old, new in replacements:
         raise SystemExit(f'Expected plugin.svelte text not found: {old[:120]}')
     text = text.replace(old, new, 1)
 
-# Update sharing to use v20 event intelligence instead of the legacy 24 h outlook.
 old = "const point=clickedPoint,[lat,lon]=clickedLatLon,index=nearestIndex(point.times,getStoreTimestamp()),validTime=point.times[index],profile=buildProfile(point.forecast,index),snowline=snowlineAt(point,index),precip=precipMmAt(point.forecast,index),phase=clickedMapElevationM!==null?phaseAt(point,index,clickedMapElevationM):null,outlook=clickedMapElevationM!==null?outlook24(point,index,clickedMapElevationM):null;"
 new = "const point=clickedPoint,[lat,lon]=clickedLatLon,index=nearestIndex(point.times,getStoreTimestamp()),validTime=point.times[index],profile=buildProfile(point.forecast,index),snowline=snowlineAt(point,index),precip=precipMmAt(point.forecast,index),phase=clickedMapElevationM!==null?phaseAt(point,index,clickedMapElevationM):null,event=clickedMapElevationM!==null?nextWintryEvent(point,clickedMapElevationM,validTime):null;"
 if old not in text:
@@ -62,7 +62,6 @@ text = text.replace(old, new, 1)
 
 p.write_text(text, encoding='utf-8')
 
-# README: make the compact point-card content explicit.
 r = Path('README.md')
 readme = r.read_text(encoding='utf-8')
 old = "- A deliberately simplified map label: current precipitation type, terrain relation, snowline and precipitation"
