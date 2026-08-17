@@ -18,7 +18,7 @@
   {#if chart}
     <div class="plot-wrap">
       <svg bind:this={svgEl} viewBox="0 0 360 334" role="img" aria-label="Terrain-aware wintry forecast through 144 hours" on:pointermove={handlePointer} on:pointerdown={handlePointer} on:pointerleave={() => tooltip = null}>
-        <text x="42" y="11" class="section-label snowline-title">SNOWLINE <tspan>m</tspan></text>
+        <text x="42" y="11" class="section-label snowline-title">SNOWLINE <tspan>{units === 'imperial' ? 'ft' : 'm'}</tspan></text>
         <rect x="42" y="18" width="306" height="112" rx="8" class="plot-bg" />
         {#if chart.terrainY !== null}
           <rect x="42" y={chart.terrainY} width="306" height={Math.max(0, 130 - chart.terrainY)} class="terrain-zone" />
@@ -38,7 +38,7 @@
           <text x={Math.max(66, Math.min(325, chart.min24X))} y={Math.max(28, chart.min24Y - 6)} text-anchor="middle" class="min24-tag">24h min</text>
         {/if}
 
-        <text x="42" y="147" class="section-label precip-title">PRECIPITATION <tspan>mm/3h</tspan></text>
+        <text x="42" y="147" class="section-label precip-title">PRECIPITATION <tspan>{units === 'imperial' ? 'in/3h' : 'mm/3h'}</tspan></text>
         <rect x="42" y="153" width="306" height="36" rx="7" class="band-bg" />
         {#if chart.hasPrecip}
           <text x="37" y="159" text-anchor="end" class="axis precip-axis">{chart.precipMaxLabel}</text>
@@ -61,14 +61,14 @@
           <rect x="279" y="244" width="7" height="7" rx="1.5" class="phase-freezing-rain"/><text x="289" y="250">Frz rain</text>
         </g>
 
-        <text x="42" y="278" class="section-label snow-title">NEW SNOW <tspan>est. cm</tspan></text>
+        <text x="42" y="278" class="section-label snow-title">NEW SNOW <tspan>{units === 'imperial' ? 'est. in' : 'est. cm'}</tspan></text>
         <rect x="42" y="284" width="306" height="28" rx="7" class="band-bg" />
         {#if chart.newSnowMax > 0.05}
           <text x="37" y="290" text-anchor="end" class="axis snow-axis">{chart.newSnowMaxLabel}</text>
           <path d={chart.newSnowArea} class="new-snow-area" />
           <polyline points={chart.newSnowPoints} class="new-snow-line" />
         {:else}
-          <text x="195" y="301" text-anchor="middle" class="empty-band">0 cm</text>
+          <text x="195" y="301" text-anchor="middle" class="empty-band">{units === 'imperial' ? '0 in' : '0 cm'}</text>
         {/if}
 
         {#if chart.nowX !== null}
@@ -96,10 +96,10 @@
           <b>{tooltip.timeLabel}</b>
           {#if tooltip.phase}<strong class={`text-${tooltip.phase.key}`}><i class={`tip-phase-dot phase-${tooltip.phase.key}`}></i>{tooltip.phase.label}{tooltip.phase.confidence === 'low' ? ' ~' : ''}</strong>{/if}
           <div class="tip-grid">
-            <span>SL <b>{tooltip.snowline !== null ? `${tooltip.snowline} m` : '—'}</b></span>
-            <span>Precip <b>{tooltip.precip !== null ? `${formatPrecipMm(tooltip.precip)} mm/3h` : '—'}</b></span>
-            <span>New snow <b>{formatNewSnowCm(tooltip.newSnow)}</b></span>
-            {#if terrainM !== null}<span>Terrain <b>{Math.round(terrainM / 10) * 10} m</b></span>{/if}
+            <span>SL <b>{formatElevation(tooltip.snowline, units)}</b></span>
+            <span>Precip <b>{formatPrecip(tooltip.precip, units)}</b></span>
+            <span>New snow <b>{formatSnow(tooltip.newSnow, units)}</b></span>
+            {#if terrainM !== null}<span>Terrain <b>{formatElevation(terrainM, units)}</b></span>{/if}
           </div>
         </div>
       {/if}
@@ -111,28 +111,36 @@
         {#if chart.currentPosition}<strong>{chart.currentPosition}</strong>{/if}
       </div>
       <div class="metrics">
-        <span><small>Snowline</small><b>{chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}</b></span>
-        <span><small>Precip</small><b>{chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}</b></span>
+        <span><small>Snowline</small><b>{formatElevation(chart.currentSnowline, units)}</b></span>
+        <span><small>Precip</small><b>{formatPrecip(chart.currentPrecip, units)}</b></span>
       </div>
     </div>
 
-    <div class="outlook24 event-intelligence">
-      <b>{event?.activeNow ? 'Current wintry event' : 'Next wintry event'}</b>
+    <div class="outlook24 event-intelligence" class:event-hazard={event?.dominantPhase.key === 'freezing-rain' || event?.dominantPhase.key === 'ice-pellets'}>
+      <div class="event-head"><b>{event?.activeNow ? 'Current wintry event' : 'Next wintry event'}</b>{#if event}<i class={`confidence confidence-${event.confidence}`}>{confidenceText(event.confidence)}</i>{/if}</div>
       {#if event}
-        <span>{event.dominantPhase.icon} {event.dominantPhase.label} · {formatEventRange(event.startTime, event.endTime)}</span>
-        <span>Min snowline {event.minSnowlineM !== null ? `${event.minSnowlineM} m` : '—'} · Peak precip {formatPrecipMm(event.peakPrecipMm3h)} mm/3h · New snow {formatNewSnowCm(event.newSnowCm)}</span>
+        <span class="event-phase">{event.dominantPhase.icon} {event.dominantPhase.label} · {formatEventRange(event.startTime, event.endTime)}</span>
+        <span>Min snowline {formatElevation(event.minSnowlineM, units)} · Peak precip {formatPrecip(event.peakPrecipMm3h, units)} · New snow {formatSnow(event.newSnowCm, units)}</span>
+        <div class="event-timeline"><span><small>Start</small>{formatShortTime(event.startTime)}</span><span><small>Peak</small>{formatShortTime(event.peakTime)}</span><span><small>End</small>{formatShortTime(event.endTime)}</span></div>
         {#if !event.activeNow}<button type="button" title="Jump to event start" on:click={jumpToEvent}>Go to event →</button>{/if}
       {:else}
         <span>No terrain-relevant wintry precipitation detected through +144 h.</span>
       {/if}
     </div>
+    {#if elevationOutlook && elevationRows.length}
+      <div class="elevation-impact">
+        <div class="elevation-head"><b>Elevation impact</b>{#if elevationOutlook.snowFavouredAboveM !== null}<span>Snow favoured ≥ {formatElevation(elevationOutlook.snowFavouredAboveM, units)}</span>{/if}</div>
+        {#if elevationOutlook.marginalBandLowM !== null && elevationOutlook.marginalBandHighM !== null}<div class="impact-band">Marginal band {formatElevation(elevationOutlook.marginalBandLowM, units)}–{formatElevation(elevationOutlook.marginalBandHighM, units)}</div>{/if}
+        <div class="elevation-grid">{#each elevationRows as row}<span class:terrain-row={terrainM !== null && Math.abs(row.elevationM-terrainM)<80}><b>{formatElevation(row.elevationM, units)}</b><small>{row.event ? row.event.dominantPhase.label : 'No event'}</small><em>{row.event ? formatSnow(row.event.newSnowCm, units) : '—'}</em></span>{/each}</div>
+      </div>
+    {/if}
     {#if crossing?.summary}<div class="note">{crossing.summary}</div>{/if}
     <div class="hint">Tap graph for values · use Sounding to explain the selected time</div>
   {:else}
     <div class="empty">Wintry forecast unavailable.</div>
   {/if}
   {:else}
-    <SoundingChart {point} {terrainM} {placeName} embedded={true} />
+    <SoundingChart {point} {terrainM} {placeName} units={units} embedded={true} />
   {/if}
 </div>
 
@@ -145,12 +153,15 @@
   import { terrainCrossingState } from './terrainCrossing';
   import { estimateNewSnowStep, formatNewSnowCm } from './snowAccum';
   import { nextWintryEvent } from './eventOutlook';
+  import { elevationImpactOutlook, type ElevationOutlookRow } from './elevationOutlook';
+  import { formatElevation, formatPrecip, formatSnow, type UnitSystem } from './displayUnits';
   import SoundingChart from './SoundingChart.svelte';
 
   export let point: any;
   export let terrainM: number | null = null;
   export let placeName = '';
   export let tab: 'graph' | 'sounding' = 'graph';
+  export let units: UnitSystem = 'metric';
 
   const dispatch = createEventDispatcher<{ close: void }>();
   let timestamp = Date.now();
@@ -178,6 +189,8 @@
 
   $: crossing = terrainCrossingState(point, terrainM, timestamp);
   $: event = nextWintryEvent(point, terrainM, timestamp);
+  $: elevationOutlook = elevationImpactOutlook(point, terrainM, timestamp);
+  $: elevationRows = compactElevationRows(elevationOutlook?.rows ?? [], terrainM);
   $: chart = buildChart(point, terrainM, timestamp, crossing?.crossingTime ?? null, realNow);
 
   function nearestIndex(times: number[], target: number): number { let best = 0, dist = Infinity; times.forEach((t, i) => { const d = Math.abs(t - target); if (d < dist) { dist = d; best = i; } }); return best; }
@@ -187,7 +200,9 @@
   function formatShortTime(time: number): string { return new Date(time).toLocaleString(undefined, { weekday: 'short', hour: '2-digit', minute: '2-digit' }); }
   function formatRun(time: number | null): string { if (!Number.isFinite(Number(time))) return 'ECMWF'; return `ECMWF ${String(new Date(Number(time)).getUTCHours()).padStart(2, '0')}Z`; }
   function phaseName(key: TerrainPrecipTypeKey | null): string { if (!key) return 'Dry'; const labels: Record<TerrainPrecipTypeKey,string> = { snow:'Snow','wet-snow':'Wet snow',mix:'Mix',rain:'Rain','ice-pellets':'Ice pellets','freezing-rain':'Freezing rain' }; return labels[key]; }
-  function terrainPosition(difference: number | null): string { if (difference === null) return ''; const value = Math.round(Math.abs(difference) / 10) * 10; if (difference > 100) return `${value} m above snowline`; if (difference < -100) return `${value} m below snowline`; return 'Terrain near snowline'; }
+  function terrainPosition(difference: number | null): string { if (difference === null) return ''; const value = formatElevation(Math.abs(difference), units); if (difference > 100) return `${value} above snowline`; if (difference < -100) return `${value} below snowline`; return 'Terrain near snowline'; }
+  function confidenceText(value:string){return `${value[0].toUpperCase()}${value.slice(1)} confidence`}
+  function compactElevationRows(rows:ElevationOutlookRow[],terrain:number|null){if(terrain===null||!rows.length)return rows.slice(0,5);return [...rows].sort((a,b)=>Math.abs(a.elevationM-terrain)-Math.abs(b.elevationM-terrain)).slice(0,5).sort((a,b)=>a.elevationM-b.elevationM)}
 
   function clampPosition(x: number, y: number) { const rect = chartShell?.getBoundingClientRect(); const w = rect?.width ?? 430, h = rect?.height ?? 590; return { x: Math.max(6, Math.min(window.innerWidth - w - 6, x)), y: Math.max(6, Math.min(window.innerHeight - h - 6, y)) }; }
   function startDrag(event: PointerEvent) { if (!chartShell) return; dragPointerId = event.pointerId; const rect = chartShell.getBoundingClientRect(); dragOffset = { x: event.clientX - rect.left, y: event.clientY - rect.top }; window.addEventListener('pointermove', dragMove); window.addEventListener('pointerup', stopDrag, { once: true }); event.preventDefault(); }
@@ -275,11 +290,11 @@
       points, terrainY: terrain !== null ? Math.max(top, Math.min(bottom, y(terrain))) : null, currentX: x(currentTime), currentY: currentValue !== null ? y(currentValue) : null,
       nowX: now >= t0 && now <= t1 ? x(now) : null, crossingX: crossingTime !== null ? x(crossingTime) : null,
       min24X: minEntry ? x(p.times[minEntry.i]) : null, min24Y: minEntry ? y(Number(minEntry.value)) : null,
-      minLabel: `${Math.round(min)} m`, midLabel: `${Math.round((min + max) / 2)} m`, maxLabel: `${Math.round(max)} m`, startLabel: new Date(t0).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }),
+      minLabel: formatElevation(min, units), midLabel: formatElevation((min + max) / 2, units), maxLabel: formatElevation(max, units), startLabel: new Date(t0).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric' }),
       currentSnowline: currentValue !== null ? Math.round(currentValue / 10) * 10 : null, currentTerrainDifference, currentPosition: terrainPosition(currentTerrainDifference), currentPrecip: precipValues[currentIndex] ?? null,
       currentPhase: phases[currentIndex], currentNewSnow: cumulativeNewSnow[currentIndex] ?? 0, precipBars, hasPrecip: validPrecip.some(v => v >= PRECIP_THRESHOLD_MM_H),
-      precipMaxLabel: precipMax ? formatPrecipMm(precipMax) : '—', minScale: min, maxScale: max, validLabel: `Valid ${formatTooltipTime(currentTime)} · ${formatRun(p.runTime)}`,
-      phaseBlocks: buildBlocks(p, phases, x, spacing), phaseSummary: phaseSummary(phases, precipValues, cumulativeNewSnow), newSnowPoints, newSnowArea, newSnowMax, newSnowMaxLabel: formatNewSnowCm(newSnowMax).replace(' cm', ''), cumulativeNewSnow,
+      precipMaxLabel: precipMax ? formatPrecip(precipMax, units).replace(/\s*(mm|in)\/3h$/, '') : '—', minScale: min, maxScale: max, validLabel: `Valid ${formatTooltipTime(currentTime)} · ${formatRun(p.runTime)}`,
+      phaseBlocks: buildBlocks(p, phases, x, spacing), phaseSummary: phaseSummary(phases, precipValues, cumulativeNewSnow), newSnowPoints, newSnowArea, newSnowMax, newSnowMaxLabel: formatSnow(newSnowMax, units), cumulativeNewSnow,
       min24Snowline, newSnow24h: Math.max(0, newSnow24h), nextChangeLabel, nextChangeTime,
     };
   }
@@ -310,7 +325,7 @@
       ctx.drawImage(img, 45, 155, 1110, 1030); URL.revokeObjectURL(url);
       let y = 1217; ctx.fillStyle = '#ffffff'; ctx.font = '700 29px Arial'; ctx.fillText(chart.currentPhase ? `${chart.currentPhase.label}${chart.currentPhase.confidence === 'low' ? ' ~' : ''}` : 'Dry', 52, y);
       y += 34; ctx.fillStyle = '#b8c8d1'; ctx.font = '22px Arial';
-      ctx.fillText(`Snowline ${chart.currentSnowline !== null ? `${chart.currentSnowline} m` : '—'}   ·   Precip ${chart.currentPrecip !== null ? `${formatPrecipMm(chart.currentPrecip)} mm/3h` : '—'}`, 52, y);
+      ctx.fillText(`Snowline ${formatElevation(chart.currentSnowline, units)}   ·   Precip ${formatPrecip(chart.currentPrecip, units)}`, 52, y);
       y += 38; ctx.fillStyle = '#dfeaf0'; ctx.font = '700 21px Arial'; ctx.fillText(`Next 24 h · min snowline ${chart.min24Snowline !== null ? `${chart.min24Snowline} m` : '—'} · new snow ${formatNewSnowCm(chart.newSnow24h)}`, 52, y);
       if (chart.nextChangeLabel) { y += 30; ctx.fillStyle = '#e5cf7c'; ctx.font = '700 20px Arial'; ctx.fillText(chart.nextChangeLabel, 52, y); }
       y += 30; ctx.fillStyle = '#8799a4'; ctx.font = '18px Arial'; ctx.fillText('New snow is a terrain-aware forecast estimate from precipitation type and wet-bulb profile; it is not total pre-existing snowpack.', 52, y);
@@ -337,4 +352,6 @@
   .outlook24{display:grid;grid-template-columns:auto 1fr;gap:3px 8px;margin-top:6px;padding:6px 8px;border-radius:8px;background:rgba(98,213,255,.06);border:1px solid rgba(98,213,255,.11)}.outlook24>b{grid-row:1/3;color:#8fdfff;font-size:7px;text-transform:uppercase;letter-spacing:.3px}.outlook24 span{color:#dceaf0;font-size:7.5px;font-weight:700}.outlook24 button{justify-self:start;padding:2px 0;border:0;background:transparent;color:#f1d67d;font-size:7px;font-weight:800;cursor:pointer}.outlook24 button:hover{color:#fff2ae;text-decoration:underline}
   .note{margin-top:4px;color:#d7bc4e;font-size:7.2px;text-align:center}.hint{margin-top:5px;color:#66757e;font-size:6.7px;text-align:center}.empty{padding:25px 8px;text-align:center;color:#8a9aa4;font-size:10px}
   @media(max-width:520px){.chart-shell{width:calc(100vw - 12px);padding:9px;border-radius:12px}.png-button{display:none!important}.chart-title small,.chart-title em{max-width:180px}.metrics{gap:3px}.metrics small{font-size:5.3px}.metrics b{font-size:6.4px}.tooltip{min-width:158px}.outlook24 span,.outlook24 button{font-size:6.6px}}
+
+  .event-head,.elevation-head{display:flex;align-items:center;justify-content:space-between;gap:8px}.confidence{padding:2px 5px;border-radius:8px;font-size:6.5px;font-style:normal;font-weight:850}.confidence-high{background:rgba(96,211,139,.12);color:#87e5aa}.confidence-medium{background:rgba(255,209,84,.12);color:#f5d76d}.confidence-low{background:rgba(255,136,104,.12);color:#ffad96}.event-hazard{border-color:rgba(193,132,255,.38)!important;box-shadow:inset 3px 0 rgba(193,132,255,.8)}.event-timeline{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin-top:3px}.event-timeline span{padding:4px;border-radius:6px;background:rgba(255,255,255,.035);font-size:7px;font-weight:800;text-align:center}.event-timeline small{display:block;margin-bottom:2px;color:#71838d;font-size:5.8px;text-transform:uppercase}.elevation-impact{margin-top:6px;padding:7px;border:1px solid rgba(255,255,255,.08);border-radius:8px;background:rgba(255,255,255,.025)}.elevation-head b{font-size:8px}.elevation-head span,.impact-band{color:#87a7b7;font-size:6.8px}.impact-band{margin-top:3px}.elevation-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;margin-top:5px}.elevation-grid span{padding:4px 2px;border-radius:6px;background:rgba(255,255,255,.035);text-align:center}.elevation-grid span.terrain-row{outline:1px solid rgba(255,190,112,.48);background:rgba(255,174,86,.07)}.elevation-grid b,.elevation-grid small,.elevation-grid em{display:block}.elevation-grid b{font-size:7px}.elevation-grid small{margin-top:2px;color:#9aabb4;font-size:5.7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.elevation-grid em{margin-top:2px;color:#dfeaf0;font-size:6.5px;font-style:normal;font-weight:800}
 </style>

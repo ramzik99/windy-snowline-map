@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "20.0.0",
-  "description": "Terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. v20 adds next-event intelligence through +144 h, summarising timing, dominant precipitation type, minimum snowline, peak precipitation and estimated new snow. The simplified point label now focuses on current terrain impact and one clear next-event line, with full graph and sounding detail one tap away.",
+  "version": "21.0.0",
+  "description": "Terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. v21 is the feature-complete terrain-aware winter forecast: next-event intelligence, confidence, event timeline, elevation impacts and snow by elevation, saved-place outlooks, Metric/Imperial units, model freshness, persistent preferences, hazard emphasis and detailed sounding inspection.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {

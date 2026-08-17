@@ -174,9 +174,20 @@ The repository includes a Windy plugin publishing workflow. Keep the Windy API k
 
 Each published release must use a new version number.
 
+## v21 feature-complete release
+
+- Metric / Imperial display units
+- ECMWF run freshness
+- Event confidence plus Start / Peak / End timeline
+- Elevation-impact guidance and estimated new snow by elevation
+- On-demand next-event outlook for saved places
+- Stronger freezing-rain / ice-pellet hazard emphasis
+- Persistent panel, enable/disable, tab and unit preferences
+- Hover/touch sounding inspection for pressure, height, temperature, dew point and wet bulb
+
 ## Current version
 
-**20.0.0**
+**21.0.0**
 
 ## Author
 

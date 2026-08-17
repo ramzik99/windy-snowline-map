@@ -20,12 +20,12 @@
       <small>At terrain</small><b>{sounding.phaseLabel}</b><em>{sounding.phaseDetail}</em>
     </div>
 
-    <div class="sounding-viewport" bind:this={viewport} tabindex="0" role="group" aria-label="Zoomable forecast sounding" on:wheel|preventDefault={handleWheel} on:pointerdown={startPlotPointer} on:pointermove={movePlotPointer} on:pointerup={endPlotPointer} on:pointercancel={endPlotPointer} on:dblclick={resetZoom} on:keydown={handleViewportKey}>
+    <div class="sounding-viewport" bind:this={viewport} tabindex="0" role="group" aria-label="Zoomable forecast sounding" on:wheel|preventDefault={handleWheel} on:pointerdown={startPlotPointer} on:pointermove={movePlotPointer} on:pointerup={endPlotPointer} on:pointercancel={endPlotPointer} on:pointerleave={() => { if (!plotPointers.size) hoverNode = null; }} on:dblclick={resetZoom} on:keydown={handleViewportKey}>
       <svg bind:this={svgEl} viewBox="0 0 330 390" role="img" aria-label="Temperature, dew point and wet-bulb vertical profile" style={`width:${zoom * 100}%;`}>
         <rect x="48" y="22" width="262" height="320" rx="9" class="plot-bg" />
         {#each sounding.tempGrid as g}
           <line x1={g.x} x2={g.x} y1="22" y2="342" class:zero={g.value === 0} class="temp-grid" />
-          <text x={g.x} y="360" text-anchor="middle" class="axis">{g.value}°</text>
+          <text x={g.x} y="360" text-anchor="middle" class="axis">{units === 'imperial' ? Math.round(g.value*9/5+32) : g.value}°</text>
         {/each}
         {#each sounding.pressureGrid as g}
           <line x1="48" x2="310" y1={g.y} y2={g.y} class="pressure-grid" />
@@ -51,8 +51,15 @@
           <circle cx={n.tx} cy={n.y} r="2.1" class="temp-dot" />
           <circle cx={n.dx} cy={n.y} r="2" class="dew-dot" />
         {/each}
+        {#if hoverNode}
+          <line x1="48" x2="310" y1={hoverNode.y} y2={hoverNode.y} class="hover-level" />
+          <circle cx={hoverNode.tx} cy={hoverNode.y} r="4" class="hover-temp" />
+          <circle cx={hoverNode.dx} cy={hoverNode.y} r="4" class="hover-dew" />
+          <circle cx={hoverNode.wx} cy={hoverNode.y} r="4" class="hover-wet" />
+        {/if}
       </svg>
     </div>
+    {#if hoverNode}<div class="sounding-hover" style={`left:${Math.min(window.innerWidth-180,hoverNode.clientX+12)}px;top:${Math.max(8,hoverNode.clientY-82)}px`}><b>{Math.round(hoverNode.pressure)} hPa · {formatElevation(hoverNode.height,units)}</b><span>T {formatTemperature(hoverNode.temp,units)}</span><span>Td {formatTemperature(hoverNode.dew,units)}</span><span>Tw {formatTemperature(hoverNode.wet,units)}</span></div>{/if}
 
     <div class="key">
       <span><i class="t"></i>Temp</span>
@@ -66,7 +73,7 @@
       <span><small>Warm layer</small><b>{sounding.warmEnergy}</b></span>
       <span><small>Cold layer</small><b>{sounding.coldEnergy}</b></span>
     </div>
-    <div class="hint">Phase diagnosis uses the selected time · wheel / pinch / +/- to zoom · drag to pan</div>
+    <div class="hint">Hover/touch for level details · wheel / pinch / +/- to zoom · drag to pan</div>
   {:else}
     <div class="empty">Sounding unavailable for this forecast time.</div>
   {/if}
@@ -79,11 +86,13 @@
   import { terrainPrecipitationType } from './precipType';
   import { terrainDiagnostics } from './terrainDiagnostics';
   import { precipMmAt, PRECIP_THRESHOLD_MM_H } from './precip';
+  import { formatElevation, formatTemperature, type UnitSystem } from './displayUnits';
 
   export let point: any;
   export let terrainM: number | null = null;
   export let placeName = '';
   export let embedded = false;
+  export let units: UnitSystem = 'metric';
 
   const dispatch = createEventDispatcher<{ close: void }>();
   let timestamp = Date.now();
@@ -102,10 +111,11 @@
   let panPointerId: number | null = null;
   let panStart = { x: 0, y: 0, left: 0, top: 0 };
   let pinchDistance = 0;
+  let hoverNode: {tx:number;dx:number;wx:number;y:number;pressure:number;height:number;temp:number;dew:number;wet:number;clientX:number;clientY:number}|null=null;
 
   type SoundingData = {
     tempPoints: string; dewPoints: string; wetBulbPoints: string;
-    nodes: { tx: number; dx: number; y: number }[];
+    nodes: { tx:number; dx:number; wx:number; y:number; pressure:number; height:number; temp:number; dew:number; wet:number }[];
     tempGrid: { x: number; value: number }[];
     pressureGrid: { y: number; label: string }[];
     terrainY: number | null; snowlineY: number | null;
@@ -174,7 +184,9 @@
       pinchDistance = pointerDistance();
     }
   }
+  function inspectPointer(event:PointerEvent){if(!svgEl||!sounding)return;const rect=svgEl.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)return;const sy=(event.clientY-rect.top)/Math.max(1,rect.height)*390;const n=[...sounding.nodes].sort((a,b)=>Math.abs(a.y-sy)-Math.abs(b.y-sy))[0];if(n)hoverNode={...n,clientX:event.clientX,clientY:event.clientY}}
   function movePlotPointer(event: PointerEvent) {
+    inspectPointer(event);
     if (!viewport || !plotPointers.has(event.pointerId)) return;
     plotPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (plotPointers.size >= 2) {
@@ -247,7 +259,7 @@
     const tempPoints = profile.map(v => `${x(v.tempC).toFixed(1)},${y(v.heightM).toFixed(1)}`).join(' ');
     const dewPoints = profile.map(v => `${x(v.dewpointC).toFixed(1)},${y(v.heightM).toFixed(1)}`).join(' ');
     const wetBulbPoints = profile.map(v => `${x(v.wetBulbC).toFixed(1)},${y(v.heightM).toFixed(1)}`).join(' ');
-    const nodes = profile.map(v => ({ tx: x(v.tempC), dx: x(v.dewpointC), y: y(v.heightM) }));
+    const nodes = profile.map(v => ({ tx:x(v.tempC), dx:x(v.dewpointC), wx:x(v.wetBulbC), y:y(v.heightM), pressure:v.pressureHpa, height:v.heightM, temp:v.tempC, dew:v.dewpointC, wet:v.wetBulbC }));
     const tempGrid: { x: number; value: number }[] = []; for (let t = Math.ceil(minT / 10) * 10; t <= maxT; t += 10) tempGrid.push({ x: x(t), value: t });
     const pressureLevels = [1000, 925, 850, 700, 500, 300, 200];
     const pressureGrid = pressureLevels.map(level => {
@@ -264,8 +276,8 @@
     const phase = hasPrecip && terrain !== null && Number.isFinite(terrain) ? terrainPrecipitationType(profile, terrain) : null;
     return {
       tempPoints, dewPoints, wetBulbPoints, nodes, tempGrid, pressureGrid, terrainY, snowlineY,
-      surfaceTw: diagnostics ? `${diagnostics.extrapolated ? '~' : ''}${diagnostics.wetBulbC.toFixed(1)}°C` : '—',
-      snowline: snowlineM !== null ? `${Math.round(snowlineM / 10) * 10} m` : '—',
+      surfaceTw: diagnostics ? `${diagnostics.extrapolated ? '~' : ''}${formatTemperature(diagnostics.wetBulbC,units)}` : '—',
+      snowline: formatElevation(snowlineM,units),
       warmEnergy: phase ? `${Math.round(phase.meltingDegreeMetres)} °C·m` : '—',
       coldEnergy: phase ? `${Math.round(phase.refreezingDegreeMetres)} °C·m` : '—',
       phaseLabel: phase ? `${phase.icon} ${phase.label}` : 'Dry',
@@ -295,4 +307,6 @@
   .key{display:flex;flex-wrap:wrap;gap:5px 10px;margin:4px 2px 6px;color:#a0b0ba;font-size:7px}.key span{display:flex;align-items:center;gap:4px}.key i{display:inline-block;width:13px;border-top:2px solid}.key .t{border-color:#ff765f}.key .d{border-color:#72d98b}.key .w{border-color:#69d4ff;border-top-style:dashed}.key .z{border-color:#75caef}
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}.stats span{padding:5px 2px;border-radius:7px;background:rgba(255,255,255,.04);text-align:center}.stats small{display:block;color:#71838e;font-size:5.6px}.stats b{display:block;margin-top:2px;font-size:6.7px;white-space:nowrap}.hint{margin-top:6px;color:#60717b;font-size:6.4px;text-align:center}.empty{padding:30px 8px;text-align:center;color:#82939d;font-size:9px}
   @media(max-width:520px){.sounding-shell{width:calc(100vw - 12px);padding:9px}.head small,.head em{max-width:125px}.stats b{font-size:6.3px}.sounding-viewport{max-height:55vh}.actions{gap:2px}.actions button{min-width:24px;height:26px}.actions .png{display:none!important}.actions .zoom-readout{min-width:38px}.phase-banner em{font-size:6.2px}}
+
+  .hover-level{stroke:rgba(255,255,255,.45);stroke-width:.8;stroke-dasharray:2 2}.hover-temp{fill:#0d171d;stroke:#ff765f;stroke-width:2}.hover-dew{fill:#0d171d;stroke:#72d98b;stroke-width:2}.hover-wet{fill:#0d171d;stroke:#69d4ff;stroke-width:2}.sounding-hover{position:fixed;z-index:10060;display:grid;grid-template-columns:repeat(3,auto);gap:4px 8px;min-width:145px;padding:7px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(5,10,14,.96);box-shadow:0 8px 22px rgba(0,0,0,.48);pointer-events:none}.sounding-hover b{grid-column:1/-1;color:#eaf5fa;font-size:8px}.sounding-hover span{color:#aebcc4;font-size:7px;font-weight:750}
 </style>
