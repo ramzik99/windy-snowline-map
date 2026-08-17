@@ -20,6 +20,7 @@
       <small>At terrain</small><b>{sounding.phaseLabel}</b><em>{sounding.phaseDetail}</em>
     </div>
 
+    <!-- svelte-ignore a11y-no-noninteractive-tabindex a11y-no-noninteractive-element-interactions -->
     <div class="sounding-viewport" bind:this={viewport} tabindex="0" role="application" aria-label="Zoomable forecast sounding" on:wheel|preventDefault={handleWheel} on:pointerdown={startPlotPointer} on:pointermove={movePlotPointer} on:pointerup={endPlotPointer} on:pointercancel={endPlotPointer} on:pointerleave={() => { if (!plotPointers.size) hoverNode = null; }} on:dblclick={resetZoom} on:keydown={handleViewportKey}>
       <svg bind:this={svgEl} viewBox="0 0 330 390" role="img" aria-label="Temperature, dew point and wet-bulb vertical profile" style={`width:${zoom * 100}%;`}>
         <rect x="48" y="22" width="262" height="320" rx="9" class="plot-bg" />
