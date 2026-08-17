@@ -6,9 +6,8 @@
       <em>{validLabel}</em>
     </div>{/if}
     <div class="actions">
-      <button class="png" type="button" title="Download sounding PNG" aria-label="Download sounding PNG" disabled={pngBusy} on:click={downloadPng}>{pngBusy ? '…' : 'PNG'}</button>
       <button type="button" title="Zoom out" aria-label="Zoom out" on:click={() => zoomAtCentre(zoom / 1.25)}>−</button>
-      <button class="zoom-readout" type="button" title="Fit sounding" aria-label="Fit sounding" on:click={resetZoom}>{Math.round(zoom * 100)}%</button>
+      <button class="zoom-readout" type="button" title="Fit sounding" aria-label="Fit sounding" on:click={resetZoom}>Fit</button>
       <button type="button" title="Zoom in" aria-label="Zoom in" on:click={() => zoomAtCentre(zoom * 1.25)}>+</button>
       {#if !embedded}<button class="drag" type="button" title="Drag sounding window" aria-label="Drag sounding window" on:pointerdown={startDrag}>↕</button>
       <button type="button" title="Close" aria-label="Close sounding" on:click={() => dispatch('close')}>×</button>{/if}
@@ -72,7 +71,7 @@
       <span><small>Terrain Tw</small><b>{sounding.surfaceTw}</b></span>
       <span><small>Snowline</small><b>{sounding.snowline}</b></span>
     </div>
-    <div class="hint">Hover/touch for level details · wheel / pinch / +/- to zoom · drag to pan</div>
+    <div class="hint">Hover/touch for T, Td and Tw · +/- to zoom · Fit to reset</div>
   {:else}
     <div class="empty">Sounding unavailable for this forecast time.</div>
   {/if}

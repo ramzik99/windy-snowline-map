@@ -6,13 +6,12 @@
       <em>{chart?.validLabel ?? 'ECMWF profile · Windy terrain'}</em>
     </div>
     <div class="chart-actions">
-      {#if tab === 'graph'}<button class="png-button" type="button" title="Download PNG" aria-label="Download PNG" disabled={pngBusy} on:click={downloadPng}>{pngBusy ? '…' : 'PNG'}</button>
-      <button type="button" title="Back to now" aria-label="Back to now" on:click={resetToNow}>Now</button>{/if}
+      {#if tab === 'graph'}<button type="button" title="Back to now" aria-label="Back to now" on:click={resetToNow}>Now</button>{/if}
       <button class="drag-button" type="button" title="Drag graph" aria-label="Drag graph" on:pointerdown={startDrag}>↕</button>
       <button type="button" title="Close" aria-label="Close graph" on:click={() => dispatch('close')}>×</button>
     </div>
   </div>
-  <div class="forecast-tabs" role="tablist" aria-label="Forecast view"><button class:active={tab === 'graph'} type="button" role="tab" aria-selected={tab === 'graph'} on:click={() => tab = 'graph'}>Graph</button><button class:active={tab === 'sounding'} type="button" role="tab" aria-selected={tab === 'sounding'} on:click={() => tab = 'sounding'}>Sounding</button></div>
+  <div class="forecast-tabs" role="tablist" aria-label="Forecast view"><button class:active={tab === 'graph'} type="button" role="tab" aria-selected={tab === 'graph'} on:click={() => tab = 'graph'}>Forecast</button><button class:active={tab === 'sounding'} type="button" role="tab" aria-selected={tab === 'sounding'} on:click={() => tab = 'sounding'}>Sounding</button></div>
 
   {#if tab === 'graph'}
   {#if chart}
@@ -32,11 +31,6 @@
         <text x="37" y="78" text-anchor="end" class="axis">{chart.midLabel}</text>
         <text x="37" y="134" text-anchor="end" class="axis">{chart.minLabel}</text>
         <polyline points={chart.points} class="snowline-line" />
-        {#if chart.min24X !== null && chart.min24Y !== null}
-          <line x1={chart.min24X} x2={chart.min24X} y1={chart.min24Y} y2="130" class="min24-line" />
-          <circle cx={chart.min24X} cy={chart.min24Y} r="3.6" class="min24-dot" />
-          <text x={Math.max(66, Math.min(325, chart.min24X))} y={Math.max(28, chart.min24Y - 6)} text-anchor="middle" class="min24-tag">24h min</text>
-        {/if}
 
         <text x="42" y="147" class="section-label precip-title">PRECIPITATION <tspan>{units === 'imperial' ? 'in/3h' : 'mm/3h'}</tspan></text>
         <rect x="42" y="153" width="306" height="36" rx="7" class="band-bg" />
@@ -80,10 +74,6 @@
           <line x1={chart.currentX} x2={chart.currentX} y1="18" y2="302" class="cursor" />
           <circle cx={chart.currentX} cy={chart.currentY} r="4.2" class="current-dot" />
         {/if}
-        {#if chart.crossingX !== null && chart.terrainY !== null && crossing?.crossingTime}
-          <line x1={chart.crossingX} x2={chart.crossingX} y1="34" y2="130" class="crossing-line" />
-          <circle cx={chart.crossingX} cy={chart.terrainY} r="4.8" class="crossing-dot" />
-        {/if}
         {#if tooltip}<line x1={tooltip.x} x2={tooltip.x} y1="18" y2="302" class="inspect-line" />{/if}
 
         <text x="42" y="320" text-anchor="start" class="axis">{chart.startLabel}</text>
@@ -125,8 +115,7 @@
         <span>No wintry precipitation through +144 h.</span>
       {/if}
     </div>
-    {#if crossing?.summary}<div class="note">{crossing.summary}</div>{/if}
-    <div class="hint">Tap graph for values · use Sounding to explain the selected time</div>
+    <div class="hint">Tap the forecast for values · Sounding shows optional vertical detail</div>
   {:else}
     <div class="empty">Wintry forecast unavailable.</div>
   {/if}

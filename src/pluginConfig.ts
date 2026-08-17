@@ -2,10 +2,10 @@ import type { ExternalPluginConfig } from '@windy/interfaces';
 
 const config: ExternalPluginConfig = {
   name: 'windy-plugin-snowline-map-100m',
-  version: '21.1.0',
+  version: '100.0.0',
   icon: '❄️',
   title: 'Wintry forecast',
-  description: 'Convenient terrain-aware winter forecast: type, terrain, snowline, precipitation, estimated new snow, next wintry-period timing, clear graph and hover/touch sounding.',
+  description: 'v100 convenience-first winter forecast: type, terrain, snowline, precipitation, estimated new snow and timing first; forecast and hover/touch sounding when you want more detail.',
   author: 'Ramzi Kandah',
   repository: 'https://github.com/ramzik99/wintry-forecast',
   desktopUI: 'embedded',

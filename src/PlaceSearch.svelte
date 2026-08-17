@@ -13,7 +13,7 @@
         spellcheck="false"
       />
       <button class="search-button" type="submit" aria-label="Search" title="Search" disabled={searching || query.trim().length < 2}>
-        {searching ? '…' : '⌕'}
+        {searching ? '…' : 'Go'}
       </button>
     </div>
 

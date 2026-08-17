@@ -1,5 +1,9 @@
 # Wintry forecast for Windy
 
+## v100: convenience first
+
+The default interface is designed to answer five questions quickly: **what will fall, where is the snowline, how does terrain compare, how much precipitation/new snow is expected, and when?** Technical detail stays in the Forecast and Sounding tabs.
+
 A Windy.com external plugin for terrain-aware winter-weather guidance using **ECMWF vertical profiles** and **Windy local terrain**.
 
 The plugin follows Windy's forecast timeline out to **+144 hours** and combines a thermal snowline diagnostic with point-based precipitation-type guidance.
@@ -43,10 +47,9 @@ The precipitation-type diagnosis can identify:
 The forecast window contains:
 
 - A **144-hour graph** of snowline, precipitation, precipitation type and estimated new snow
-- **v20 event intelligence**: next/current wintry-event timing, dominant type, minimum snowline, peak precipitation and estimated new snow
+- A compact next/current wintry-period summary with timing, type and estimated new snow
 - A **forecast sounding** with temperature, dew point and wet-bulb temperature
-- Sounding zoom and pan controls
-- PNG export
+- Sounding hover/touch inspection plus simple zoom and fit controls
 
 Forecast valid times are displayed using the device/browser local timezone and locale. ECMWF model-run cycle labels remain in UTC (`Z`).
 
