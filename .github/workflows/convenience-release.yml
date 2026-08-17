@@ -1,0 +1,32 @@
+name: Convenience release
+
+on:
+  push:
+    paths:
+      - 'scripts/convenience_release.py'
+      - '.github/workflows/convenience-release.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Apply convenience release
+        run: python scripts/convenience_release.py
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Build plugin
+        run: npm run build
+      - name: Commit convenience release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/plugin.svelte src/SnowlineChart.svelte src/SoundingChart.svelte package.json src/pluginConfig.ts
+          git commit -m "Release convenient wintry forecast v21.1.0"
+          git push
