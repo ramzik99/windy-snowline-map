@@ -21,7 +21,7 @@
     </div>
 
     <!-- svelte-ignore a11y-no-noninteractive-tabindex a11y-no-noninteractive-element-interactions -->
-    <div class="sounding-viewport" bind:this={viewport} tabindex="0" role="application" aria-label="Zoomable forecast sounding" on:wheel|preventDefault={handleWheel} on:pointerdown={startPlotPointer} on:pointermove={movePlotPointer} on:pointerup={endPlotPointer} on:pointercancel={endPlotPointer} on:pointerleave={() => { if (!plotPointers.size) hoverNode = null; }} on:dblclick={resetZoom} on:keydown={handleViewportKey}>
+    <div class="sounding-viewport" bind:this={viewport} tabindex="0" role="application" aria-label="Zoomable forecast sounding" on:wheel|preventDefault={handleWheel} on:pointerdown={startPlotPointer} on:pointermove={movePlotPointer} on:pointerup={endPlotPointer} on:pointercancel={endPlotPointer} on:pointerleave={leavePlot} on:dblclick={resetZoom} on:keydown={handleViewportKey}>
       <svg bind:this={svgEl} viewBox="0 0 330 390" role="img" aria-label="Temperature, dew point and wet-bulb vertical profile" style={`width:${zoom * 100}%;`}>
         <rect x="48" y="22" width="262" height="320" rx="9" class="plot-bg" />
         {#each sounding.tempGrid as g}
@@ -60,7 +60,7 @@
         {/if}
       </svg>
     </div>
-    {#if hoverNode}<div class="sounding-hover" style={`left:${Math.min(window.innerWidth-180,hoverNode.clientX+12)}px;top:${Math.max(8,hoverNode.clientY-82)}px`}><b>{Math.round(hoverNode.pressure)} hPa · {formatElevation(hoverNode.height,units)}</b><span>T {formatTemperature(hoverNode.temp,units)}</span><span>Td {formatTemperature(hoverNode.dew,units)}</span><span>Tw {formatTemperature(hoverNode.wet,units)}</span></div>{/if}
+    {#if hoverNode}<div class="sounding-hover" style={`left:${hoverNode.tooltipX}px;top:${hoverNode.tooltipY}px`}><b>{Math.round(hoverNode.pressure)} hPa · {formatElevation(hoverNode.height,units)}</b><span>T {formatTemperature(hoverNode.temp,units)}</span><span>Td {formatTemperature(hoverNode.dew,units)}</span><span>Tw {formatTemperature(hoverNode.wet,units)}</span></div>{/if}
 
     <div class="key">
       <span><i class="t"></i>Temp</span>
@@ -112,7 +112,7 @@
   let panPointerId: number | null = null;
   let panStart = { x: 0, y: 0, left: 0, top: 0 };
   let pinchDistance = 0;
-  let hoverNode: {tx:number;dx:number;wx:number;y:number;pressure:number;height:number;temp:number;dew:number;wet:number;clientX:number;clientY:number}|null=null;
+  let hoverNode: {tx:number;dx:number;wx:number;y:number;pressure:number;height:number;temp:number;dew:number;wet:number;tooltipX:number;tooltipY:number}|null=null;
 
   type SoundingData = {
     tempPoints: string; dewPoints: string; wetBulbPoints: string;
@@ -175,6 +175,7 @@
   }
   function startPlotPointer(event: PointerEvent) {
     if (!viewport || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    inspectPointer(event);
     plotPointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     try { viewport.setPointerCapture(event.pointerId); } catch {}
     if (plotPointers.size === 1) {
@@ -185,7 +186,28 @@
       pinchDistance = pointerDistance();
     }
   }
-  function inspectPointer(event:PointerEvent){if(!svgEl||!sounding)return;const rect=svgEl.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)return;const sy=(event.clientY-rect.top)/Math.max(1,rect.height)*390;const n=[...sounding.nodes].sort((a,b)=>Math.abs(a.y-sy)-Math.abs(b.y-sy))[0];if(n)hoverNode={...n,clientX:event.clientX,clientY:event.clientY}}
+  function inspectPointer(event: PointerEvent) {
+    if (!svgEl || !viewport || !sounding?.nodes?.length) return;
+    const rect = svgEl.getBoundingClientRect();
+    const sx = (event.clientX - rect.left) / Math.max(1, rect.width) * 330;
+    const sy = (event.clientY - rect.top) / Math.max(1, rect.height) * 390;
+    if (sx < 48 || sx > 310 || sy < 22 || sy > 342) { if (!plotPointers.size) hoverNode = null; return; }
+    let nearest = sounding.nodes[0], distance = Math.abs(nearest.y - sy);
+    for (let i = 1; i < sounding.nodes.length; i++) {
+      const d = Math.abs(sounding.nodes[i].y - sy);
+      if (d < distance) { nearest = sounding.nodes[i]; distance = d; }
+    }
+    const vr = viewport.getBoundingClientRect();
+    const tooltipWidth = 160, tooltipHeight = 62, gap = 8;
+    const preferRight = vr.right + gap + tooltipWidth <= window.innerWidth - 6;
+    const tooltipX = preferRight ? vr.right + gap : Math.max(6, vr.left - tooltipWidth - gap);
+    const nodeClientY = rect.top + nearest.y / 390 * rect.height;
+    const tooltipY = Math.max(6, Math.min(window.innerHeight - tooltipHeight - 6, nodeClientY - tooltipHeight / 2));
+    hoverNode = { ...nearest, tooltipX, tooltipY };
+  }
+  function leavePlot() {
+    if (!plotPointers.size) hoverNode = null;
+  }
   function movePlotPointer(event: PointerEvent) {
     inspectPointer(event);
     if (!viewport || !plotPointers.has(event.pointerId)) return;
@@ -309,5 +331,5 @@
   .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}.stats span{padding:5px 2px;border-radius:7px;background:rgba(255,255,255,.04);text-align:center}.stats small{display:block;color:#71838e;font-size:5.6px}.stats b{display:block;margin-top:2px;font-size:6.7px;white-space:nowrap}.hint{margin-top:6px;color:#60717b;font-size:6.4px;text-align:center}.empty{padding:30px 8px;text-align:center;color:#82939d;font-size:9px}
   @media(max-width:520px){.sounding-shell{width:calc(100vw - 12px);padding:9px}.head small,.head em{max-width:125px}.stats b{font-size:6.3px}.sounding-viewport{max-height:55vh}.actions{gap:2px}.actions button{min-width:24px;height:26px}.actions .png{display:none!important}.actions .zoom-readout{min-width:38px}.phase-banner em{font-size:6.2px}}
 
-  .hover-level{stroke:rgba(255,255,255,.45);stroke-width:.8;stroke-dasharray:2 2}.hover-temp{fill:#0d171d;stroke:#ff765f;stroke-width:2}.hover-dew{fill:#0d171d;stroke:#72d98b;stroke-width:2}.hover-wet{fill:#0d171d;stroke:#69d4ff;stroke-width:2}.sounding-hover{position:fixed;z-index:10060;display:grid;grid-template-columns:repeat(3,auto);gap:4px 8px;min-width:145px;padding:7px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(5,10,14,.96);box-shadow:0 8px 22px rgba(0,0,0,.48);pointer-events:none}.sounding-hover b{grid-column:1/-1;color:#eaf5fa;font-size:8px}.sounding-hover span{color:#aebcc4;font-size:7px;font-weight:750}
+  .hover-level{stroke:rgba(255,255,255,.58);stroke-width:1;stroke-dasharray:2 2}.hover-temp{fill:#0d171d;stroke:#ff765f;stroke-width:2}.hover-dew{fill:#0d171d;stroke:#72d98b;stroke-width:2}.hover-wet{fill:#0d171d;stroke:#69d4ff;stroke-width:2}.sounding-hover{position:fixed;z-index:10060;display:grid;grid-template-columns:repeat(3,auto);gap:4px 8px;width:160px;box-sizing:border-box;padding:7px 8px;border:1px solid rgba(255,255,255,.16);border-radius:8px;background:rgba(5,10,14,.96);box-shadow:0 8px 22px rgba(0,0,0,.48);pointer-events:none}.sounding-hover b{grid-column:1/-1;color:#eaf5fa;font-size:8px}.sounding-hover span{color:#aebcc4;font-size:7px;font-weight:750}
 </style>
