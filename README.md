@@ -25,7 +25,8 @@ A selected point shows:
 - Position relative to the snowline
 - Precipitation rate
 - Terrain-aware precipitation type when precipitation is present
-- A 3-hour snowline tendency
+- A deliberately simplified map label: current precipitation type, terrain relation, snowline and precipitation
+- A single next-event line for the first terrain-relevant wintry event through +144 h
 - Quick controls for the forecast graph, favourites, sharing and closing
 
 The precipitation-type diagnosis can identify:
@@ -42,6 +43,7 @@ The precipitation-type diagnosis can identify:
 The forecast window contains:
 
 - A **144-hour graph** of snowline, precipitation, precipitation type and estimated new snow
+- **v20 event intelligence**: next/current wintry-event timing, dominant type, minimum snowline, peak precipitation and estimated new snow
 - A **forecast sounding** with temperature, dew point and wet-bulb temperature
 - Sounding zoom and pan controls
 - PNG export
@@ -135,6 +137,7 @@ Use the map contours for spatial context and the point forecast for local detail
 - `src/precip.ts` — precipitation-field selection and normalization
 - `src/precipType.ts` — terrain-aware precipitation-type diagnosis
 - `src/snowAccum.ts` — estimated forecast-created new snow
+- `src/eventOutlook.ts` — v20 next-wintry-event detection and summary
 - `src/terrainCrossing.ts` — snowline/terrain crossing timing
 - `src/contours.ts` — marching-squares contour generation and stitching
 - `src/selectedPrecip.ts` — supplemental ECMWF precipitation loading
@@ -173,7 +176,7 @@ Each published release must use a new version number.
 
 ## Current version
 
-**16.0.3**
+**20.0.0**
 
 ## Author
 

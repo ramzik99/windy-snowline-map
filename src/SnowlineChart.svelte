@@ -116,10 +116,15 @@
       </div>
     </div>
 
-    <div class="outlook24">
-      <b>Next 24 h</b>
-      <span>{chart.min24Snowline !== null ? `Min snowline ${chart.min24Snowline} m` : 'Snowline unavailable'} · New snow {formatNewSnowCm(chart.newSnow24h)}</span>
-      {#if chart.nextChangeLabel && chart.nextChangeTime !== null}<button type="button" title="Jump to this change" on:click={jumpToNextChange}>{chart.nextChangeLabel} →</button>{/if}
+    <div class="outlook24 event-intelligence">
+      <b>{event?.activeNow ? 'Current wintry event' : 'Next wintry event'}</b>
+      {#if event}
+        <span>{event.dominantPhase.icon} {event.dominantPhase.label} · {formatEventRange(event.startTime, event.endTime)}</span>
+        <span>Min snowline {event.minSnowlineM !== null ? `${event.minSnowlineM} m` : '—'} · Peak precip {formatPrecipMm(event.peakPrecipMm3h)} mm/3h · New snow {formatNewSnowCm(event.newSnowCm)}</span>
+        {#if !event.activeNow}<button type="button" title="Jump to event start" on:click={jumpToEvent}>Go to event →</button>{/if}
+      {:else}
+        <span>No terrain-relevant wintry precipitation detected through +144 h.</span>
+      {/if}
     </div>
     {#if crossing?.summary}<div class="note">{crossing.summary}</div>{/if}
     <div class="hint">Tap graph for values · use Sounding to explain the selected time</div>
@@ -139,6 +144,7 @@
   import { terrainPrecipitationType, type TerrainPrecipType, type TerrainPrecipTypeKey } from './precipType';
   import { terrainCrossingState } from './terrainCrossing';
   import { estimateNewSnowStep, formatNewSnowCm } from './snowAccum';
+  import { nextWintryEvent } from './eventOutlook';
   import SoundingChart from './SoundingChart.svelte';
 
   export let point: any;
@@ -171,6 +177,7 @@
   };
 
   $: crossing = terrainCrossingState(point, terrainM, timestamp);
+  $: event = nextWintryEvent(point, terrainM, timestamp);
   $: chart = buildChart(point, terrainM, timestamp, crossing?.crossingTime ?? null, realNow);
 
   function nearestIndex(times: number[], target: number): number { let best = 0, dist = Infinity; times.forEach((t, i) => { const d = Math.abs(t - target); if (d < dist) { dist = d; best = i; } }); return best; }
@@ -189,6 +196,8 @@
   function setTimeline(time: number) { if (!Number.isFinite(time)) return; try { (store as any).set('timestamp', time); timestamp = time; tooltip = null; } catch {} }
   function jumpToCrossing(time: number) { setTimeline(time); }
   function jumpToNextChange() { const time = chart?.nextChangeTime; if (time !== null && time !== undefined) setTimeline(time); }
+  function jumpToEvent() { if (event?.startTime) setTimeline(event.startTime); }
+  function formatEventRange(start:number,end:number){const a=formatShortTime(start),b=new Date(end).toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});return start===end?a:`${a}–${b}`; }
   function resetToNow() { if (!point?.times?.length) return; realNow = Date.now(); setTimeline(point.times[nearestIndex(point.times, realNow)]); }
 
   function buildBlocks(p: any, phases: (TerrainPrecipType | null)[], x: (t: number) => number, spacing: number): Block[] {
