@@ -17,7 +17,7 @@
   {#if tab === 'graph'}
   {#if chart}
     <div class="plot-wrap">
-      <svg bind:this={svgEl} viewBox="0 0 360 334" role="img" aria-label="Terrain-aware wintry forecast through 144 hours" on:pointermove={handlePointer} on:pointerdown={handlePointer} on:pointerleave={() => tooltip = null}>
+      <svg bind:this={svgEl} viewBox="0 0 360 274" role="img" aria-label="Terrain-aware wintry forecast through 144 hours" on:pointermove={handlePointer} on:pointerdown={handlePointer} on:pointerleave={() => tooltip = null}>
         <text x="42" y="11" class="section-label snowline-title">SNOWLINE <tspan>{units === 'imperial' ? 'ft' : 'm'}</tspan></text>
         <rect x="42" y="18" width="306" height="112" rx="8" class="plot-bg" />
         {#if chart.terrainY !== null}
@@ -61,44 +61,33 @@
           <rect x="279" y="244" width="7" height="7" rx="1.5" class="phase-freezing-rain"/><text x="289" y="250">Frz rain</text>
         </g>
 
-        <text x="42" y="278" class="section-label snow-title">NEW SNOW <tspan>{units === 'imperial' ? 'est. in' : 'est. cm'}</tspan></text>
-        <rect x="42" y="284" width="306" height="28" rx="7" class="band-bg" />
-        {#if chart.newSnowMax > 0.05}
-          <text x="37" y="290" text-anchor="end" class="axis snow-axis">{chart.newSnowMaxLabel}</text>
-          <path d={chart.newSnowArea} class="new-snow-area" />
-          <polyline points={chart.newSnowPoints} class="new-snow-line" />
-        {:else}
-          <text x="195" y="301" text-anchor="middle" class="empty-band">{units === 'imperial' ? '0 in' : '0 cm'}</text>
-        {/if}
-
         {#if chart.nowX !== null}
-          <line x1={chart.nowX} x2={chart.nowX} y1="18" y2="312" class="now-line" />
+          <line x1={chart.nowX} x2={chart.nowX} y1="18" y2="236" class="now-line" />
           <rect x={Math.max(43, Math.min(322, chart.nowX - 13))} y="20" width="26" height="12" rx="3" class="now-tag-bg" />
           <text x={Math.max(56, Math.min(335, chart.nowX))} y="29" text-anchor="middle" class="now-tag">Now</text>
         {/if}
         {#if chart.currentX !== null && chart.currentY !== null}
-          <line x1={chart.currentX} x2={chart.currentX} y1="18" y2="312" class="cursor" />
+          <line x1={chart.currentX} x2={chart.currentX} y1="18" y2="236" class="cursor" />
           <circle cx={chart.currentX} cy={chart.currentY} r="4.2" class="current-dot" />
         {/if}
         {#if chart.crossingX !== null && chart.terrainY !== null && crossing?.crossingTime}
           <line x1={chart.crossingX} x2={chart.crossingX} y1="34" y2="130" class="crossing-line" />
           <circle cx={chart.crossingX} cy={chart.terrainY} r="4.8" class="crossing-dot" />
         {/if}
-        {#if tooltip}<line x1={tooltip.x} x2={tooltip.x} y1="18" y2="312" class="inspect-line" />{/if}
+        {#if tooltip}<line x1={tooltip.x} x2={tooltip.x} y1="18" y2="236" class="inspect-line" />{/if}
 
-        <text x="42" y="330" text-anchor="start" class="axis">{chart.startLabel}</text>
-        <text x="195" y="330" text-anchor="middle" class="axis">+72 h</text>
-        <text x="348" y="330" text-anchor="end" class="axis">+144 h</text>
+        <text x="42" y="270" text-anchor="start" class="axis">{chart.startLabel}</text>
+        <text x="195" y="270" text-anchor="middle" class="axis">+72 h</text>
+        <text x="348" y="270" text-anchor="end" class="axis">+144 h</text>
       </svg>
 
       {#if tooltip}
         <div class="tooltip" style={`left:${tooltip.cssX}px;top:${tooltip.cssY}px;`}>
           <b>{tooltip.timeLabel}</b>
-          {#if tooltip.phase}<strong class={`text-${tooltip.phase.key}`}><i class={`tip-phase-dot phase-${tooltip.phase.key}`}></i>{tooltip.phase.label}{tooltip.phase.confidence === 'low' ? ' ~' : ''}</strong>{/if}
+          {#if tooltip.phase}<strong class={`text-${tooltip.phase.key}`}><i class={`tip-phase-dot phase-${tooltip.phase.key}`}></i>{tooltip.phase.label}</strong>{/if}
           <div class="tip-grid">
             <span>SL <b>{formatElevation(tooltip.snowline, units)}</b></span>
             <span>Precip <b>{formatPrecip(tooltip.precip, units)}</b></span>
-            <span>New snow <b>{formatSnow(tooltip.newSnow, units)}</b></span>
             {#if terrainM !== null}<span>Terrain <b>{formatElevation(terrainM, units)}</b></span>{/if}
           </div>
         </div>
@@ -107,7 +96,7 @@
 
     <div class="current-card" class:active-snow={chart.currentPhase?.key === 'snow'} class:active-wet-snow={chart.currentPhase?.key === 'wet-snow'} class:active-mix={chart.currentPhase?.key === 'mix'} class:active-rain={chart.currentPhase?.key === 'rain'} class:active-ice-pellets={chart.currentPhase?.key === 'ice-pellets'} class:active-freezing-rain={chart.currentPhase?.key === 'freezing-rain'}>
       <div class="current-type">
-        <b>{#if chart.currentPhase}<i class={`current-phase-dot phase-${chart.currentPhase.key}`}></i>{chart.currentPhase.label}{chart.currentPhase.confidence === 'low' ? ' ~' : ''}{:else}Dry{/if}</b>
+        <b>{#if chart.currentPhase}<i class={`current-phase-dot phase-${chart.currentPhase.key}`}></i>{chart.currentPhase.label}{:else}Dry{/if}</b>
         {#if chart.currentPosition}<strong>{chart.currentPosition}</strong>{/if}
       </div>
       <div class="metrics">
@@ -116,24 +105,15 @@
       </div>
     </div>
 
-    <div class="outlook24 event-intelligence" class:event-hazard={event?.dominantPhase.key === 'freezing-rain' || event?.dominantPhase.key === 'ice-pellets'}>
-      <div class="event-head"><b>{event?.activeNow ? 'Current wintry event' : 'Next wintry event'}</b>{#if event}<i class={`confidence confidence-${event.confidence}`}>{confidenceText(event.confidence)}</i>{/if}</div>
+    <div class="outlook24 event-intelligence">
+      <b>{event?.activeNow ? 'Current wintry period' : 'Next wintry period'}</b>
       {#if event}
-        <span class="event-phase">{event.dominantPhase.icon} {event.dominantPhase.label} · {formatEventRange(event.startTime, event.endTime)}</span>
-        <span>Min snowline {formatElevation(event.minSnowlineM, units)} · Peak precip {formatPrecip(event.peakPrecipMm3h, units)} · New snow {formatSnow(event.newSnowCm, units)}</span>
-        <div class="event-timeline"><span><small>Start</small>{formatShortTime(event.startTime)}</span><span><small>Peak</small>{formatShortTime(event.peakTime)}</span><span><small>End</small>{formatShortTime(event.endTime)}</span></div>
+        <span>{event.dominantPhase.icon} {event.dominantPhase.label} · {formatEventRange(event.startTime, event.endTime)}</span>
         {#if !event.activeNow}<button type="button" title="Jump to event start" on:click={jumpToEvent}>Go to event →</button>{/if}
       {:else}
-        <span>No terrain-relevant wintry precipitation detected through +144 h.</span>
+        <span>No wintry precipitation through +144 h.</span>
       {/if}
     </div>
-    {#if elevationOutlook && elevationRows.length}
-      <div class="elevation-impact">
-        <div class="elevation-head"><b>Elevation impact</b>{#if elevationOutlook.snowFavouredAboveM !== null}<span>Snow favoured ≥ {formatElevation(elevationOutlook.snowFavouredAboveM, units)}</span>{/if}</div>
-        {#if elevationOutlook.marginalBandLowM !== null && elevationOutlook.marginalBandHighM !== null}<div class="impact-band">Marginal band {formatElevation(elevationOutlook.marginalBandLowM, units)}–{formatElevation(elevationOutlook.marginalBandHighM, units)}</div>{/if}
-        <div class="elevation-grid">{#each elevationRows as row}<span class:terrain-row={terrainM !== null && Math.abs(row.elevationM-terrainM)<80}><b>{formatElevation(row.elevationM, units)}</b><small>{row.event ? row.event.dominantPhase.label : 'No event'}</small><em>{row.event ? formatSnow(row.event.newSnowCm, units) : '—'}</em></span>{/each}</div>
-      </div>
-    {/if}
     {#if crossing?.summary}<div class="note">{crossing.summary}</div>{/if}
     <div class="hint">Tap graph for values · use Sounding to explain the selected time</div>
   {:else}
@@ -153,7 +133,6 @@
   import { terrainCrossingState } from './terrainCrossing';
   import { estimateNewSnowStep, formatNewSnowCm } from './snowAccum';
   import { nextWintryEvent } from './eventOutlook';
-  import { elevationImpactOutlook, type ElevationOutlookRow } from './elevationOutlook';
   import { formatElevation, formatPrecip, formatSnow, type UnitSystem } from './displayUnits';
   import SoundingChart from './SoundingChart.svelte';
 
@@ -189,8 +168,6 @@
 
   $: crossing = terrainCrossingState(point, terrainM, timestamp);
   $: event = nextWintryEvent(point, terrainM, timestamp);
-  $: elevationOutlook = elevationImpactOutlook(point, terrainM, timestamp);
-  $: elevationRows = compactElevationRows(elevationOutlook?.rows ?? [], terrainM);
   $: chart = buildChart(point, terrainM, timestamp, crossing?.crossingTime ?? null, realNow);
 
   function nearestIndex(times: number[], target: number): number { let best = 0, dist = Infinity; times.forEach((t, i) => { const d = Math.abs(t - target); if (d < dist) { dist = d; best = i; } }); return best; }
@@ -201,7 +178,6 @@
   function formatRun(time: number | null): string { if (!Number.isFinite(Number(time))) return 'ECMWF'; return `ECMWF ${String(new Date(Number(time)).getUTCHours()).padStart(2, '0')}Z`; }
   function phaseName(key: TerrainPrecipTypeKey | null): string { if (!key) return 'Dry'; const labels: Record<TerrainPrecipTypeKey,string> = { snow:'Snow','wet-snow':'Wet snow',mix:'Mix',rain:'Rain','ice-pellets':'Ice pellets','freezing-rain':'Freezing rain' }; return labels[key]; }
   function terrainPosition(difference: number | null): string { if (difference === null) return ''; const value = formatElevation(Math.abs(difference), units); if (difference > 100) return `${value} above snowline`; if (difference < -100) return `${value} below snowline`; return 'Terrain near snowline'; }
-  function confidenceText(value:string){return `${value[0].toUpperCase()}${value.slice(1)} confidence`}
   function compactElevationRows(rows:ElevationOutlookRow[],terrain:number|null){if(terrain===null||!rows.length)return rows.slice(0,5);return [...rows].sort((a,b)=>Math.abs(a.elevationM-terrain)-Math.abs(b.elevationM-terrain)).slice(0,5).sort((a,b)=>a.elevationM-b.elevationM)}
 
   function clampPosition(x: number, y: number) { const rect = chartShell?.getBoundingClientRect(); const w = rect?.width ?? 430, h = rect?.height ?? 590; return { x: Math.max(6, Math.min(window.innerWidth - w - 6, x)), y: Math.max(6, Math.min(window.innerHeight - h - 6, y)) }; }
