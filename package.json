@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
-  "version": "21.0.3",
-  "description": "Simple terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. Shows snowline, terrain, precipitation type and amount, the next wintry period, a forecast graph and a detailed sounding.",
+  "version": "21.1.0",
+  "description": "Convenient terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. Shows precipitation type, terrain, snowline, precipitation, estimated new snow, next wintry-period timing, a clear forecast graph and hover/touch sounding.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {

@@ -17,7 +17,7 @@
   {#if tab === 'graph'}
   {#if chart}
     <div class="plot-wrap">
-      <svg bind:this={svgEl} viewBox="0 0 360 274" role="img" aria-label="Terrain-aware wintry forecast through 144 hours" on:pointermove={handlePointer} on:pointerdown={handlePointer} on:pointerleave={() => tooltip = null}>
+      <svg bind:this={svgEl} viewBox="0 0 360 324" role="img" aria-label="Terrain-aware wintry forecast through 144 hours" on:pointermove={handlePointer} on:pointerdown={handlePointer} on:pointerleave={() => tooltip = null}>
         <text x="42" y="11" class="section-label snowline-title">SNOWLINE <tspan>{units === 'imperial' ? 'ft' : 'm'}</tspan></text>
         <rect x="42" y="18" width="306" height="112" rx="8" class="plot-bg" />
         {#if chart.terrainY !== null}
@@ -61,24 +61,34 @@
           <rect x="279" y="244" width="7" height="7" rx="1.5" class="phase-freezing-rain"/><text x="289" y="250">Frz rain</text>
         </g>
 
+        <text x="42" y="268" class="section-label snow-title">NEW SNOW <tspan>{units === 'imperial' ? 'est. in' : 'est. cm'}</tspan></text>
+        <rect x="42" y="274" width="306" height="28" rx="7" class="band-bg" />
+        {#if chart.newSnowMax > 0.05}
+          <text x="37" y="280" text-anchor="end" class="axis snow-axis">{chart.newSnowMaxLabel}</text>
+          <path d={chart.newSnowArea} class="new-snow-area" />
+          <polyline points={chart.newSnowPoints} class="new-snow-line" />
+        {:else}
+          <text x="195" y="291" text-anchor="middle" class="empty-band">{units === 'imperial' ? '0 in' : '0 cm'}</text>
+        {/if}
+
         {#if chart.nowX !== null}
-          <line x1={chart.nowX} x2={chart.nowX} y1="18" y2="236" class="now-line" />
+          <line x1={chart.nowX} x2={chart.nowX} y1="18" y2="302" class="now-line" />
           <rect x={Math.max(43, Math.min(322, chart.nowX - 13))} y="20" width="26" height="12" rx="3" class="now-tag-bg" />
           <text x={Math.max(56, Math.min(335, chart.nowX))} y="29" text-anchor="middle" class="now-tag">Now</text>
         {/if}
         {#if chart.currentX !== null && chart.currentY !== null}
-          <line x1={chart.currentX} x2={chart.currentX} y1="18" y2="236" class="cursor" />
+          <line x1={chart.currentX} x2={chart.currentX} y1="18" y2="302" class="cursor" />
           <circle cx={chart.currentX} cy={chart.currentY} r="4.2" class="current-dot" />
         {/if}
         {#if chart.crossingX !== null && chart.terrainY !== null && crossing?.crossingTime}
           <line x1={chart.crossingX} x2={chart.crossingX} y1="34" y2="130" class="crossing-line" />
           <circle cx={chart.crossingX} cy={chart.terrainY} r="4.8" class="crossing-dot" />
         {/if}
-        {#if tooltip}<line x1={tooltip.x} x2={tooltip.x} y1="18" y2="236" class="inspect-line" />{/if}
+        {#if tooltip}<line x1={tooltip.x} x2={tooltip.x} y1="18" y2="302" class="inspect-line" />{/if}
 
-        <text x="42" y="270" text-anchor="start" class="axis">{chart.startLabel}</text>
-        <text x="195" y="270" text-anchor="middle" class="axis">+72 h</text>
-        <text x="348" y="270" text-anchor="end" class="axis">+144 h</text>
+        <text x="42" y="320" text-anchor="start" class="axis">{chart.startLabel}</text>
+        <text x="195" y="320" text-anchor="middle" class="axis">+72 h</text>
+        <text x="348" y="320" text-anchor="end" class="axis">+144 h</text>
       </svg>
 
       {#if tooltip}
@@ -88,6 +98,7 @@
           <div class="tip-grid">
             <span>SL <b>{formatElevation(tooltip.snowline, units)}</b></span>
             <span>Precip <b>{formatPrecip(tooltip.precip, units)}</b></span>
+            <span>New snow <b>{formatSnow(tooltip.newSnow, units)}</b></span>
             {#if terrainM !== null}<span>Terrain <b>{formatElevation(terrainM, units)}</b></span>{/if}
           </div>
         </div>
@@ -108,7 +119,7 @@
     <div class="outlook24 event-intelligence">
       <b>{event?.activeNow ? 'Current wintry period' : 'Next wintry period'}</b>
       {#if event}
-        <span>{event.dominantPhase.icon} {event.dominantPhase.label} · {formatEventRange(event.startTime, event.endTime)}</span>
+        <span>{event.dominantPhase.icon} {event.dominantPhase.label} · {formatEventRange(event.startTime, event.endTime)}{#if event.newSnowCm > 0.05} · est. {formatSnow(event.newSnowCm, units)}{/if}</span>
         {#if !event.activeNow}<button type="button" title="Jump to event start" on:click={jumpToEvent}>Go to event →</button>{/if}
       {:else}
         <span>No wintry precipitation through +144 h.</span>
