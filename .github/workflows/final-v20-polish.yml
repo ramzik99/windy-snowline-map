@@ -3,7 +3,7 @@ name: Final v20 polish
 on:
   push:
     paths:
-      - 'scripts/final_v20_polish2.py'
+      - 'scripts/final_v20_polish3.py'
       - '.github/workflows/final-v20-polish.yml'
 
 permissions:
@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Apply final v20 polish
-        run: python scripts/final_v20_polish2.py
+        run: python scripts/final_v20_polish3.py
       - name: Install dependencies
         run: npm install
       - name: Build plugin
