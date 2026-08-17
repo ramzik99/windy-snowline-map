@@ -1,7 +1,7 @@
 {
   "name": "windy-plugin-snowline-map-100m",
   "version": "21.0.1",
-  "description": "Terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. v21 is the feature-complete terrain-aware winter forecast: next-event intelligence, confidence, event timeline, elevation impacts and snow by elevation, saved-place outlooks, Metric/Imperial units, model freshness, persistent preferences, hazard emphasis and detailed sounding inspection.",
+  "description": "Simple terrain-aware wintry forecast using ECMWF vertical profiles and Windy local terrain. Shows snowline, terrain, precipitation type and amount, the next wintry period, a forecast graph and a detailed sounding.",
   "main": "dist/plugin.min.js",
   "type": "module",
   "scripts": {
@@ -21,7 +21,6 @@
     "freezing rain",
     "ice pellets",
     "sleet",
-    "new snow",
     "forecast sounding"
   ],
   "license": "MIT",
