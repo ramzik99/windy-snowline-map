@@ -46,13 +46,9 @@ The forecast window contains:
 - Sounding zoom and pan controls
 - PNG export
 
+Forecast valid times are displayed using the device/browser local timezone and locale. ECMWF model-run cycle labels remain in UTC (`Z`).
+
 Estimated new snow is calculated from forecast precipitation, terrain-aware precipitation type and wet-bulb conditions. It is **not existing snow depth or snowpack**.
-
-### Time handling
-
-Forecast valid times are displayed using the **device/browser local time zone and locale**. Shared forecast text follows the same local-time convention.
-
-ECMWF model-run cycle labels remain in **UTC (`Z`)** because `00Z`, `06Z`, `12Z` and `18Z` identify the model cycle rather than the user's local valid time.
 
 ## Map interaction
 
@@ -177,7 +173,7 @@ Each published release must use a new version number.
 
 ## Current version
 
-**16.0.2**
+**16.0.3**
 
 ## Author
 
