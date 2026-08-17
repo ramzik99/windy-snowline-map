@@ -25,7 +25,7 @@ A selected point shows:
 - Position relative to the snowline
 - Precipitation rate
 - Terrain-aware precipitation type when precipitation is present
-- A deliberately simplified map label: current precipitation type, terrain relation, snowline and precipitation
+- A deliberately simplified map label: current precipitation type, **terrain elevation**, snowline, terrain/snowline relationship, precipitation and valid local time
 - A single next-event line for the first terrain-relevant wintry event through +144 h
 - Quick controls for the forecast graph, favourites, sharing and closing
 
