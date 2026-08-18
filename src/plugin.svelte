@@ -52,7 +52,9 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { map } from '@windy/map';
+  import { singleclick } from '@windy/singleclick';
   import store from '@windy/store';
+  import config from './pluginConfig';
   import { getElevation, getMeteogramForecastData } from '@windy/fetch';
   import PlaceSearch from './PlaceSearch.svelte';
   import V21Panel from './V21Panel.svelte';
@@ -166,6 +168,7 @@
 
   async function probeLocation(lat:number,lon:number,source:PointSource,placeName:string|null=null){if(!enabled||!Number.isFinite(lat)||!Number.isFinite(lon))return;const keep=chartOpen,my=++clickGeneration;clickedLatLon=[lat,lon];clickedPlaceName=placeName;pointSource=source;probeLoading=true;showClickLabel(lat,lon,'Snowline …','<div class="snowline-loading">Reading profile</div>');try{const[point,elev,fields]=await Promise.all([loadPoint(lat,lon,1),loadMapElevation(lat,lon),loadSelectedPrecipFields(lat,lon,FORECAST_DAYS)]);if(my!==clickGeneration||pointSource!==source||!enabled)return;if(!point||!point.times.length){showClickLabel(lat,lon,'No data');return}clickedPoint=Object.keys(fields).length?{...point,forecast:{...point.forecast,...fields}}:point;clickedMapElevationM=elev;if(keep)chartOpen=true;updatePersistentClickLabel()}finally{if(my===clickGeneration)probeLoading=false}}
   export function selectMapPoint(lat:number,lon:number){if(!enabled||!Number.isFinite(lat)||!Number.isFinite(lon))return;void probeLocation(lat,lon,'map-click')}
+  function handleWindySingleclick(event:any){if(!enabled)return;const lat=Number(event?.lat??event?.latlng?.lat),lon=Number(event?.lon??event?.lng??event?.latlng?.lng);if(!Number.isFinite(lat)||!Number.isFinite(lon))return;if(chartOpen)return;void probeLocation(lat,lon,'map-click')}
   function handlePlaceSelect(event:CustomEvent<PlaceSelection>){if(!enabled||!event?.detail)return;const{lat,lon,primary,secondary}=event.detail;if(!Number.isFinite(lat)||!Number.isFinite(lon))return;const name=[primary,secondary].map(v=>String(v??'').trim()).filter(Boolean).join(', ');pointSource='search';map.panTo([lat,lon],{animate:true});setTimeout(()=>{if(pointSource==='search')void probeLocation(lat,lon,'search',name||null)},120)}
   function handleV21Select(event:CustomEvent<PlaceSelection>){handlePlaceSelect(event)}
   function handleSearchClear(){if(pointSource==='search'&&!chartOpen)clearPointState(true)}
@@ -180,8 +183,8 @@
 
   function handleMapNavigation(){if(!enabled)return;if(moveTimer)clearTimeout(moveTimer);moveTimer=setTimeout(refreshViewport,350)}
   function toggleEnabled(){if(enabled){refreshViewport();if(clickedPoint)updatePersistentClickLabel();return}generation++;viewportLoading=false;refreshQueued=false;if(moveTimer){clearTimeout(moveTimer);moveTimer=null}clearContours();clearPointState(true)}
-  onMount(()=>{loadPreferences();map.on('moveend',handleMapNavigation);map.on('zoomend',handleMapNavigation);try{timestampListener=store.on('timestamp',()=>{if(enabled&&cache.length&&!viewportLoading)renderFromCache();if(enabled)updatePersistentClickLabel()})}catch{}refreshViewport()})
-  onDestroy(()=>{generation++;clickGeneration++;refreshQueued=false;if(moveTimer)clearTimeout(moveTimer);map.off('moveend',handleMapNavigation);map.off('zoomend',handleMapNavigation);if(timestampListener!==null)try{store.off(timestampListener)}catch{}clearContours();clearClickLayer();profileCache.clear()})
+  onMount(()=>{loadPreferences();singleclick.on(config.name,handleWindySingleclick);map.on('moveend',handleMapNavigation);map.on('zoomend',handleMapNavigation);try{timestampListener=store.on('timestamp',()=>{if(enabled&&cache.length&&!viewportLoading)renderFromCache();if(enabled)updatePersistentClickLabel()})}catch{}refreshViewport()})
+  onDestroy(()=>{generation++;clickGeneration++;refreshQueued=false;if(moveTimer)clearTimeout(moveTimer);singleclick.off(config.name,handleWindySingleclick);map.off('moveend',handleMapNavigation);map.off('zoomend',handleMapNavigation);if(timestampListener!==null)try{store.off(timestampListener)}catch{}clearContours();clearClickLayer();profileCache.clear()})
 </script>
 
 <style lang="less">
