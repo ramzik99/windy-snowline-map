@@ -115,7 +115,7 @@
         <span>No wintry precipitation through +144 h.</span>
       {/if}
     </div>
-    <div class="hint">Tap the forecast for values · Sounding shows optional vertical detail</div>
+    <div class="hint">Tap to select a time · Sounding opens that selected time</div>
   {:else}
     <div class="empty">Wintry forecast unavailable.</div>
   {/if}
@@ -280,6 +280,7 @@
     const rect = svgEl.getBoundingClientRect(), vx = (event.clientX - rect.left) / rect.width * 360;
     if (vx < 42 || vx > 348) { tooltip = null; return; }
     const t0 = point.times[0], t1 = point.times[point.times.length - 1], idx = nearestIndex(point.times, t0 + (vx - 42) / 306 * (t1 - t0)), time = point.times[idx], x = 42 + (time - t0) / Math.max(1, t1 - t0) * 306;
+    if (event.type === 'pointerdown') setTimeline(time);
     tooltip = { x, cssX: Math.max(92, Math.min(rect.width - 92, x / 360 * rect.width)), cssY: 44, snowline: (() => { const v = snowlineAt(point, idx); return v === null ? null : Math.round(v / 10) * 10; })(), precip: precipMmAt(point.forecast, idx), phase: phaseAt(point, terrainM, idx), newSnow: chart.cumulativeNewSnow[idx] ?? 0, timeLabel: formatTooltipTime(time) };
   }
 

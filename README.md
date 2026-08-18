@@ -2,6 +2,8 @@
 
 ## v100: convenience first
 
+**Feature-complete:** v100.1 focuses on five-second answers and depth on demand. Future releases are intended to be bug fixes and UI polish rather than new forecast metrics.
+
 The default interface is designed to answer five questions quickly: **what will fall, where is the snowline, how does terrain compare, how much precipitation/new snow is expected, and when?** Technical detail stays in the Forecast and Sounding tabs.
 
 A Windy.com external plugin for terrain-aware winter-weather guidance using **ECMWF vertical profiles** and **Windy local terrain**.
