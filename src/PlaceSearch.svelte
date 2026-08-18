@@ -327,7 +327,7 @@
   .place-search { position: relative; margin-top: 9px; }
   form { display: flex; flex-direction: column; gap: 5px; }
 
-  .search-line { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 5px; }
+  .search-line { display: grid; grid-template-columns: minmax(0, 1fr) 40px; gap: 5px; }
   input, button {
     box-sizing: border-box;
     border: 1px solid rgba(255,255,255,0.14);
@@ -344,14 +344,14 @@
 
   button { cursor: pointer; }
   button:disabled { opacity: 0.34; cursor: default; }
-  .search-button { height: 34px; padding: 0; font-size: 18px; line-height: 1; font-weight: 800; }
+  .search-button { height: 34px; padding: 0; background:rgba(255,255,255,.055); font-size: 10px; line-height: 1; font-weight: 900; letter-spacing:.15px; }.search-button:not(:disabled):hover,.search-button:not(:disabled):focus{border-color:rgba(80,190,255,.52);background:rgba(80,190,255,.12);outline:none}
 
   .utility-row { display: grid; grid-template-columns: 1.45fr 1fr 0.82fr; gap: 5px; }
   .utility-row button {
     display: flex; align-items: center; justify-content: center; gap: 5px;
     min-width: 0; height: 30px; padding: 0 7px;
-    color: rgba(255,255,255,0.76); font-size: 9px; line-height: 1; font-weight: 750;
-    background: rgba(255,255,255,0.055);
+    color: rgba(255,255,255,0.78); font-size: 9px; line-height: 1; font-weight: 800;
+    background: rgba(255,255,255,0.045);
   }
   .location-button { border-color: rgba(80,190,255,0.28); }
   .location-button:hover, .location-button:focus { background: rgba(80,190,255,0.14); border-color: rgba(80,190,255,0.58); outline: none; }

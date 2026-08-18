@@ -30,7 +30,7 @@
     const d = new Date(run);
     const cycle = `${String(d.getUTCHours()).padStart(2, '0')}Z`;
     const age = Math.max(0, (reference - run) / 3600_000);
-    return `ECMWF ${cycle} · ${age < 1 ? '<1' : Math.round(age)} h old`;
+    return `ECMWF ${cycle} · ${age < 1 ? '<1 h' : `${Math.round(age)} h`}`;
   }
 
   onMount(() => {

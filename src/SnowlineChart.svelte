@@ -6,7 +6,7 @@
       <em>{chart?.validLabel ?? 'ECMWF profile · Windy terrain'}</em>
     </div>
     <div class="chart-actions">
-      {#if tab === 'graph'}<button type="button" title="Back to now" aria-label="Back to now" on:click={resetToNow}>Now</button>{/if}
+      {#if tab === 'graph' && showNow}<button class="now-action" type="button" title="Back to now" aria-label="Back to now" on:click={resetToNow}>Now</button>{/if}
       <button class="drag-button" type="button" title="Drag graph" aria-label="Drag graph" on:pointerdown={startDrag}>↕</button>
       <button type="button" title="Close" aria-label="Close graph" on:click={() => dispatch('close')}>×</button>
     </div>
@@ -115,7 +115,7 @@
         <span>No wintry precipitation through +144 h.</span>
       {/if}
     </div>
-    <div class="hint">Tap to select a time · Sounding opens that selected time</div>
+    <div class="hint">Tap chart to select time · Sounding follows selection</div>
   {:else}
     <div class="empty">Wintry forecast unavailable.</div>
   {/if}
@@ -169,6 +169,7 @@
   $: crossing = terrainCrossingState(point, terrainM, timestamp);
   $: event = nextWintryEvent(point, terrainM, timestamp);
   $: chart = buildChart(point, terrainM, timestamp, crossing?.crossingTime ?? null, realNow);
+  $: showNow = Math.abs(timestamp - realNow) > 90 * 60_000;
 
   function nearestIndex(times: number[], target: number): number { let best = 0, dist = Infinity; times.forEach((t, i) => { const d = Math.abs(t - target); if (d < dist) { dist = d; best = i; } }); return best; }
   function snowlineAt(p: any, index: number): number | null { try { const v = wetBulbZeroHeight(buildProfile(p.forecast, index)).snowLevelM; return v !== null && Number.isFinite(v) ? v : null; } catch { return null; } }
