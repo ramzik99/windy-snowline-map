@@ -34,3 +34,4 @@ jobs:
           git add src/plugin.svelte package.json src/pluginConfig.ts
           git commit -m "Restrict native Windy picker after forecast close"
           git push
+# trigger
