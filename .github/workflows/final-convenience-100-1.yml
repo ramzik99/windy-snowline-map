@@ -1,0 +1,36 @@
+name: Final convenience v100.1
+
+on:
+  push:
+    paths:
+      - 'scripts/final_convenience_100_1.py'
+      - '.github/workflows/final-convenience-100-1.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Apply final convenience features
+        run: python scripts/final_convenience_100_1.py
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Build plugin
+        run: npm run build
+      - name: Verify version alignment
+        run: |
+          grep -q '"version": "100.1.0"' package.json
+          grep -q "version: '100.1.0'" src/pluginConfig.ts
+      - name: Commit final feature release
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/plugin.svelte src/SnowlineChart.svelte package.json src/pluginConfig.ts README.md
+          git commit -m "Freeze convenience-first feature set at v100.1.0"
+          git push
