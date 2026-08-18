@@ -34,3 +34,4 @@ jobs:
           git add src/plugin.svelte src/PlaceSearch.svelte src/SnowlineChart.svelte src/SoundingChart.svelte src/V21Panel.svelte package.json src/pluginConfig.ts README.md
           git commit -m "Release v200 convenience freeze"
           git push
+# trigger
