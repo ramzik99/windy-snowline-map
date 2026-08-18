@@ -1,0 +1,36 @@
+name: Finalize label geometry
+
+on:
+  push:
+    paths:
+      - 'scripts/finalize_label_geometry.py'
+      - '.github/workflows/finalize-label-geometry.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Apply final label geometry
+        run: python scripts/finalize_label_geometry.py
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        run: npm install
+      - name: Build plugin
+        run: npm run build
+      - name: Verify version alignment
+        run: |
+          grep -q '"version": "100.1.1"' package.json
+          grep -q "version: '100.1.1'" src/pluginConfig.ts
+      - name: Commit final label fix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/plugin.svelte package.json src/pluginConfig.ts
+          git commit -m "Finalize point label geometry for v100.1.1"
+          git push
