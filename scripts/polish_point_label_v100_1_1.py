@@ -1,5 +1,6 @@
 from pathlib import Path
 
+# Re-triggered after v100.1.0 final convenience release landed.
 p = Path('src/plugin.svelte')
 t = p.read_text(encoding='utf-8')
 
@@ -32,14 +33,11 @@ repls = {
 
 for old,new in repls.items():
     if old not in t:
-        # Event-line selector may already be upgraded by the final convenience patch.
         if 'snowline-event-line' in old:
             continue
         raise SystemExit('label style anchor not found: ' + old[:80])
     t=t.replace(old,new,1)
 
-# If the final convenience patch has already upgraded the event row to a button,
-# refine its shared base style without removing the interactive rules.
 old_button=':global(.snowline-event-line){width:100%;box-sizing:border-box;padding:6px 7px;border:0;border-radius:7px;background:rgba(110,203,255,.055);color:#dce9ef;text-align:left;font-family:inherit;font-size:8px;line-height:1.2;font-weight:800}'
 new_button=':global(.snowline-event-line){width:100%;box-sizing:border-box;padding:6px 7px;border:0;border-radius:8px;background:rgba(110,203,255,.045);color:#d8e5eb;text-align:left;font-family:inherit;font-size:7.8px;line-height:1.2;font-weight:800}'
 if old_button in t:
@@ -47,8 +45,6 @@ if old_button in t:
 
 p.write_text(t,encoding='utf-8')
 
-# Make this a publishable polish patch regardless of whether the immediately preceding
-# final-convenience workflow has already advanced to 100.1.0.
 p=Path('package.json')
 t=p.read_text(encoding='utf-8')
 for old in ['"version": "100.0.1"','"version": "100.1.0"']:
